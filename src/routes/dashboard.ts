@@ -148,103 +148,204 @@ function buildBarChart(items: { label: string; count: number }[], barColor: stri
   }).join('');
 }
 
-// In-memory cache (TTL: 3 minutes)
-let cache: { html: string; time: number } | null = null;
-const CACHE_TTL = 3 * 60 * 1000;
+// ---------------------------------------------------------------------------
+// Incremental aggregation cache
+//
+// The OpenCode DB is append-only: session/message/part rows are never updated
+// or deleted after creation. We exploit this by doing a full scan once, then
+// only querying rows with time_created > watermark on subsequent requests.
+//
+// If a future delete feature is added, call invalidateDashboardCache() after
+// the delete operation to force a full rebuild. As a safety net, we also
+// compare session counts — if the count drops, we auto-rebuild.
+// ---------------------------------------------------------------------------
 
-export function dashboardRoute(_req: Request, res: Response) {
-  if (cache && Date.now() - cache.time < CACHE_TTL) {
-    res.send(cache.html);
-    return;
+interface AggCache {
+  // Part aggregates
+  toolCounts: Map<string, number>;
+  toolErrors: number;
+  totalToolCalls: number;
+  lastPartRowid: number;
+
+  // Message aggregates
+  modelCounts: Map<string, number>;
+  agentCounts: Map<string, number>;
+  totalTokens: number;
+  lastMessageRowid: number;
+
+  // Session count (for delete detection)
+  sessionCount: number;
+
+  // Rendered HTML (rebuilt from aggregates)
+  html: string | null;
+  htmlTime: number;
+}
+
+let agg: AggCache | null = null;
+const DELTA_MIN_INTERVAL = 10_000; // min 10s between delta checks
+const HTML_REBUILD_INTERVAL = 30_000; // rebuild HTML every 30s (lightweight)
+
+/** Call this when rows are deleted from the DB to force full rebuild. */
+export function invalidateDashboardCache() {
+  agg = null;
+}
+
+function fullBuild(db: ReturnType<typeof getDb>): AggCache {
+  const partStats = db.prepare(`
+    SELECT json_extract(p.data, '$.tool') AS tool,
+           json_extract(p.data, '$.state.status') AS status,
+           COUNT(*) AS cnt
+    FROM part p
+    WHERE json_extract(p.data, '$.type') = 'tool'
+    GROUP BY tool, status
+  `).all() as { tool: string; status: string; cnt: number }[];
+
+  const toolCounts = new Map<string, number>();
+  let totalToolCalls = 0;
+  let toolErrors = 0;
+  for (const { tool, status, cnt } of partStats) {
+    totalToolCalls += cnt;
+    if (status === 'error') toolErrors += cnt;
+    toolCounts.set(tool, (toolCounts.get(tool) || 0) + cnt);
   }
 
+  const lastPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
+
+  const msgRows = db.prepare(`
+    SELECT json_extract(m.data, '$.modelID') AS model,
+           json_extract(m.data, '$.agent') AS agent,
+           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens
+    FROM message m
+    WHERE json_extract(m.data, '$.role') = 'assistant'
+  `).all() as { model: string | null; agent: string | null; tokens: number }[];
+
+  const modelCounts = new Map<string, number>();
+  const agentCounts = new Map<string, number>();
+  let totalTokens = 0;
+  for (const { model, agent, tokens } of msgRows) {
+    totalTokens += tokens;
+    if (model) modelCounts.set(model, (modelCounts.get(model) || 0) + 1);
+    if (agent) agentCounts.set(agent, (agentCounts.get(agent) || 0) + 1);
+  }
+
+  const lastMessageRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
+  const sessionCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
+
+  return { toolCounts, toolErrors, totalToolCalls, lastPartRowid, modelCounts, agentCounts, totalTokens, lastMessageRowid, sessionCount, html: null, htmlTime: 0 };
+}
+
+function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
+  // Safety net: detect deletes by comparing session count
+  const currentCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
+  if (currentCount < c.sessionCount) {
+    // Rows were deleted — full rebuild
+    const fresh = fullBuild(db);
+    Object.assign(c, fresh);
+    return;
+  }
+  c.sessionCount = currentCount;
+
+  // Delta parts (rowid-based: 0ms for empty delta, ~2ms for 100 new rows)
+  const currentPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
+  if (currentPartRowid > c.lastPartRowid) {
+    const newParts = db.prepare(`
+      SELECT json_extract(data, '$.tool') AS tool,
+             json_extract(data, '$.state.status') AS status,
+             COUNT(*) AS cnt
+      FROM part
+      WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
+      GROUP BY tool, status
+    `).all(c.lastPartRowid) as { tool: string; status: string; cnt: number }[];
+
+    for (const { tool, status, cnt } of newParts) {
+      c.totalToolCalls += cnt;
+      if (status === 'error') c.toolErrors += cnt;
+      c.toolCounts.set(tool, (c.toolCounts.get(tool) || 0) + cnt);
+    }
+    c.lastPartRowid = currentPartRowid;
+    c.html = null;
+  }
+
+  // Delta messages (rowid-based)
+  const currentMsgRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
+  if (currentMsgRowid > c.lastMessageRowid) {
+    const newMsgs = db.prepare(`
+      SELECT json_extract(data, '$.modelID') AS model,
+             json_extract(data, '$.agent') AS agent,
+             COALESCE(json_extract(data, '$.tokens.total'), 0) AS tokens
+      FROM message
+      WHERE rowid > ? AND json_extract(data, '$.role') = 'assistant'
+    `).all(c.lastMessageRowid) as { model: string | null; agent: string | null; tokens: number }[];
+
+    for (const { model, agent, tokens } of newMsgs) {
+      c.totalTokens += tokens;
+      if (model) c.modelCounts.set(model, (c.modelCounts.get(model) || 0) + 1);
+      if (agent) c.agentCounts.set(agent, (c.agentCounts.get(agent) || 0) + 1);
+    }
+    c.lastMessageRowid = currentMsgRowid;
+    c.html = null;
+  }
+}
+
+export function dashboardRoute(_req: Request, res: Response) {
   const db = getDb();
   try {
-    // Activity heatmap data
-    const heatmapRows = db.prepare(`
-      SELECT date(time_created/1000, 'unixepoch', 'localtime') as day, COUNT(*) as cnt
-      FROM session
-      WHERE parent_id IS NULL
-      GROUP BY day
-    `).all() as DayCount[];
+    const now = Date.now();
 
-    // Summary metrics
-    const totalSessions = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM session WHERE parent_id IS NULL
-    `).get() as { cnt: number }).cnt;
-
-    // Single-pass part scan: tool counts, error counts, tool ranking
-    const partStats = db.prepare(`
-      SELECT
-        json_extract(p.data, '$.tool') AS tool,
-        json_extract(p.data, '$.state.status') AS status,
-        COUNT(*) AS cnt
-      FROM part p
-      WHERE json_extract(p.data, '$.type') = 'tool'
-      GROUP BY tool, status
-    `).all() as { tool: string; status: string; cnt: number }[];
-
-    let totalToolCalls = 0;
-    let toolErrors = 0;
-    const toolCountMap = new Map<string, number>();
-    for (const { tool, status, cnt } of partStats) {
-      totalToolCalls += cnt;
-      if (status === 'error') toolErrors += cnt;
-      toolCountMap.set(tool, (toolCountMap.get(tool) || 0) + cnt);
+    // Initialize or delta-update the aggregate cache
+    if (!agg) {
+      agg = fullBuild(db);
+    } else if (now - agg.htmlTime > DELTA_MIN_INTERVAL) {
+      deltaUpdate(db, agg);
     }
-    const toolRows: ToolCount[] = Array.from(toolCountMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+
+    // Return cached HTML if still fresh
+    if (agg.html && now - agg.htmlTime < HTML_REBUILD_INTERVAL) {
+      res.send(agg.html);
+      return;
+    }
+
+    // --- Derive display values from aggregate cache ---
+    const toolRows: ToolCount[] = Array.from(agg.toolCounts.entries())
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([tool, cnt]) => ({ tool, cnt }));
-
-    const toolErrorRate = totalToolCalls > 0
-      ? ((toolErrors / totalToolCalls) * 100).toFixed(1) + '%'
-      : '0.0%';
-
-    // Single-pass message scan: tokens, model usage, agent distribution
-    const msgStats = db.prepare(`
-      SELECT
-        json_extract(m.data, '$.modelID') AS model,
-        json_extract(m.data, '$.agent') AS agent,
-        COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-    `).all() as { model: string | null; agent: string | null; tokens: number }[];
-
-    let totalTokens = 0;
-    const modelCountMap = new Map<string, number>();
-    const agentCountMap = new Map<string, number>();
-    for (const { model, agent, tokens } of msgStats) {
-      totalTokens += tokens;
-      if (model) modelCountMap.set(model, (modelCountMap.get(model) || 0) + 1);
-      if (agent) agentCountMap.set(agent, (agentCountMap.get(agent) || 0) + 1);
-    }
-    const modelRows: ModelCount[] = Array.from(modelCountMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+    const modelRows: ModelCount[] = Array.from(agg.modelCounts.entries())
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([model, cnt]) => ({ model, cnt }));
-    const agentRows: AgentCount[] = Array.from(agentCountMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+    const agentRows: AgentCount[] = Array.from(agg.agentCounts.entries())
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([agent, cnt]) => ({ agent, cnt }));
 
-    const activeProjects = (db.prepare(`
-      SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL
-    `).get() as { cnt: number }).cnt;
+    const totalToolCalls = agg.totalToolCalls;
+    const toolErrors = agg.toolErrors;
+    const totalTokens = agg.totalTokens;
+    const toolErrorRate = totalToolCalls > 0
+      ? ((toolErrors / totalToolCalls) * 100).toFixed(1) + '%' : '0.0%';
 
-    // Recent sessions
-    const recentSessions = db.prepare(`
-      SELECT s.id, s.title, s.time_created,
-             COALESCE((
-               SELECT SUM(json_extract(m.data, '$.tokens.total'))
-               FROM message m
-               WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'assistant'
-             ), 0) as total_tokens
-      FROM session s
-      WHERE s.parent_id IS NULL
-      ORDER BY s.time_created DESC
-      LIMIT 10
-    `).all() as RecentSession[];
+    // These are cheap queries — always run live
+    const heatmapRows = db.prepare(`
+      SELECT date(time_created/1000, 'unixepoch', 'localtime') as day, COUNT(*) as cnt
+      FROM session WHERE parent_id IS NULL GROUP BY day
+    `).all() as DayCount[];
+
+    const totalSessions = (db.prepare(`SELECT COUNT(*) as cnt FROM session WHERE parent_id IS NULL`).get() as { cnt: number }).cnt;
+    const activeProjects = (db.prepare(`SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL`).get() as { cnt: number }).cnt;
+
+    const recentSessionsBase = db.prepare(`
+      SELECT id, title, time_created FROM session WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT 10
+    `).all() as { id: string; title: string; time_created: number }[];
+
+    // Batch token lookup for recent sessions (avoids correlated subquery)
+    const recentIds = recentSessionsBase.map(s => s.id);
+    const recentTokenRows = recentIds.length > 0 ? db.prepare(`
+      SELECT m.session_id, COALESCE(SUM(json_extract(m.data, '$.tokens.total')), 0) AS total_tokens
+      FROM message m WHERE m.session_id IN (${recentIds.map(() => '?').join(',')})
+        AND json_extract(m.data, '$.role') = 'assistant' GROUP BY m.session_id
+    `).all(...recentIds) as { session_id: string; total_tokens: number }[] : [];
+    const recentTokenMap = new Map(recentTokenRows.map(r => [r.session_id, r.total_tokens]));
+    const recentSessions: RecentSession[] = recentSessionsBase.map(s => ({
+      ...s, total_tokens: recentTokenMap.get(s.id) || 0,
+    }));
 
     // Build SVG heatmap
     const heatmapSvg = buildHeatmapSvg(heatmapRows);
@@ -370,7 +471,8 @@ export function dashboardRoute(_req: Request, res: Response) {
 </body>
 </html>
     `;
-    cache = { html, time: Date.now() };
+    agg.html = html;
+    agg.htmlTime = Date.now();
     res.send(html);
   } finally {
     db.close();
