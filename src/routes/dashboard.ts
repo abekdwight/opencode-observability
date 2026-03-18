@@ -148,7 +148,16 @@ function buildBarChart(items: { label: string; count: number }[], barColor: stri
   }).join('');
 }
 
+// In-memory cache (TTL: 3 minutes)
+let cache: { html: string; time: number } | null = null;
+const CACHE_TTL = 3 * 60 * 1000;
+
 export function dashboardRoute(_req: Request, res: Response) {
+  if (cache && Date.now() - cache.time < CACHE_TTL) {
+    res.send(cache.html);
+    return;
+  }
+
   const db = getDb();
   try {
     // Activity heatmap data
@@ -164,61 +173,64 @@ export function dashboardRoute(_req: Request, res: Response) {
       SELECT COUNT(*) as cnt FROM session WHERE parent_id IS NULL
     `).get() as { cnt: number }).cnt;
 
-    const totalTokens = (db.prepare(`
-      SELECT COALESCE(SUM(json_extract(m.data, '$.tokens.total')), 0) as total
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-    `).get() as { total: number }).total;
-
-    const totalToolCalls = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM part p WHERE json_extract(p.data, '$.type') = 'tool'
-    `).get() as { cnt: number }).cnt;
-
-    const toolErrors = (db.prepare(`
-      SELECT COUNT(*) as cnt FROM part p
+    // Single-pass part scan: tool counts, error counts, tool ranking
+    const partStats = db.prepare(`
+      SELECT
+        json_extract(p.data, '$.tool') AS tool,
+        json_extract(p.data, '$.state.status') AS status,
+        COUNT(*) AS cnt
+      FROM part p
       WHERE json_extract(p.data, '$.type') = 'tool'
-        AND json_extract(p.data, '$.state.status') = 'error'
-    `).get() as { cnt: number }).cnt;
+      GROUP BY tool, status
+    `).all() as { tool: string; status: string; cnt: number }[];
+
+    let totalToolCalls = 0;
+    let toolErrors = 0;
+    const toolCountMap = new Map<string, number>();
+    for (const { tool, status, cnt } of partStats) {
+      totalToolCalls += cnt;
+      if (status === 'error') toolErrors += cnt;
+      toolCountMap.set(tool, (toolCountMap.get(tool) || 0) + cnt);
+    }
+    const toolRows: ToolCount[] = Array.from(toolCountMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tool, cnt]) => ({ tool, cnt }));
 
     const toolErrorRate = totalToolCalls > 0
       ? ((toolErrors / totalToolCalls) * 100).toFixed(1) + '%'
       : '0.0%';
 
+    // Single-pass message scan: tokens, model usage, agent distribution
+    const msgStats = db.prepare(`
+      SELECT
+        json_extract(m.data, '$.modelID') AS model,
+        json_extract(m.data, '$.agent') AS agent,
+        COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens
+      FROM message m
+      WHERE json_extract(m.data, '$.role') = 'assistant'
+    `).all() as { model: string | null; agent: string | null; tokens: number }[];
+
+    let totalTokens = 0;
+    const modelCountMap = new Map<string, number>();
+    const agentCountMap = new Map<string, number>();
+    for (const { model, agent, tokens } of msgStats) {
+      totalTokens += tokens;
+      if (model) modelCountMap.set(model, (modelCountMap.get(model) || 0) + 1);
+      if (agent) agentCountMap.set(agent, (agentCountMap.get(agent) || 0) + 1);
+    }
+    const modelRows: ModelCount[] = Array.from(modelCountMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([model, cnt]) => ({ model, cnt }));
+    const agentRows: AgentCount[] = Array.from(agentCountMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([agent, cnt]) => ({ agent, cnt }));
+
     const activeProjects = (db.prepare(`
       SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL
     `).get() as { cnt: number }).cnt;
-
-    // Model usage
-    const modelRows = db.prepare(`
-      SELECT json_extract(m.data, '$.modelID') as model, COUNT(*) as cnt
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.modelID') IS NOT NULL
-      GROUP BY model
-      ORDER BY cnt DESC
-      LIMIT 10
-    `).all() as ModelCount[];
-
-    // Top tools
-    const toolRows = db.prepare(`
-      SELECT json_extract(p.data, '$.tool') as tool, COUNT(*) as cnt
-      FROM part p
-      WHERE json_extract(p.data, '$.type') = 'tool'
-      GROUP BY tool
-      ORDER BY cnt DESC
-      LIMIT 10
-    `).all() as ToolCount[];
-
-    // Agent distribution
-    const agentRows = db.prepare(`
-      SELECT json_extract(m.data, '$.agent') as agent, COUNT(*) as cnt
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.agent') IS NOT NULL
-      GROUP BY agent
-      ORDER BY cnt DESC
-      LIMIT 10
-    `).all() as AgentCount[];
 
     // Recent sessions
     const recentSessions = db.prepare(`
@@ -268,7 +280,7 @@ export function dashboardRoute(_req: Request, res: Response) {
       </div>`;
     }).join('');
 
-    res.send(`
+    const html = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -357,7 +369,9 @@ export function dashboardRoute(_req: Request, res: Response) {
   </div>
 </body>
 </html>
-    `);
+    `;
+    cache = { html, time: Date.now() };
+    res.send(html);
   } finally {
     db.close();
   }

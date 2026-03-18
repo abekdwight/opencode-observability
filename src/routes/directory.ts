@@ -19,7 +19,7 @@ export function directoryRoute(req: Request, res: Response) {
     `).all(decodedDir) as { id: string; title: string; time_created: number; time_updated: number; summary_additions: number; summary_deletions: number; summary_files: number }[];
 
     if (sessions.length === 0) {
-      res.send(buildPage(decodedDir, [], new Map(), new Map(), new Map(), new Map()));
+      res.send(buildPage(decodedDir, [], new Map(), new Map(), new Map()));
       return;
     }
 
@@ -44,22 +44,6 @@ export function directoryRoute(req: Request, res: Response) {
     `).all(...ids) as { session_id: string; total_tokens: number }[];
     const tokenMap = new Map(tokenRows.map(r => [r.session_id, r.total_tokens]));
 
-    // Models used
-    const modelRows = db.prepare(`
-      SELECT m.session_id, json_extract(m.data, '$.modelID') AS model_id
-      FROM message m
-      WHERE m.session_id IN (${placeholders})
-        AND json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.modelID') IS NOT NULL
-      GROUP BY m.session_id, json_extract(m.data, '$.modelID')
-    `).all(...ids) as { session_id: string; model_id: string }[];
-    const modelMap = new Map<string, string[]>();
-    for (const r of modelRows) {
-      const arr = modelMap.get(r.session_id) || [];
-      arr.push(r.model_id);
-      modelMap.set(r.session_id, arr);
-    }
-
     // Subagent counts
     const subCounts = db.prepare(`
       SELECT parent_id, COUNT(*) as cnt
@@ -69,7 +53,7 @@ export function directoryRoute(req: Request, res: Response) {
     `).all(...ids) as { parent_id: string; cnt: number }[];
     const subCountMap = new Map(subCounts.map(r => [r.parent_id, r.cnt]));
 
-    res.send(buildPage(decodedDir, sessions, msgCountMap, tokenMap, modelMap, subCountMap));
+    res.send(buildPage(decodedDir, sessions, msgCountMap, tokenMap, subCountMap));
   } finally {
     db.close();
   }
@@ -86,7 +70,6 @@ function buildPage(
   sessions: { id: string; title: string; time_created: number; time_updated: number; summary_additions: number; summary_deletions: number; summary_files: number }[],
   msgCountMap: Map<string, number>,
   tokenMap: Map<string, number>,
-  modelMap: Map<string, string[]>,
   subCountMap: Map<string, number>,
 ) {
   return `
@@ -116,7 +99,6 @@ function buildPage(
     .session-title { font-weight: 600; font-size: 1.05em; color: #1d1d1f; margin-bottom: 8px; }
     .session-meta { color: #86868b; font-size: 0.82em; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .meta-pill { background: #f0f0f0; padding: 2px 8px; border-radius: 6px; }
-    .meta-pill.model { background: #e8e0f0; color: #6b3fa0; }
     .meta-pill.tokens { background: #fff3e0; color: #e65100; }
     .meta-pill.files { background: #e8f5e9; color: #2e7d32; }
     .meta-pill.sub { background: #e3f2fd; color: #1565c0; }
@@ -144,7 +126,6 @@ function buildPage(
       const dateStr = new Date(Number(s.time_created)).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const msgCount = msgCountMap.get(s.id) || 0;
       const tokens = tokenMap.get(s.id) || 0;
-      const models = modelMap.get(s.id) || [];
       const subCount = subCountMap.get(s.id) || 0;
       const durationMs = s.time_updated - s.time_created;
       const durationMin = Math.floor(durationMs / 60000);
@@ -160,7 +141,6 @@ function buildPage(
             <span class="meta-pill">${durationStr}</span>
             <span class="meta-pill">${msgCount} msgs</span>
             <span class="meta-pill tokens">${formatTokens(tokens)} tokens</span>
-            ${models.map(m => `<span class="meta-pill model">${m}</span>`).join('')}
             ${subCount > 0 ? `<span class="meta-pill sub">${subCount} subagents</span>` : ''}
             ${fileStr ? `<span class="meta-pill files">${fileStr}</span>` : ''}
           </div>
