@@ -39,7 +39,7 @@ export const PAGE_SHELL_END = `
 export const NAV_SEARCH = `
 <div style="margin-bottom: 16px;">
   <a href="/" style="margin-right: 16px;">Home</a>
-  <a href="/dashboard" style="margin-right: 16px;">Dashboard</a>
+  <a href="/directories" style="margin-right: 16px;">Directories</a>
   <form action="/search" method="get" style="display: inline-block;">
     <input type="text" name="q" placeholder="Search sessions..." style="padding: 6px 12px; border-radius: 8px; border: 1px solid #d2d2d7; font-size: 0.9em; width: 240px;" />
   </form>

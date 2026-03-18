@@ -10,8 +10,8 @@ const PORT = Number(process.env.PORT) || 3737;
 
 app.use(express.json());
 
-app.get('/', homeRoute);
-app.get('/dashboard', dashboardRoute);
+app.get('/', dashboardRoute);
+app.get('/directories', homeRoute);
 app.get('/search', searchRoute);
 app.get('/dir/:directory(.*)', directoryRoute);
 app.get('/session/:sessionId', sessionRoute);

@@ -332,7 +332,6 @@ export function sessionRoute(req: Request, res: Response) {
 <body>
   <div class="breadcrumb">
     <a href="/">Home</a><span class="sep">/</span>
-    <a href="/dashboard">Dashboard</a><span class="sep">/</span>
     <a href="/dir/${encodeURIComponent(sessionInfo.directory)}">${sessionInfo.directory}</a><span class="sep">/</span>
     <span>Session</span>
   </div>

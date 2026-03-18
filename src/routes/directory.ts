@@ -107,7 +107,6 @@ function buildPage(
 <body>
   <div class="breadcrumb">
     <a href="/">Home</a><span class="sep">/</span>
-    <a href="/dashboard">Dashboard</a><span class="sep">/</span>
     <span>${dir}</span>
   </div>
   ${NAV_SEARCH}

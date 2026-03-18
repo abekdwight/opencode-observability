@@ -25,6 +25,7 @@ interface AgentCount {
 interface RecentSession {
   id: string;
   title: string;
+  directory: string;
   time_created: number;
   total_tokens: number;
 }
@@ -391,8 +392,8 @@ export function dashboardRoute(_req: Request, res: Response) {
     const activeProjects = (db.prepare(`SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL`).get() as { cnt: number }).cnt;
 
     const recentSessionsBase = db.prepare(`
-      SELECT id, title, time_created FROM session WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT 10
-    `).all() as { id: string; title: string; time_created: number }[];
+      SELECT id, title, directory, time_created FROM session WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT 5
+    `).all() as { id: string; title: string; directory: string; time_created: number }[];
 
     // Batch token lookup for recent sessions (avoids correlated subquery)
     const recentIds = recentSessionsBase.map(s => s.id);
@@ -455,19 +456,20 @@ export function dashboardRoute(_req: Request, res: Response) {
 
     // Recent sessions list
     const recentSessionsHtml = recentSessions.map(s => {
-      const dateStr = new Date(Number(s.time_created)).toLocaleString('en-US', {
-        year: 'numeric', month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit',
+      const dateStr = new Date(Number(s.time_created)).toLocaleString('ja-JP', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
       const tokens = s.total_tokens > 0 ? formatTokens(s.total_tokens) : '—';
+      const dir = s.directory || '';
       return `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f0f0f0;">
-        <div style="overflow:hidden;margin-right:12px;">
-          <a href="/session/${s.id}" style="font-size:0.9em;font-weight:500;color:#0066cc;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.title || '(no title)'}</a>
-          <span style="font-size:0.75em;color:#86868b;">${dateStr}</span>
+      <a href="/session/${s.id}" class="recent-item">
+        <div class="recent-title">${s.title || '(no title)'}</div>
+        <div class="recent-meta">
+          <span>${dateStr}</span>
+          <span class="recent-pill">${tokens} tokens</span>
+          <span class="recent-dir">${dir}</span>
         </div>
-        <span style="font-size:0.8em;color:#86868b;white-space:nowrap;flex-shrink:0;">${tokens}</span>
-      </div>`;
+      </a>`;
     }).join('');
 
     const html = `
@@ -493,6 +495,15 @@ export function dashboardRoute(_req: Request, res: Response) {
     .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     @media (max-width: 600px) { .charts-grid { grid-template-columns: 1fr; } }
     .heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
+    /* Recent sessions */
+    .recent-item { display: block; padding: 14px 0; border-bottom: 1px solid #f0f0f0; transition: background 0.1s; text-decoration: none; }
+    .recent-item:last-child { border-bottom: none; }
+    .recent-item:hover { background: #f8f8fa; }
+    .recent-title { font-size: 0.95em; font-weight: 600; color: #1d1d1f; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .recent-meta { font-size: 0.78em; color: #86868b; display: flex; gap: 10px; align-items: center; }
+    .recent-pill { background: #fff3e0; color: #e65100; padding: 1px 8px; border-radius: 6px; }
+    .recent-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.92em; }
+    .more-link { display: block; text-align: center; padding: 12px; font-size: 0.88em; font-weight: 500; color: #0066cc; border-top: 1px solid #f0f0f0; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -528,6 +539,12 @@ export function dashboardRoute(_req: Request, res: Response) {
   </div>
 
   <div class="card">
+    <h2>Recent Sessions</h2>
+    ${recentSessionsHtml || '<p style="color:#86868b;font-size:0.9em;">No sessions found</p>'}
+    <a href="/directories" class="more-link">All directories &rarr;</a>
+  </div>
+
+  <div class="card">
     <h2>Activity (last 365 days)</h2>
     <div class="heatmap-scroll">
       ${heatmapSvg}
@@ -552,13 +569,6 @@ export function dashboardRoute(_req: Request, res: Response) {
       <h2>Agent Distribution</h2>
       ${agentBarChart}
     </div>
-    <div class="card">
-      <h2>Recent Sessions</h2>
-      ${recentSessionsHtml || '<p style="color:#86868b;font-size:0.9em;">No sessions found</p>'}
-    </div>
-  </div>
-
-  <div class="charts-grid">
     <div class="card">
       <h2>Tool Reliability</h2>
       <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
