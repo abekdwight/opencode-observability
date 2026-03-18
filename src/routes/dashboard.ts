@@ -166,27 +166,25 @@ interface ToolSuccessError {
   error: number;
 }
 
+// Day-keyed bucket: "tool\tstatus\tday" → count (for time-range filtering)
+// and "model\tday" → count, "agent\tday" → count, "errorPattern\tday" → count
 interface AggCache {
-  // Part aggregates
-  toolCounts: Map<string, number>;
-  toolErrors: number;
-  totalToolCalls: number;
-  toolSuccessErrorMap: Map<string, ToolSuccessError>; // tool → {success, error}
-  errorPatterns: Map<string, number>; // classified error pattern → count
+  // Part aggregates (daily buckets)
+  toolDayBuckets: Map<string, number>;  // "tool\tstatus\tday" → count
+  errorPatternDays: Map<string, number>; // "pattern\tday" → count
   lastPartRowid: number;
 
-  // Message aggregates
-  modelCounts: Map<string, number>;
-  agentCounts: Map<string, number>;
-  totalTokens: number;
+  // Message aggregates (daily buckets)
+  modelDays: Map<string, number>;  // "model\tday" → count
+  agentDays: Map<string, number>;  // "agent\tday" → count
+  tokenDays: Map<string, number>;  // "day" → total tokens
   lastMessageRowid: number;
 
   // Session count (for delete detection)
   sessionCount: number;
 
-  // Rendered HTML (rebuilt from aggregates)
-  html: string | null;
-  htmlTime: number;
+  // Rendered HTML per range (rebuilt from aggregates)
+  htmlCache: Map<string, { html: string; time: number }>;
 }
 
 // Classify free-text error strings into buckets
@@ -213,172 +211,209 @@ export function invalidateDashboardCache() {
 }
 
 function fullBuild(db: ReturnType<typeof getDb>): AggCache {
-  // Tool × status matrix (no extra cost: same GROUP BY)
+  // Part scan with day dimension
   const partStats = db.prepare(`
     SELECT json_extract(p.data, '$.tool') AS tool,
            json_extract(p.data, '$.state.status') AS status,
+           date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
            COUNT(*) AS cnt
     FROM part p
     WHERE json_extract(p.data, '$.type') = 'tool'
-    GROUP BY tool, status
-  `).all() as { tool: string; status: string; cnt: number }[];
+    GROUP BY tool, status, day
+  `).all() as { tool: string; status: string; day: string; cnt: number }[];
 
-  const toolCounts = new Map<string, number>();
-  const toolSuccessErrorMap = new Map<string, ToolSuccessError>();
-  let totalToolCalls = 0;
-  let toolErrors = 0;
-  for (const { tool, status, cnt } of partStats) {
-    totalToolCalls += cnt;
-    if (status === 'error') toolErrors += cnt;
-    toolCounts.set(tool, (toolCounts.get(tool) || 0) + cnt);
-    const entry = toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
-    if (status === 'error') entry.error += cnt;
-    else if (status === 'completed') entry.success += cnt;
-    toolSuccessErrorMap.set(tool, entry);
+  const toolDayBuckets = new Map<string, number>();
+  for (const { tool, status, day, cnt } of partStats) {
+    const key = `${tool}\t${status}\t${day}`;
+    toolDayBuckets.set(key, (toolDayBuckets.get(key) || 0) + cnt);
   }
 
-  // Error pattern classification (separate scan, only error rows)
+  // Error patterns with day
   const errorRows = db.prepare(`
-    SELECT json_extract(p.data, '$.state.error') AS error
+    SELECT json_extract(p.data, '$.state.error') AS error,
+           date(p.time_created/1000, 'unixepoch', 'localtime') AS day
     FROM part p
     WHERE json_extract(p.data, '$.type') = 'tool'
       AND json_extract(p.data, '$.state.status') = 'error'
-  `).all() as { error: string }[];
+  `).all() as { error: string; day: string }[];
 
-  const errorPatterns = new Map<string, number>();
-  for (const { error } of errorRows) {
+  const errorPatternDays = new Map<string, number>();
+  for (const { error, day } of errorRows) {
     const pattern = classifyError(error);
-    errorPatterns.set(pattern, (errorPatterns.get(pattern) || 0) + 1);
+    const key = `${pattern}\t${day}`;
+    errorPatternDays.set(key, (errorPatternDays.get(key) || 0) + 1);
   }
 
   const lastPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
 
+  // Message scan with day dimension
   const msgRows = db.prepare(`
     SELECT json_extract(m.data, '$.modelID') AS model,
            json_extract(m.data, '$.agent') AS agent,
-           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens
+           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens,
+           date(m.time_created/1000, 'unixepoch', 'localtime') AS day
     FROM message m
     WHERE json_extract(m.data, '$.role') = 'assistant'
-  `).all() as { model: string | null; agent: string | null; tokens: number }[];
+  `).all() as { model: string | null; agent: string | null; tokens: number; day: string }[];
 
-  const modelCounts = new Map<string, number>();
-  const agentCounts = new Map<string, number>();
-  let totalTokens = 0;
-  for (const { model, agent, tokens } of msgRows) {
-    totalTokens += tokens;
-    if (model) modelCounts.set(model, (modelCounts.get(model) || 0) + 1);
-    if (agent) agentCounts.set(agent, (agentCounts.get(agent) || 0) + 1);
+  const modelDays = new Map<string, number>();
+  const agentDays = new Map<string, number>();
+  const tokenDays = new Map<string, number>();
+  for (const { model, agent, tokens, day } of msgRows) {
+    tokenDays.set(day, (tokenDays.get(day) || 0) + tokens);
+    if (model) { const k = `${model}\t${day}`; modelDays.set(k, (modelDays.get(k) || 0) + 1); }
+    if (agent) { const k = `${agent}\t${day}`; agentDays.set(k, (agentDays.get(k) || 0) + 1); }
   }
 
   const lastMessageRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
   const sessionCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
 
-  return { toolCounts, toolErrors, totalToolCalls, toolSuccessErrorMap, errorPatterns, lastPartRowid, modelCounts, agentCounts, totalTokens, lastMessageRowid, sessionCount, html: null, htmlTime: 0 };
+  return { toolDayBuckets, errorPatternDays, lastPartRowid, modelDays, agentDays, tokenDays, lastMessageRowid, sessionCount, htmlCache: new Map() };
 }
 
 function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
-  // Safety net: detect deletes by comparing session count
   const currentCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
   if (currentCount < c.sessionCount) {
-    // Rows were deleted — full rebuild
-    const fresh = fullBuild(db);
-    Object.assign(c, fresh);
+    Object.assign(c, fullBuild(db));
     return;
   }
   c.sessionCount = currentCount;
 
-  // Delta parts (rowid-based: 0ms for empty delta, ~2ms for 100 new rows)
   const currentPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
   const prevPartRowid = c.lastPartRowid;
   if (currentPartRowid > prevPartRowid) {
     const newParts = db.prepare(`
-      SELECT json_extract(data, '$.tool') AS tool,
-             json_extract(data, '$.state.status') AS status,
-             COUNT(*) AS cnt
-      FROM part
-      WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
-      GROUP BY tool, status
-    `).all(prevPartRowid) as { tool: string; status: string; cnt: number }[];
-
-    for (const { tool, status, cnt } of newParts) {
-      c.totalToolCalls += cnt;
-      if (status === 'error') c.toolErrors += cnt;
-      c.toolCounts.set(tool, (c.toolCounts.get(tool) || 0) + cnt);
-      const entry = c.toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
-      if (status === 'error') entry.error += cnt;
-      else if (status === 'completed') entry.success += cnt;
-      c.toolSuccessErrorMap.set(tool, entry);
+      SELECT json_extract(data, '$.tool') AS tool, json_extract(data, '$.state.status') AS status,
+             date(time_created/1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
+      FROM part WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
+      GROUP BY tool, status, day
+    `).all(prevPartRowid) as { tool: string; status: string; day: string; cnt: number }[];
+    for (const { tool, status, day, cnt } of newParts) {
+      const key = `${tool}\t${status}\t${day}`;
+      c.toolDayBuckets.set(key, (c.toolDayBuckets.get(key) || 0) + cnt);
     }
 
-    // Delta error patterns
     const newErrors = db.prepare(`
-      SELECT json_extract(data, '$.state.error') AS error
-      FROM part
-      WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
-        AND json_extract(data, '$.state.status') = 'error'
-    `).all(prevPartRowid) as { error: string }[];
-    for (const { error } of newErrors) {
-      const pattern = classifyError(error);
-      c.errorPatterns.set(pattern, (c.errorPatterns.get(pattern) || 0) + 1);
+      SELECT json_extract(data, '$.state.error') AS error, date(time_created/1000, 'unixepoch', 'localtime') AS day
+      FROM part WHERE rowid > ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'error'
+    `).all(prevPartRowid) as { error: string; day: string }[];
+    for (const { error, day } of newErrors) {
+      const key = `${classifyError(error)}\t${day}`;
+      c.errorPatternDays.set(key, (c.errorPatternDays.get(key) || 0) + 1);
     }
-
     c.lastPartRowid = currentPartRowid;
-    c.html = null;
+    c.htmlCache.clear();
   }
 
-  // Delta messages (rowid-based)
   const currentMsgRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
   if (currentMsgRowid > c.lastMessageRowid) {
     const newMsgs = db.prepare(`
-      SELECT json_extract(data, '$.modelID') AS model,
-             json_extract(data, '$.agent') AS agent,
-             COALESCE(json_extract(data, '$.tokens.total'), 0) AS tokens
-      FROM message
-      WHERE rowid > ? AND json_extract(data, '$.role') = 'assistant'
-    `).all(c.lastMessageRowid) as { model: string | null; agent: string | null; tokens: number }[];
-
-    for (const { model, agent, tokens } of newMsgs) {
-      c.totalTokens += tokens;
-      if (model) c.modelCounts.set(model, (c.modelCounts.get(model) || 0) + 1);
-      if (agent) c.agentCounts.set(agent, (c.agentCounts.get(agent) || 0) + 1);
+      SELECT json_extract(data, '$.modelID') AS model, json_extract(data, '$.agent') AS agent,
+             COALESCE(json_extract(data, '$.tokens.total'), 0) AS tokens,
+             date(time_created/1000, 'unixepoch', 'localtime') AS day
+      FROM message WHERE rowid > ? AND json_extract(data, '$.role') = 'assistant'
+    `).all(c.lastMessageRowid) as { model: string | null; agent: string | null; tokens: number; day: string }[];
+    for (const { model, agent, tokens, day } of newMsgs) {
+      c.tokenDays.set(day, (c.tokenDays.get(day) || 0) + tokens);
+      if (model) { const k = `${model}\t${day}`; c.modelDays.set(k, (c.modelDays.get(k) || 0) + 1); }
+      if (agent) { const k = `${agent}\t${day}`; c.agentDays.set(k, (c.agentDays.get(k) || 0) + 1); }
     }
     c.lastMessageRowid = currentMsgRowid;
-    c.html = null;
+    c.htmlCache.clear();
   }
 }
 
-export function dashboardRoute(_req: Request, res: Response) {
+// Filter day-keyed maps by date threshold and aggregate
+function filterMap(map: Map<string, number>, minDay: string | null): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, cnt] of map) {
+    const tab = key.lastIndexOf('\t');
+    const day = key.substring(tab + 1);
+    if (minDay && day < minDay) continue;
+    const label = key.substring(0, tab);
+    out.set(label, (out.get(label) || 0) + cnt);
+  }
+  return out;
+}
+
+function getMinDay(range: string): string | null {
+  if (range === 'all') return null;
+  const d = new Date();
+  if (range === 'day') d.setDate(d.getDate() - 1);
+  else if (range === 'week') d.setDate(d.getDate() - 7);
+  else if (range === 'month') d.setMonth(d.getMonth() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const VALID_RANGES = ['all', 'month', 'week', 'day'] as const;
+
+export function dashboardRoute(req: Request, res: Response) {
   const db = getDb();
   try {
     const now = Date.now();
+    const range = VALID_RANGES.includes(req.query.range as any) ? (req.query.range as string) : 'all';
 
-    // Initialize or delta-update the aggregate cache
     if (!agg) {
       agg = fullBuild(db);
-    } else if (now - agg.htmlTime > DELTA_MIN_INTERVAL) {
-      deltaUpdate(db, agg);
+    } else {
+      const lastCheck = Math.max(...Array.from(agg.htmlCache.values()).map(v => v.time), 0);
+      if (now - lastCheck > DELTA_MIN_INTERVAL) deltaUpdate(db, agg);
     }
 
-    // Return cached HTML if still fresh
-    if (agg.html && now - agg.htmlTime < HTML_REBUILD_INTERVAL) {
-      res.send(agg.html);
+    const cached = agg.htmlCache.get(range);
+    if (cached && now - cached.time < HTML_REBUILD_INTERVAL) {
+      res.send(cached.html);
       return;
     }
 
-    // --- Derive display values from aggregate cache ---
-    const toolRows: ToolCount[] = Array.from(agg.toolCounts.entries())
+    const minDay = getMinDay(range);
+
+    // Derive display values filtered by range
+    // Tool counts: aggregate tool\tstatus\tday → tool totals
+    const filteredToolStatusDay = new Map<string, number>();
+    for (const [key, cnt] of agg.toolDayBuckets) {
+      const parts = key.split('\t'); // tool, status, day
+      if (minDay && parts[2] < minDay) continue;
+      const tsKey = `${parts[0]}\t${parts[1]}`;
+      filteredToolStatusDay.set(tsKey, (filteredToolStatusDay.get(tsKey) || 0) + cnt);
+    }
+
+    const toolCounts = new Map<string, number>();
+    const toolSuccessErrorMap = new Map<string, ToolSuccessError>();
+    let totalToolCalls = 0;
+    let toolErrors = 0;
+    for (const [tsKey, cnt] of filteredToolStatusDay) {
+      const [tool, status] = tsKey.split('\t');
+      totalToolCalls += cnt;
+      if (status === 'error') toolErrors += cnt;
+      toolCounts.set(tool, (toolCounts.get(tool) || 0) + cnt);
+      const entry = toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
+      if (status === 'error') entry.error += cnt;
+      else if (status === 'completed') entry.success += cnt;
+      toolSuccessErrorMap.set(tool, entry);
+    }
+
+    const toolRows: ToolCount[] = Array.from(toolCounts.entries())
       .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([tool, cnt]) => ({ tool, cnt }));
-    const modelRows: ModelCount[] = Array.from(agg.modelCounts.entries())
+
+    const errorPatterns = filterMap(agg.errorPatternDays, minDay);
+    const modelCounts = filterMap(agg.modelDays, minDay);
+    const agentCounts = filterMap(agg.agentDays, minDay);
+
+    let totalTokens = 0;
+    for (const [day, t] of agg.tokenDays) {
+      if (minDay && day < minDay) continue;
+      totalTokens += t;
+    }
+
+    const modelRows: ModelCount[] = Array.from(modelCounts.entries())
       .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([model, cnt]) => ({ model, cnt }));
-    const agentRows: AgentCount[] = Array.from(agg.agentCounts.entries())
+    const agentRows: AgentCount[] = Array.from(agentCounts.entries())
       .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([agent, cnt]) => ({ agent, cnt }));
 
-    const totalToolCalls = agg.totalToolCalls;
-    const toolErrors = agg.toolErrors;
-    const totalTokens = agg.totalTokens;
     const toolErrorRate = totalToolCalls > 0
       ? ((toolErrors / totalToolCalls) * 100).toFixed(1) + '%' : '0.0%';
 
@@ -425,7 +460,7 @@ export function dashboardRoute(_req: Request, res: Response) {
     );
 
     // Tool success/error matrix
-    const toolMatrixRows = Array.from(agg.toolSuccessErrorMap.entries())
+    const toolMatrixRows = Array.from(toolSuccessErrorMap.entries())
       .map(([tool, { success, error }]) => ({ tool, success, error, total: success + error, rate: success + error > 0 ? ((error / (success + error)) * 100) : 0 }))
       .sort((a, b) => b.error - a.error)
       .slice(0, 12);
@@ -448,7 +483,7 @@ export function dashboardRoute(_req: Request, res: Response) {
 
     // Error pattern chart
     const errorPatternChart = buildBarChart(
-      Array.from(agg.errorPatterns.entries())
+      Array.from(errorPatterns.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([label, count]) => ({ label, count })),
       '#d32f2f'
@@ -504,6 +539,10 @@ export function dashboardRoute(_req: Request, res: Response) {
     .recent-pill { background: #fff3e0; color: #e65100; padding: 1px 8px; border-radius: 6px; }
     .recent-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.92em; }
     .more-link { display: block; text-align: center; padding: 12px; font-size: 0.88em; font-weight: 500; color: #0066cc; border-top: 1px solid #f0f0f0; margin-top: 4px; }
+    .range-bar { display: flex; gap: 6px; margin-bottom: 16px; }
+    .range-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid #d2d2d7; background: white; font-size: 0.82em; font-weight: 500; cursor: pointer; color: #1d1d1f; text-decoration: none; transition: all 0.15s; }
+    .range-btn:hover { border-color: #0066cc; color: #0066cc; text-decoration: none; }
+    .range-btn.active { background: #0066cc; color: white; border-color: #0066cc; }
   </style>
 </head>
 <body>
@@ -536,6 +575,10 @@ export function dashboardRoute(_req: Request, res: Response) {
       <div class="metric-value">${activeProjects.toLocaleString()}</div>
       <div class="metric-sub">distinct project IDs</div>
     </div>
+  </div>
+
+  <div class="range-bar">
+    ${VALID_RANGES.map(r => `<a href="/?range=${r}" class="range-btn${r === range ? ' active' : ''}">${r === 'all' ? 'All' : r === 'month' ? '1 Month' : r === 'week' ? '1 Week' : '1 Day'}</a>`).join('')}
   </div>
 
   <div class="card">
@@ -588,8 +631,7 @@ export function dashboardRoute(_req: Request, res: Response) {
 </body>
 </html>
     `;
-    agg.html = html;
-    agg.htmlTime = Date.now();
+    agg.htmlCache.set(range, { html, time: Date.now() });
     res.send(html);
   } finally {
     db.close();
