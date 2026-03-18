@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import { escapeHtml, NAV_SEARCH } from '../lib/html.js';
+import { escapeHtml, NAV_SEARCH, prettifyPath } from '../lib/html.js';
 
 interface SessionRow {
   id: string;
@@ -114,7 +114,7 @@ export function searchRoute(req: Request, res: Response) {
       return `
 <a class="result-card" href="/session/${encodeURIComponent(r.id)}">
   <div class="result-title">${highlightedTitle}</div>
-  <div class="result-dir">${escapeHtml(r.directory)}</div>
+  <div class="result-dir">${escapeHtml(prettifyPath(r.directory))}</div>
   ${snippetHtml}
   <div class="result-date">${date}</div>
 </a>`;

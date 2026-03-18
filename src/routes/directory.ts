@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import { NAV_SEARCH } from '../lib/html.js';
+import { NAV_SEARCH, prettifyPath } from '../lib/html.js';
 
 export function directoryRoute(req: Request, res: Response) {
   const db = getDb();
@@ -72,13 +72,14 @@ function buildPage(
   tokenMap: Map<string, number>,
   subCountMap: Map<string, number>,
 ) {
+  const prettyDir = prettifyPath(dir);
   return `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${dir} - Sessions</title>
+  <title>${prettyDir} - Sessions</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
@@ -107,7 +108,7 @@ function buildPage(
 <body>
   <div class="breadcrumb">
     <a href="/">Home</a><span class="sep">/</span>
-    <span>${dir}</span>
+    <span>${prettyDir}</span>
   </div>
   ${NAV_SEARCH}
   <h1>Sessions</h1>

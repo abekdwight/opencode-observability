@@ -1,3 +1,12 @@
+import { homedir } from 'node:os';
+
+const HOME_PREFIX = homedir();
+
+/** Replace the home directory prefix with `~` for display. */
+export function prettifyPath(dir: string): string {
+  return dir.startsWith(HOME_PREFIX) ? '~' + dir.slice(HOME_PREFIX.length) : dir;
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

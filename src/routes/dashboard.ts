@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import { formatTokens, NAV_SEARCH } from '../lib/html.js';
+import { formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
 
 interface DayCount {
   day: string;
@@ -505,7 +505,7 @@ export function dashboardRoute(req: Request, res: Response) {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
       const tokens = s.total_tokens > 0 ? formatTokens(s.total_tokens) : '—';
-      const dir = s.directory || '';
+      const dir = prettifyPath(s.directory || '');
       return `
       <a href="/session/${s.id}" class="recent-item">
         <div class="recent-title">${s.title || '(no title)'}</div>

@@ -1,37 +1,98 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import { NAV_SEARCH } from '../lib/html.js';
+import { escapeHtml, NAV_SEARCH, prettifyPath } from '../lib/html.js';
+
+interface RepoGroup {
+  /** Display name derived from the last path segment of worktree */
+  name: string;
+  /** Raw worktree path for tooltip */
+  rawWorktree: string;
+  /** Prettified worktree path */
+  prettyWorktree: string;
+  /** project.icon_color if available */
+  iconColor: string | null;
+  /** Map of directory → { count, rawDir } */
+  dirs: Map<string, { count: number; rawDir: string }>;
+  /** Sum of all directory session counts */
+  totalCount: number;
+  /** Latest session timestamp across all dirs */
+  latestTime: number;
+}
 
 export function homeRoute(_req: Request, res: Response) {
   const db = getDb();
   try {
-    const sessionGroups = db.prepare(`
-      SELECT directory, COUNT(*) as session_count, MAX(time_created) as latest_time
-      FROM session
-      WHERE parent_id IS NULL
-      GROUP BY directory
+    const rows = db.prepare(`
+      SELECT
+        p.worktree   AS repo_root,
+        p.name        AS project_name,
+        p.icon_color  AS icon_color,
+        s.directory   AS directory,
+        COUNT(*)      AS session_count,
+        MAX(s.time_created) AS latest_time
+      FROM session s
+      JOIN project p ON s.project_id = p.id
+      WHERE s.parent_id IS NULL
+      GROUP BY p.worktree, s.directory
       ORDER BY latest_time DESC
-    `).all() as { directory: string; session_count: number; latest_time: string | number }[];
+    `).all() as {
+      repo_root: string;
+      project_name: string | null;
+      icon_color: string | null;
+      directory: string;
+      session_count: number;
+      latest_time: number;
+    }[];
 
-    const dirTree: Map<string, { dirs: Map<string, number>, totalCount: number }> = new Map();
+    // Build repo → directories tree
+    const repoMap = new Map<string, RepoGroup>();
 
-    for (const { directory, session_count } of sessionGroups) {
-      const parts = directory.split('/');
-      if (parts.length < 2) continue;
+    for (const row of rows) {
+      const key = row.repo_root;
 
-      const root = parts[0];
-      const subdir = parts.slice(1).join('/');
+      if (!repoMap.has(key)) {
+        const isGlobal = key === '/';
+        const prettyWorktree = prettifyPath(key);
+        // Derive display name: use project.name if available, otherwise last path segment
+        let name: string;
+        if (isGlobal) {
+          name = 'Other';
+        } else if (row.project_name) {
+          name = row.project_name;
+        } else {
+          // Last meaningful segment of the path
+          const segments = key.replace(/[\\/]+$/, '').split(/[\\/]/);
+          name = segments[segments.length - 1] || key;
+        }
 
-      if (!dirTree.has(root)) {
-        dirTree.set(root, { dirs: new Map(), totalCount: 0 });
+        repoMap.set(key, {
+          name,
+          rawWorktree: key,
+          prettyWorktree,
+          iconColor: row.icon_color,
+          dirs: new Map(),
+          totalCount: 0,
+          latestTime: 0,
+        });
       }
-      const rootEntry = dirTree.get(root)!;
-      rootEntry.dirs.set(subdir, session_count);
-      rootEntry.totalCount += session_count;
+
+      const group = repoMap.get(key)!;
+      const prettyDir = prettifyPath(row.directory);
+      group.dirs.set(prettyDir, { count: row.session_count, rawDir: row.directory });
+      group.totalCount += row.session_count;
+      const ts = typeof row.latest_time === 'number' ? row.latest_time : Number(row.latest_time);
+      if (ts > group.latestTime) {
+        group.latestTime = ts;
+      }
     }
 
-    const sortedRoots = Array.from(dirTree.entries())
-      .sort(([, a], [, b]) => b.totalCount - a.totalCount);
+    // Sort repos: most recently active first, but push "Other" (global) to the end
+    const sortedRepos = Array.from(repoMap.values()).sort((a, b) => {
+      const aIsGlobal = a.rawWorktree === '/';
+      const bIsGlobal = b.rawWorktree === '/';
+      if (aIsGlobal !== bIsGlobal) return aIsGlobal ? 1 : -1;
+      return b.latestTime - a.latestTime;
+    });
 
     res.send(`
 <!DOCTYPE html>
@@ -39,46 +100,62 @@ export function homeRoute(_req: Request, res: Response) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenCode Telemetry</title>
+  <title>Directories - OpenCode Telemetry</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
     h1 { font-size: 1.6em; font-weight: 700; margin-bottom: 8px; padding-bottom: 12px; border-bottom: 2px solid #1d1d1f; }
     a { color: #0066cc; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .root-section { margin: 20px 0; background: white; border-radius: 12px; border: 1px solid #d2d2d7; overflow: hidden; }
-    .root-title { font-size: 1.05em; font-weight: 700; color: #1d1d1f; padding: 14px 20px; background: #f5f5f7; border-bottom: 1px solid #d2d2d7; display: flex; align-items: center; gap: 8px; }
-    .root-count { font-size: 0.8em; font-weight: 500; color: #86868b; background: #e5e5e5; padding: 2px 10px; border-radius: 10px; }
+    .repo-section { margin: 20px 0; background: white; border-radius: 12px; border: 1px solid #d2d2d7; overflow: hidden; }
+    .repo-header { font-size: 1.05em; font-weight: 700; color: #1d1d1f; padding: 14px 20px; background: #f5f5f7; border-bottom: 1px solid #d2d2d7; display: flex; align-items: center; gap: 8px; cursor: default; }
+    .repo-icon { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .repo-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .repo-path { font-size: 0.75em; font-weight: 400; color: #86868b; font-family: 'SF Mono', 'Fira Code', monospace; margin-left: 4px; }
+    .repo-count { font-size: 0.8em; font-weight: 500; color: #86868b; background: #e5e5e5; padding: 2px 10px; border-radius: 10px; flex-shrink: 0; }
     ul { list-style: none; padding: 0; margin: 0; }
     li { border-bottom: 1px solid #f0f0f0; }
     li:last-child { border-bottom: none; }
     li a { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; transition: background 0.15s; }
     li a:hover { background: #f5f5f7; text-decoration: none; }
-    .dir-name { font-weight: 500; color: #1d1d1f; }
-    .session-count { color: #86868b; font-size: 0.85em; }
+    .dir-name { font-weight: 500; color: #1d1d1f; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9em; }
+    .session-count { color: #86868b; font-size: 0.85em; flex-shrink: 0; }
   </style>
 </head>
 <body>
-  <h1>OpenCode Telemetry</h1>
+  <h1>Directories</h1>
   ${NAV_SEARCH}
-  ${sortedRoots.map(([root, { dirs, totalCount }]) => `
-    <div class="root-section">
-      <div class="root-title">
-        <span>${root}</span>
-        <span class="root-count">${totalCount}</span>
+  ${sortedRepos.map((repo) => {
+    const sortedDirs = Array.from(repo.dirs.entries())
+      .sort(([, a], [, b]) => b.count - a.count);
+
+    const iconHtml = repo.iconColor
+      ? `<span class="repo-icon" style="background:${escapeHtml(repo.iconColor)}"></span>`
+      : '';
+
+    // Show path only if it differs from the name (i.e., not the global "Other" case)
+    const pathHtml = repo.rawWorktree !== '/'
+      ? `<span class="repo-path">${escapeHtml(repo.prettyWorktree)}</span>`
+      : '';
+
+    return `
+    <div class="repo-section">
+      <div class="repo-header" title="${escapeHtml(repo.rawWorktree)}">
+        ${iconHtml}
+        <span class="repo-name">${escapeHtml(repo.name)}${pathHtml}</span>
+        <span class="repo-count">${repo.totalCount}</span>
       </div>
       <ul>
-        ${Array.from(dirs.entries())
-        .sort(([, a], [, b]) => b - a)
-        .map(([subdir, count]) => `
-          <li><a href="/dir/${encodeURIComponent(root + '/' + subdir)}">
-            <span class="dir-name">${subdir}</span>
+        ${sortedDirs.map(([prettyDir, { count, rawDir }]) => `
+          <li><a href="/dir/${encodeURIComponent(rawDir)}">
+            <span class="dir-name">${escapeHtml(prettyDir)}</span>
             <span class="session-count">${count} sessions</span>
           </a></li>
         `).join('')}
       </ul>
     </div>
-  `).join('')}
+  `;
+  }).join('')}
 </body>
 </html>
     `);

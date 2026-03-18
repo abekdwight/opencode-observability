@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { marked } from 'marked';
 import { getDb } from '../lib/db.js';
-import { escapeHtml, formatTokens } from '../lib/html.js';
+import { escapeHtml, formatTokens, prettifyPath } from '../lib/html.js';
 
 interface ChatMessage {
   id: string;
@@ -332,7 +332,7 @@ export function sessionRoute(req: Request, res: Response) {
 <body>
   <div class="breadcrumb">
     <a href="/">Home</a><span class="sep">/</span>
-    <a href="/dir/${encodeURIComponent(sessionInfo.directory)}">${sessionInfo.directory}</a><span class="sep">/</span>
+    <a href="/dir/${encodeURIComponent(sessionInfo.directory)}">${prettifyPath(sessionInfo.directory)}</a><span class="sep">/</span>
     <span>Session</span>
   </div>
 
@@ -344,7 +344,7 @@ export function sessionRoute(req: Request, res: Response) {
     <div class="header-tags">
       ${modelStr ? `<span class="header-tag tag-model">${modelStr}</span>` : ''}
       ${agentStr ? `<span class="header-tag tag-agent">${agentStr}</span>` : ''}
-      <span class="header-tag tag-dir">${sessionInfo.directory}</span>
+      <span class="header-tag tag-dir">${prettifyPath(sessionInfo.directory)}</span>
       ${parentInfo ? `<a href="/session/${parentInfo.id}" class="header-tag tag-parent">← 親: ${parentInfo.title}</a>` : ''}
     </div>
     <div class="metrics-grid">
