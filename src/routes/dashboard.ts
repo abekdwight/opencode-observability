@@ -336,13 +336,22 @@ function filterMap(map: Map<string, number>, minDay: string | null): Map<string,
   return out;
 }
 
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getMinDay(range: string): string | null {
   if (range === 'all') return null;
   const d = new Date();
-  if (range === 'day') d.setDate(d.getDate() - 1);
-  else if (range === 'week') d.setDate(d.getDate() - 7);
-  else if (range === 'month') d.setMonth(d.getMonth() - 1);
-  return d.toISOString().slice(0, 10);
+  // 'day' = today only, 'week' = last 7 days, 'month' = last 30 days
+  if (range === 'week') d.setDate(d.getDate() - 6);
+  else if (range === 'month') d.setDate(d.getDate() - 29);
+  // 'day' → no offset, d is already today
+  // Use local time to match DB's date(..., 'localtime')
+  return toLocalDateStr(d);
 }
 
 const VALID_RANGES = ['all', 'month', 'week', 'day'] as const;
