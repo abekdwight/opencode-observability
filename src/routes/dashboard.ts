@@ -160,11 +160,18 @@ function buildBarChart(items: { label: string; count: number }[], barColor: stri
 // compare session counts — if the count drops, we auto-rebuild.
 // ---------------------------------------------------------------------------
 
+interface ToolSuccessError {
+  success: number;
+  error: number;
+}
+
 interface AggCache {
   // Part aggregates
   toolCounts: Map<string, number>;
   toolErrors: number;
   totalToolCalls: number;
+  toolSuccessErrorMap: Map<string, ToolSuccessError>; // tool → {success, error}
+  errorPatterns: Map<string, number>; // classified error pattern → count
   lastPartRowid: number;
 
   // Message aggregates
@@ -181,6 +188,20 @@ interface AggCache {
   htmlTime: number;
 }
 
+// Classify free-text error strings into buckets
+function classifyError(error: string): string {
+  if (!error) return 'Unknown';
+  if (/ENOENT|File not found|no such file|EISDIR/i.test(error)) return 'File not found';
+  if (/Tool execution aborted/i.test(error)) return 'Aborted';
+  if (/timed? ?out|deadline exceeded/i.test(error)) return 'Timeout';
+  if (/fetch failed|status [45]\d\d|ECONNREFUSED|ENOTFOUND|network/i.test(error)) return 'Network/HTTP error';
+  if (/patch|hunk|conflict/i.test(error)) return 'Patch failed';
+  if (/permission denied|EACCES/i.test(error)) return 'Permission denied';
+  if (/not found|not available|no such/i.test(error)) return 'Not found';
+  if (/syntax|parse|unexpected token/i.test(error)) return 'Parse error';
+  return 'Other';
+}
+
 let agg: AggCache | null = null;
 const DELTA_MIN_INTERVAL = 10_000; // min 10s between delta checks
 const HTML_REBUILD_INTERVAL = 30_000; // rebuild HTML every 30s (lightweight)
@@ -191,6 +212,7 @@ export function invalidateDashboardCache() {
 }
 
 function fullBuild(db: ReturnType<typeof getDb>): AggCache {
+  // Tool × status matrix (no extra cost: same GROUP BY)
   const partStats = db.prepare(`
     SELECT json_extract(p.data, '$.tool') AS tool,
            json_extract(p.data, '$.state.status') AS status,
@@ -201,12 +223,31 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
   `).all() as { tool: string; status: string; cnt: number }[];
 
   const toolCounts = new Map<string, number>();
+  const toolSuccessErrorMap = new Map<string, ToolSuccessError>();
   let totalToolCalls = 0;
   let toolErrors = 0;
   for (const { tool, status, cnt } of partStats) {
     totalToolCalls += cnt;
     if (status === 'error') toolErrors += cnt;
     toolCounts.set(tool, (toolCounts.get(tool) || 0) + cnt);
+    const entry = toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
+    if (status === 'error') entry.error += cnt;
+    else if (status === 'completed') entry.success += cnt;
+    toolSuccessErrorMap.set(tool, entry);
+  }
+
+  // Error pattern classification (separate scan, only error rows)
+  const errorRows = db.prepare(`
+    SELECT json_extract(p.data, '$.state.error') AS error
+    FROM part p
+    WHERE json_extract(p.data, '$.type') = 'tool'
+      AND json_extract(p.data, '$.state.status') = 'error'
+  `).all() as { error: string }[];
+
+  const errorPatterns = new Map<string, number>();
+  for (const { error } of errorRows) {
+    const pattern = classifyError(error);
+    errorPatterns.set(pattern, (errorPatterns.get(pattern) || 0) + 1);
   }
 
   const lastPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
@@ -231,7 +272,7 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
   const lastMessageRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
   const sessionCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
 
-  return { toolCounts, toolErrors, totalToolCalls, lastPartRowid, modelCounts, agentCounts, totalTokens, lastMessageRowid, sessionCount, html: null, htmlTime: 0 };
+  return { toolCounts, toolErrors, totalToolCalls, toolSuccessErrorMap, errorPatterns, lastPartRowid, modelCounts, agentCounts, totalTokens, lastMessageRowid, sessionCount, html: null, htmlTime: 0 };
 }
 
 function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
@@ -247,7 +288,8 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
 
   // Delta parts (rowid-based: 0ms for empty delta, ~2ms for 100 new rows)
   const currentPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
-  if (currentPartRowid > c.lastPartRowid) {
+  const prevPartRowid = c.lastPartRowid;
+  if (currentPartRowid > prevPartRowid) {
     const newParts = db.prepare(`
       SELECT json_extract(data, '$.tool') AS tool,
              json_extract(data, '$.state.status') AS status,
@@ -255,13 +297,30 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
       FROM part
       WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
       GROUP BY tool, status
-    `).all(c.lastPartRowid) as { tool: string; status: string; cnt: number }[];
+    `).all(prevPartRowid) as { tool: string; status: string; cnt: number }[];
 
     for (const { tool, status, cnt } of newParts) {
       c.totalToolCalls += cnt;
       if (status === 'error') c.toolErrors += cnt;
       c.toolCounts.set(tool, (c.toolCounts.get(tool) || 0) + cnt);
+      const entry = c.toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
+      if (status === 'error') entry.error += cnt;
+      else if (status === 'completed') entry.success += cnt;
+      c.toolSuccessErrorMap.set(tool, entry);
     }
+
+    // Delta error patterns
+    const newErrors = db.prepare(`
+      SELECT json_extract(data, '$.state.error') AS error
+      FROM part
+      WHERE rowid > ? AND json_extract(data, '$.type') = 'tool'
+        AND json_extract(data, '$.state.status') = 'error'
+    `).all(prevPartRowid) as { error: string }[];
+    for (const { error } of newErrors) {
+      const pattern = classifyError(error);
+      c.errorPatterns.set(pattern, (c.errorPatterns.get(pattern) || 0) + 1);
+    }
+
     c.lastPartRowid = currentPartRowid;
     c.html = null;
   }
@@ -362,6 +421,36 @@ export function dashboardRoute(_req: Request, res: Response) {
     const agentBarChart = buildBarChart(
       agentRows.map(r => ({ label: r.agent ?? '(unknown)', count: r.cnt })),
       '#0066cc'
+    );
+
+    // Tool success/error matrix
+    const toolMatrixRows = Array.from(agg.toolSuccessErrorMap.entries())
+      .map(([tool, { success, error }]) => ({ tool, success, error, total: success + error, rate: success + error > 0 ? ((error / (success + error)) * 100) : 0 }))
+      .sort((a, b) => b.error - a.error)
+      .slice(0, 12);
+
+    const toolMatrixHtml = toolMatrixRows.length > 0 ? toolMatrixRows.map(r => {
+      const pct = r.rate.toFixed(1);
+      const barW = Math.max(1, r.rate);
+      const color = r.rate > 20 ? '#d32f2f' : r.rate > 5 ? '#f57c00' : '#4caf50';
+      return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:0.82em;">
+        <span style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.tool}</span>
+        <span style="width:55px;text-align:right;color:#4caf50;">${r.success.toLocaleString()}</span>
+        <span style="width:45px;text-align:right;color:#d32f2f;">${r.error.toLocaleString()}</span>
+        <div style="flex:1;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${barW}%;background:${color};border-radius:3px;"></div>
+        </div>
+        <span style="width:45px;text-align:right;color:${color};font-weight:600;">${pct}%</span>
+      </div>`;
+    }).join('') : '<p style="color:#86868b;font-size:0.9em;">No data</p>';
+
+    // Error pattern chart
+    const errorPatternChart = buildBarChart(
+      Array.from(agg.errorPatterns.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => ({ label, count })),
+      '#d32f2f'
     );
 
     // Recent sessions list
@@ -466,6 +555,24 @@ export function dashboardRoute(_req: Request, res: Response) {
     <div class="card">
       <h2>Recent Sessions</h2>
       ${recentSessionsHtml || '<p style="color:#86868b;font-size:0.9em;">No sessions found</p>'}
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="card">
+      <h2>Tool Reliability</h2>
+      <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+        <span style="width:140px;">Tool</span>
+        <span style="width:55px;text-align:right;">OK</span>
+        <span style="width:45px;text-align:right;">Error</span>
+        <span style="flex:1;">Error Rate</span>
+        <span style="width:45px;"></span>
+      </div>
+      ${toolMatrixHtml}
+    </div>
+    <div class="card">
+      <h2>Error Patterns</h2>
+      ${errorPatternChart}
     </div>
   </div>
 </body>
