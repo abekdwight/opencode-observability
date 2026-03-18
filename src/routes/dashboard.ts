@@ -423,8 +423,9 @@ export function dashboardRoute(req: Request, res: Response) {
       FROM session WHERE parent_id IS NULL GROUP BY day
     `).all() as DayCount[];
 
-    const totalSessions = (db.prepare(`SELECT COUNT(*) as cnt FROM session WHERE parent_id IS NULL`).get() as { cnt: number }).cnt;
-    const activeProjects = (db.prepare(`SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL`).get() as { cnt: number }).cnt;
+    const sessionWhereRange = minDay ? ` AND date(time_created/1000, 'unixepoch', 'localtime') >= '${minDay}'` : '';
+    const totalSessions = (db.prepare(`SELECT COUNT(*) as cnt FROM session WHERE parent_id IS NULL${sessionWhereRange}`).get() as { cnt: number }).cnt;
+    const activeProjects = (db.prepare(`SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL${sessionWhereRange}`).get() as { cnt: number }).cnt;
 
     const recentSessionsBase = db.prepare(`
       SELECT id, title, directory, time_created FROM session WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT 5
