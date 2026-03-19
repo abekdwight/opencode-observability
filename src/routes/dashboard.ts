@@ -1179,6 +1179,26 @@ export function dashboardRoute(req: Request, res: Response) {
     </div>
   </div>
 
+  <div class="card">
+    <h2>Error Daily Trend</h2>
+    <div style="overflow-x:auto;padding-bottom:4px;">${errorTrendSvg}</div>
+  </div>
+
+  <div class="card">
+    <h2>Token I/O Trend</h2>
+    ${tokenTrendHtml}
+  </div>
+
+  <div class="card">
+    <h2>Subagent Activity</h2>
+    ${subagentTrendHtml}
+  </div>
+
+  <div class="card">
+    <h2>Active Repositories</h2>
+    ${repoBreakdownHtml}
+  </div>
+
   <div class="charts-grid">
     <div class="card">
       <h2>Model Usage</h2>
@@ -1207,26 +1227,6 @@ export function dashboardRoute(req: Request, res: Response) {
       <h2>Error Patterns</h2>
       ${errorPatternChart}
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Token I/O Trend</h2>
-    ${tokenTrendHtml}
-  </div>
-
-  <div class="card">
-    <h2>Subagent Activity</h2>
-    ${subagentTrendHtml}
-  </div>
-
-  <div class="card">
-    <h2>Active Repositories</h2>
-    ${repoBreakdownHtml}
-  </div>
-
-  <div class="card">
-    <h2>Error Daily Trend</h2>
-    <div style="overflow-x:auto;padding-bottom:4px;">${errorTrendSvg}</div>
   </div>
 
   <div class="card">
