@@ -4,6 +4,7 @@ import { directoryRoute } from './routes/directory.js';
 import { sessionRoute } from './routes/session.js';
 import { dashboardRoute } from './routes/dashboard.js';
 import { searchRoute } from './routes/search.js';
+import { toolErrorsRoute } from './routes/tool-errors.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3737;
@@ -15,6 +16,7 @@ app.get('/directories', homeRoute);
 app.get('/search', searchRoute);
 app.get('/dir/:directory(.*)', directoryRoute);
 app.get('/session/:sessionId', sessionRoute);
+app.get('/tool-errors/:tool', toolErrorsRoute);
 
 app.listen(PORT, () => {
   console.log(`OpenCode Telemetry running at http://localhost:${PORT}`);
