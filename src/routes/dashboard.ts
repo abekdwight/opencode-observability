@@ -1,7 +1,36 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import { formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
-import { classifyTool } from '../lib/analytics.js';
+import * as htmlUtils from '../lib/html.js';
+import { escapeHtml, formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
+import { buildLineChartSvg, buildStackedBarChartSvg, classifyTool, computeRatio, fillMissingDays } from '../lib/analytics.js';
+
+const htmlDurationUtils = htmlUtils as typeof htmlUtils & {
+  calcActiveDurations?: (timestamps: number[]) => number;
+  formatDurationShort?: (ms: number) => string;
+};
+
+const calcActiveDurations = htmlDurationUtils.calcActiveDurations ?? ((timestamps: number[]): number => {
+  if (timestamps.length === 0) return 0;
+  let total = 0;
+  let prev = timestamps[0];
+  for (let i = 1; i < timestamps.length; i += 1) {
+    const cur = timestamps[i];
+    const gap = cur - prev;
+    if (gap > 0 && gap <= 30 * 60 * 1000) total += gap;
+    prev = cur;
+  }
+  return total;
+});
+
+const formatDurationShort = htmlDurationUtils.formatDurationShort ?? ((ms: number): string => {
+  if (ms <= 0) return '0m';
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h${minutes}m`;
+});
 
 interface DayCount {
   day: string;
@@ -556,6 +585,7 @@ export function dashboardRoute(req: Request, res: Response) {
   try {
     const now = Date.now();
     const range = VALID_RANGES.includes(req.query.range as any) ? (req.query.range as string) : 'all';
+    const view = req.query.view === 'hourly' ? 'hourly' : 'daily';
 
     if (!agg) {
       agg = fullBuild(db);
@@ -564,7 +594,8 @@ export function dashboardRoute(req: Request, res: Response) {
       if (now - lastCheck > DELTA_MIN_INTERVAL) deltaUpdate(db, agg);
     }
 
-    const cached = agg.htmlCache.get(range);
+    const cacheKey = `${range}:${view}`;
+    const cached = agg.htmlCache.get(cacheKey);
     if (cached && now - cached.time < HTML_REBUILD_INTERVAL) {
       res.send(cached.html);
       return;
@@ -668,7 +699,7 @@ export function dashboardRoute(req: Request, res: Response) {
     const toolMatrixRows = Array.from(toolSuccessErrorMap.entries())
       .map(([tool, { success, error }]) => ({ tool, success, error, total: success + error, rate: success + error > 0 ? ((error / (success + error)) * 100) : 0 }))
       .sort((a, b) => b.error - a.error)
-      .slice(0, 12);
+      .slice(0, 15);
 
     const toolMatrixHtml = toolMatrixRows.length > 0 ? toolMatrixRows.map(r => {
       const pct = r.rate.toFixed(1);
@@ -676,7 +707,7 @@ export function dashboardRoute(req: Request, res: Response) {
       const color = r.rate > 20 ? '#d32f2f' : r.rate > 5 ? '#f57c00' : '#4caf50';
       return `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:0.82em;">
-        <span style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.tool}</span>
+        <a href="/tool-errors/${encodeURIComponent(r.tool ?? '')}" style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;color:inherit;text-decoration:none;">${escapeHtml(r.tool ?? '')}</a>
         <span style="width:55px;text-align:right;color:#4caf50;">${r.success.toLocaleString()}</span>
         <span style="width:45px;text-align:right;color:#d32f2f;">${r.error.toLocaleString()}</span>
         <div style="flex:1;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">
@@ -685,6 +716,350 @@ export function dashboardRoute(req: Request, res: Response) {
         <span style="width:45px;text-align:right;color:${color};font-weight:600;">${pct}%</span>
       </div>`;
     }).join('') : '<p style="color:#86868b;font-size:0.9em;">No data</p>';
+
+    // MCP server aggregation
+    const mcpServerMap = new Map<string, { calls: number; errors: number }>();
+    for (const [key, cnt] of agg.mcpServerBuckets) {
+      const parts = key.split('\t'); // mcpServer, status, day
+      if (minDay && parts[2] < minDay) continue;
+      const server = parts[0];
+      const status = parts[1];
+      const entry = mcpServerMap.get(server) || { calls: 0, errors: 0 };
+      entry.calls += cnt;
+      if (status === 'error') entry.errors += cnt;
+      mcpServerMap.set(server, entry);
+    }
+
+    // Separate builtin from external MCP servers
+    const builtinEntry = mcpServerMap.get('builtin') || { calls: 0, errors: 0 };
+    mcpServerMap.delete('builtin');
+
+    // Top10 external MCP servers + Other bucket
+    const sortedMcpServers = Array.from(mcpServerMap.entries())
+      .sort((a, b) => b[1].calls - a[1].calls);
+    const mcpServerRows = sortedMcpServers.slice(0, 10);
+    const otherMcpServers = sortedMcpServers.slice(10).reduce(
+      (acc, [, entry]) => ({
+        calls: acc.calls + entry.calls,
+        errors: acc.errors + entry.errors,
+      }),
+      { calls: 0, errors: 0 },
+    );
+    if (otherMcpServers.calls > 0) {
+      mcpServerRows.push(['Other', otherMcpServers]);
+    }
+
+    const mcpRowsWithBuiltin = [
+      ['Builtin Tools', builtinEntry] as const,
+      ...mcpServerRows,
+    ];
+    const hasMcpData = mcpRowsWithBuiltin.some(([, entry]) => entry.calls > 0);
+    const mcpAggHtml = hasMcpData
+      ? mcpRowsWithBuiltin.map(([server, entry], idx) => {
+        const rate = entry.calls > 0 ? ((entry.errors / entry.calls) * 100) : 0;
+        const pct = rate.toFixed(1);
+        const barW = Math.max(1, rate);
+        const color = rate > 20 ? '#d32f2f' : rate > 5 ? '#f57c00' : '#4caf50';
+        const serverLabel = idx === 0
+          ? '<span style="background:#eef3ff;color:#2f5fd0;border-radius:999px;padding:1px 8px;font-size:0.76em;font-weight:700;">Builtin Tools</span>'
+          : server;
+        return `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:0.82em;${idx === 0 ? 'background:#f8f9ff;border:1px solid #e1e8ff;padding:6px 8px;border-radius:7px;' : ''}">
+        <span style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${serverLabel}</span>
+        <span style="width:55px;text-align:right;color:#1d1d1f;">${entry.calls.toLocaleString()}</span>
+        <span style="width:45px;text-align:right;color:#d32f2f;">${entry.errors.toLocaleString()}</span>
+        <div style="flex:1;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${barW}%;background:${color};border-radius:3px;"></div>
+        </div>
+        <span style="width:45px;text-align:right;color:${color};font-weight:600;">${pct}%</span>
+      </div>`;
+      }).join('')
+      : '<p style="color:#86868b;font-size:0.9em;">No data</p>';
+
+    // Error daily trend
+    // Step 1: aggregate toolErrorDetails by tool (for Top5 selection)
+    const toolErrorTotals = new Map<string, number>();
+    for (const [key, cnt] of agg.toolErrorDetails) {
+      const [tool, day] = key.split('\t');
+      if (minDay && day < minDay) continue;
+      toolErrorTotals.set(tool, (toolErrorTotals.get(tool) || 0) + cnt);
+    }
+    // Step 2: pick Top5 + "Other"
+    const topErrorTools = Array.from(toolErrorTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([tool]) => tool);
+    const topErrorToolSet = new Set(topErrorTools);
+    // Step 3: build per-series day maps
+    const errorTrendSeriesMap = new Map<string, Map<string, number>>();
+    for (const tool of topErrorTools) errorTrendSeriesMap.set(tool, new Map());
+    errorTrendSeriesMap.set('Other', new Map());
+    for (const [key, cnt] of agg.toolErrorDetails) {
+      const [tool, day] = key.split('\t');
+      if (minDay && day < minDay) continue;
+      const seriesKey = topErrorToolSet.has(tool) ? tool : 'Other';
+      const m = errorTrendSeriesMap.get(seriesKey)!;
+      m.set(day, (m.get(day) || 0) + cnt);
+    }
+    // Step 4: fill missing days for each series
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const startDay30 = new Date(today); startDay30.setDate(startDay30.getDate() - 29);
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const effectiveStart = minDay && minDay > fmt(startDay30) ? minDay : fmt(startDay30);
+    const seriesColors = ['#d32f2f', '#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#86868b'];
+    const errorTrendSeries = [...topErrorTools, ...(errorTrendSeriesMap.get('Other')!.size > 0 ? ['Other'] : [])].map((tool, i) => ({
+      label: tool,
+      color: seriesColors[i] ?? '#86868b',
+      data: fillMissingDays(errorTrendSeriesMap.get(tool)!, effectiveStart, fmt(today)),
+    }));
+    const errorTrendSvg = errorTrendSeries.length > 0
+      ? buildLineChartSvg(errorTrendSeries, { width: 920, height: 280 })
+      : '<p style="color:#86868b;font-size:0.9em;">No error data</p>';
+
+    // Token I/O trend
+    let tokenTrendHtml: string;
+    const totalInput = [...agg.tokenInputDays.entries()]
+      .filter(([day]) => !minDay || day >= minDay)
+      .reduce((sum, [, value]) => sum + value, 0);
+    const totalOutput = [...agg.tokenOutputDays.entries()]
+      .filter(([day]) => !minDay || day >= minDay)
+      .reduce((sum, [, value]) => sum + value, 0);
+    const ioRatio = computeRatio(totalInput, totalInput + totalOutput);
+    const ioRatioPct = (ioRatio * 100).toFixed(1);
+
+    if (view === 'hourly') {
+      const hourInputTotals = new Array(24).fill(0);
+      const hourOutputTotals = new Array(24).fill(0);
+
+      for (const [key, value] of agg.tokenInputHours) {
+        const [day, hour] = key.split('\t');
+        if (minDay && day < minDay) continue;
+        hourInputTotals[Number(hour)] += value;
+      }
+
+      for (const [key, value] of agg.tokenOutputHours) {
+        const [day, hour] = key.split('\t');
+        if (minDay && day < minDay) continue;
+        hourOutputTotals[Number(hour)] += value;
+      }
+
+      const barData = Array.from({ length: 24 }, (_, h) => ({
+        label: String(h).padStart(2, '0'),
+        stacks: [
+          { name: 'Input', value: hourInputTotals[h], color: '#1565c0' },
+          { name: 'Output', value: hourOutputTotals[h], color: '#2e7d32' },
+        ],
+      }));
+
+      const hourlySvg = buildStackedBarChartSvg(barData, { width: 920, height: 280 });
+      tokenTrendHtml = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:0.85em;color:#86868b;">Input ratio: <strong style="color:#1d1d1f;">${ioRatioPct}%</strong></div>
+        <div style="font-size:0.82em;"><a href="/?range=${range}">Daily</a> | <strong>Hourly</strong></div>
+      </div>
+      <div style="overflow-x:auto;padding-bottom:4px;">${hourlySvg}</div>`;
+    } else {
+      const today2 = new Date();
+      today2.setHours(0, 0, 0, 0);
+      const start30 = new Date(today2);
+      start30.setDate(start30.getDate() - 29);
+      const fmtDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const effStart = minDay && minDay > fmtDay(start30) ? minDay : fmtDay(start30);
+
+      const inputDayMap = new Map<string, number>();
+      for (const [day, value] of agg.tokenInputDays) {
+        if (minDay && day < minDay) continue;
+        inputDayMap.set(day, value);
+      }
+
+      const outputDayMap = new Map<string, number>();
+      for (const [day, value] of agg.tokenOutputDays) {
+        if (minDay && day < minDay) continue;
+        outputDayMap.set(day, value);
+      }
+
+      const tokenSeries = [
+        { label: 'Input', color: '#1565c0', data: fillMissingDays(inputDayMap, effStart, fmtDay(today2)) },
+        { label: 'Output', color: '#2e7d32', data: fillMissingDays(outputDayMap, effStart, fmtDay(today2)) },
+      ];
+
+      const dailySvg = buildLineChartSvg(tokenSeries, { width: 920, height: 280 });
+      tokenTrendHtml = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:0.85em;color:#86868b;">Input ratio: <strong style="color:#1d1d1f;">${ioRatioPct}%</strong></div>
+        <div style="font-size:0.82em;"><strong>Daily</strong> | <a href="/?range=${range}&view=hourly">Hourly</a></div>
+      </div>
+      <div style="overflow-x:auto;padding-bottom:4px;">${dailySvg}</div>`;
+    }
+
+    // Subagent activity trend
+    let subagentTrendHtml: string;
+    // Step 1: total by agent (for Top5 selection)
+    const subagentTotals = new Map<string, number>();
+    for (const [key, cnt] of agg.subagentDays) {
+      const [agent, day] = key.split('\t');
+      if (minDay && day < minDay) continue;
+      subagentTotals.set(agent, (subagentTotals.get(agent) || 0) + cnt);
+    }
+    const topAgents = Array.from(subagentTotals.entries())
+      .sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a]) => a);
+    const topAgentSet = new Set(topAgents);
+
+    if (view === 'hourly') {
+      // Stacked bar by hour, Top5 agents + Other
+      const agentHourMap = new Map<string, number[]>(); // agent -> 24 hourly totals
+      for (const agent of [...topAgents, 'Other']) {
+        agentHourMap.set(agent, new Array(24).fill(0));
+      }
+      for (const [key, cnt] of agg.subagentHours) {
+        const parts = key.split('\t'); // agentType, day, hour
+        const agent = parts[0];
+        const day = parts[1];
+        const hour = Number(parts[2]);
+        if (minDay && day < minDay) continue;
+        const seriesKey = topAgentSet.has(agent) ? agent : 'Other';
+        agentHourMap.get(seriesKey)![hour] += cnt;
+      }
+      const agentColors = ['#0066cc', '#d32f2f', '#2e7d32', '#e65100', '#6a1b9a', '#86868b'];
+      const barData = Array.from({ length: 24 }, (_, h) => ({
+        label: String(h).padStart(2, '0'),
+        stacks: [...topAgents, 'Other']
+          .filter(a => agentHourMap.get(a)!.some(v => v > 0))
+          .map((agent, i) => ({
+            name: agent,
+            value: agentHourMap.get(agent)![h],
+            color: agentColors[i] ?? '#86868b',
+          })),
+      }));
+      const hourlySvg = buildStackedBarChartSvg(barData, { width: 920, height: 280 });
+      subagentTrendHtml = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;font-size:0.82em;">
+        <a href="/?range=${range}">Daily</a>&nbsp;|&nbsp;<strong>Hourly</strong>
+      </div>
+      <div style="overflow-x:auto;padding-bottom:4px;">${hourlySvg}</div>`;
+    } else {
+      // Daily line chart
+      const today3 = new Date();
+      today3.setHours(0, 0, 0, 0);
+      const start30b = new Date(today3);
+      start30b.setDate(start30b.getDate() - 29);
+      const fmtDay3 = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const effStart3 = minDay && minDay > fmtDay3(start30b) ? minDay : fmtDay3(start30b);
+      const seriesColors3 = ['#0066cc', '#d32f2f', '#2e7d32', '#e65100', '#6a1b9a', '#86868b'];
+      const agentDaySeriesMap = new Map<string, Map<string, number>>();
+      for (const agent of [...topAgents, 'Other']) {
+        agentDaySeriesMap.set(agent, new Map());
+      }
+      for (const [key, cnt] of agg.subagentDays) {
+        const [agent, day] = key.split('\t');
+        if (minDay && day < minDay) continue;
+        const sk = topAgentSet.has(agent) ? agent : 'Other';
+        const m = agentDaySeriesMap.get(sk)!;
+        m.set(day, (m.get(day) || 0) + cnt);
+      }
+      const subagentSeries = [...topAgents, ...(['Other'].filter(() => agentDaySeriesMap.get('Other')!.size > 0))].map((agent, i) => ({
+        label: agent,
+        color: seriesColors3[i] ?? '#86868b',
+        data: fillMissingDays(agentDaySeriesMap.get(agent)!, effStart3, fmtDay3(today3)),
+      }));
+      const dailySvg3 = subagentSeries.length > 0
+        ? buildLineChartSvg(subagentSeries, { width: 920, height: 280 })
+        : '<p style="color:#86868b;font-size:0.9em;">No subagent data</p>';
+      subagentTrendHtml = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;font-size:0.82em;">
+        <strong>Daily</strong>&nbsp;|&nbsp;<a href="/?range=${range}&view=hourly">Hourly</a>
+      </div>
+      <div style="overflow-x:auto;padding-bottom:4px;">${dailySvg3}</div>`;
+    }
+
+    // Active repository breakdown
+    const repoSessionCounts = new Map<string, number>();
+    for (const [key, cnt] of agg.repoDays) {
+      const [repo, day] = key.split('\t');
+      if (minDay && day < minDay) continue;
+      repoSessionCounts.set(repo, (repoSessionCounts.get(repo) || 0) + cnt);
+    }
+
+    const activeRepos = Array.from(repoSessionCounts.entries())
+      .filter(([repo]) => repo !== '')
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([repo]) => repo);
+
+    const today7 = new Date();
+    today7.setHours(0, 0, 0, 0);
+    const last7Days: string[] = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date(today7);
+      d.setDate(d.getDate() - i);
+      last7Days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    }
+
+    let repoBreakdownHtml: string;
+    if (activeRepos.length === 0) {
+      repoBreakdownHtml = '<p style="color:#86868b;font-size:0.9em;">No repository data</p>';
+    } else {
+      const repoTableRows = activeRepos.map(repo => {
+        let totalActiveMs = 0;
+        const dayCells = last7Days.map(day => {
+          if (minDay && day < minDay) {
+            return '<td style="text-align:center;color:#d2d2d7;">—</td>';
+          }
+
+          const sessions = db.prepare(`
+            SELECT id, time_created
+            FROM session
+            WHERE directory = ?
+              AND date(time_created/1000, 'unixepoch', 'localtime') = ?
+              AND parent_id IS NULL
+            ORDER BY time_created ASC
+          `).all(repo, day) as { id: string; time_created: number }[];
+
+          if (sessions.length === 0) return '<td style="text-align:center;color:#d2d2d7;">—</td>';
+
+          const sessionIds = sessions.map(s => s.id);
+          const msgTimes = db.prepare(`
+            SELECT time_created FROM message
+            WHERE session_id IN (${sessionIds.map(() => '?').join(',')})
+            ORDER BY time_created ASC
+          `).all(...sessionIds) as { time_created: number }[];
+
+          const timestamps = [...sessions.map(s => s.time_created), ...msgTimes.map(m => m.time_created)].sort((a, b) => a - b);
+          const dur = calcActiveDurations(timestamps);
+          if (dur > 0) totalActiveMs += dur;
+          const label = dur > 0 ? formatDurationShort(dur) : sessions.length > 0 ? `${sessions.length}s` : '—';
+          return `<td style="text-align:center;font-size:0.82em;">${label}</td>`;
+        });
+
+        const totalSessions = repoSessionCounts.get(repo) || 0;
+        const totalLabel = totalActiveMs > 0 ? formatDurationShort(totalActiveMs) : totalSessions > 0 ? `${totalSessions}s` : '—';
+
+        return `<tr>
+          <td style="font-family:monospace;font-size:0.82em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="${escapeHtml(repo)}">${escapeHtml(prettifyPath(repo))}</td>
+          ${dayCells.join('')}
+          <td style="text-align:right;font-size:0.82em;color:#86868b;">${totalLabel}</td>
+        </tr>`;
+      }).join('');
+
+      const dayHeaders = last7Days.map(d => {
+        const parts = d.split('-');
+        return `<th style="text-align:center;min-width:54px;">${parts[1]}/${parts[2]}</th>`;
+      }).join('');
+
+      repoBreakdownHtml = `
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+          <thead>
+            <tr style="color:#86868b;font-size:0.76em;text-transform:uppercase;letter-spacing:0.05em;">
+              <th style="text-align:left;padding:6px 0;">Repository</th>
+              ${dayHeaders}
+              <th style="text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${repoTableRows}</tbody>
+        </table>
+      </div>`;
+    }
 
     // Error pattern chart
     const errorPatternChart = buildBarChart(
@@ -833,10 +1208,42 @@ export function dashboardRoute(req: Request, res: Response) {
       ${errorPatternChart}
     </div>
   </div>
+
+  <div class="card">
+    <h2>Token I/O Trend</h2>
+    ${tokenTrendHtml}
+  </div>
+
+  <div class="card">
+    <h2>Subagent Activity</h2>
+    ${subagentTrendHtml}
+  </div>
+
+  <div class="card">
+    <h2>Active Repositories</h2>
+    ${repoBreakdownHtml}
+  </div>
+
+  <div class="card">
+    <h2>Error Daily Trend</h2>
+    <div style="overflow-x:auto;padding-bottom:4px;">${errorTrendSvg}</div>
+  </div>
+
+  <div class="card">
+    <h2>MCP Tool Usage</h2>
+    <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+      <span style="width:140px;">Server</span>
+      <span style="width:55px;text-align:right;">Calls</span>
+      <span style="width:45px;text-align:right;">Errors</span>
+      <span style="flex:1;">Error Rate</span>
+      <span style="width:45px;"></span>
+    </div>
+    ${mcpAggHtml}
+  </div>
 </body>
 </html>
     `;
-    agg.htmlCache.set(range, { html, time: Date.now() });
+    agg.htmlCache.set(cacheKey, { html, time: Date.now() });
     res.send(html);
   } finally {
     db.close();
