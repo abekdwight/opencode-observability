@@ -584,7 +584,8 @@ export function dashboardRoute(req: Request, res: Response) {
   const db = getDb();
   try {
     const now = Date.now();
-    const range = VALID_RANGES.includes(req.query.range as any) ? (req.query.range as string) : 'all';
+    const rawRange = typeof req.query.range === 'string' ? req.query.range : '';
+    const range = (VALID_RANGES as readonly string[]).includes(rawRange) ? rawRange : 'all';
     const view = req.query.view === 'hourly' ? 'hourly' : 'daily';
 
     if (!agg) {
@@ -762,7 +763,7 @@ export function dashboardRoute(req: Request, res: Response) {
         const color = rate > 20 ? '#d32f2f' : rate > 5 ? '#f57c00' : '#4caf50';
         const serverLabel = idx === 0
           ? '<span style="background:#eef3ff;color:#2f5fd0;border-radius:999px;padding:1px 8px;font-size:0.76em;font-weight:700;">Builtin Tools</span>'
-          : server;
+          : escapeHtml(server);
         return `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:0.82em;${idx === 0 ? 'background:#f8f9ff;border:1px solid #e1e8ff;padding:6px 8px;border-radius:7px;' : ''}">
         <span style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${serverLabel}</span>
@@ -1212,21 +1213,18 @@ export function dashboardRoute(req: Request, res: Response) {
       <h2>Agent Distribution</h2>
       ${agentBarChart}
     </div>
-    <div class="card">
-      <h2>Tool Reliability</h2>
-      <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
-        <span style="width:140px;">Tool</span>
-        <span style="width:55px;text-align:right;">OK</span>
-        <span style="width:45px;text-align:right;">Error</span>
-        <span style="flex:1;">Error Rate</span>
-        <span style="width:45px;"></span>
-      </div>
-      ${toolMatrixHtml}
+  </div>
+
+  <div class="card">
+    <h2>Tool Reliability</h2>
+    <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+      <span style="width:140px;">Tool</span>
+      <span style="width:55px;text-align:right;">OK</span>
+      <span style="width:45px;text-align:right;">Error</span>
+      <span style="flex:1;">Error Rate</span>
+      <span style="width:45px;"></span>
     </div>
-    <div class="card">
-      <h2>Error Patterns</h2>
-      ${errorPatternChart}
-    </div>
+    ${toolMatrixHtml}
   </div>
 
   <div class="card">
@@ -1239,6 +1237,11 @@ export function dashboardRoute(req: Request, res: Response) {
       <span style="width:45px;"></span>
     </div>
     ${mcpAggHtml}
+  </div>
+
+  <div class="card">
+    <h2>Error Patterns</h2>
+    ${errorPatternChart}
   </div>
 </body>
 </html>
