@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
 import { formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
+import { classifyTool } from '../lib/analytics.js';
 
 interface DayCount {
   day: string;
@@ -172,16 +173,26 @@ interface AggCache {
   // Part aggregates (daily buckets)
   toolDayBuckets: Map<string, number>;  // "tool\tstatus\tday" → count
   errorPatternDays: Map<string, number>; // "pattern\tday" → count
+  toolErrorDetails: Map<string, number>; // "tool\tday" → count
+  mcpServerBuckets: Map<string, number>; // "mcpServer\tstatus\tday" → count
   lastPartRowid: number;
 
   // Message aggregates (daily buckets)
   modelDays: Map<string, number>;  // "model\tday" → count
   agentDays: Map<string, number>;  // "agent\tday" → count
   tokenDays: Map<string, number>;  // "day" → total tokens
+  tokenInputDays: Map<string, number>; // "day" → input tokens
+  tokenOutputDays: Map<string, number>; // "day" → output tokens
+  tokenInputHours: Map<string, number>; // "day\thour" → input tokens
+  tokenOutputHours: Map<string, number>; // "day\thour" → output tokens
+  subagentDays: Map<string, number>; // "agentType\tday" → count
+  subagentHours: Map<string, number>; // "agentType\tday\thour" → count
   lastMessageRowid: number;
 
   // Session count (for delete detection)
   sessionCount: number;
+  repoDays: Map<string, number>; // "directory\tday" → session count
+  lastSessionRowid: number;
 
   // Rendered HTML per range (rebuilt from aggregates)
   htmlCache: Map<string, { html: string; time: number }>;
@@ -228,6 +239,14 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
     toolDayBuckets.set(key, (toolDayBuckets.get(key) || 0) + cnt);
   }
 
+  const mcpServerBuckets = new Map<string, number>();
+  for (const { tool, status, day, cnt } of partStats) {
+    const { type, mcpServer } = classifyTool(tool ?? '');
+    const server = type === 'builtin' ? 'builtin' : (mcpServer ?? 'other');
+    const key = `${server}\t${status}\t${day}`;
+    mcpServerBuckets.set(key, (mcpServerBuckets.get(key) || 0) + cnt);
+  }
+
   // Error patterns with day
   const errorRows = db.prepare(`
     SELECT json_extract(p.data, '$.state.error') AS error,
@@ -242,6 +261,23 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
     const pattern = classifyError(error);
     const key = `${pattern}\t${day}`;
     errorPatternDays.set(key, (errorPatternDays.get(key) || 0) + 1);
+  }
+
+  const toolErrorRows = db.prepare(`
+    SELECT json_extract(p.data, '$.tool') AS tool,
+           date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
+           COUNT(*) AS cnt
+    FROM part p
+    WHERE json_extract(p.data, '$.type') = 'tool'
+      AND json_extract(p.data, '$.state.status') = 'error'
+    GROUP BY tool, day
+  `).all() as { tool: string | null; day: string; cnt: number }[];
+
+  const toolErrorDetails = new Map<string, number>();
+  for (const { tool, day, cnt } of toolErrorRows) {
+    const toolName = tool ?? 'unknown';
+    const key = `${toolName}\t${day}`;
+    toolErrorDetails.set(key, (toolErrorDetails.get(key) || 0) + cnt);
   }
 
   const lastPartRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM part`).get() as { r: number | null }).r ?? 0;
@@ -265,10 +301,90 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
     if (agent) { const k = `${agent}\t${day}`; agentDays.set(k, (agentDays.get(k) || 0) + 1); }
   }
 
+  const tokenIoRows = db.prepare(`
+    SELECT date(m.time_created/1000, 'unixepoch', 'localtime') AS day,
+           strftime('%H', m.time_created/1000, 'unixepoch', 'localtime') AS hour,
+           SUM(COALESCE(json_extract(m.data, '$.tokens.input'), 0)) AS input_tokens,
+           SUM(COALESCE(json_extract(m.data, '$.tokens.output'), 0)) AS output_tokens
+    FROM message m
+    WHERE json_extract(m.data, '$.role') = 'assistant'
+    GROUP BY day, hour
+  `).all() as { day: string; hour: string; input_tokens: number; output_tokens: number }[];
+
+  const tokenInputDays = new Map<string, number>();
+  const tokenOutputDays = new Map<string, number>();
+  const tokenInputHours = new Map<string, number>();
+  const tokenOutputHours = new Map<string, number>();
+  for (const { day, hour, input_tokens, output_tokens } of tokenIoRows) {
+    const input = Number(input_tokens) || 0;
+    const output = Number(output_tokens) || 0;
+    tokenInputDays.set(day, (tokenInputDays.get(day) || 0) + input);
+    tokenOutputDays.set(day, (tokenOutputDays.get(day) || 0) + output);
+    const hourKey = `${day}\t${hour}`;
+    tokenInputHours.set(hourKey, (tokenInputHours.get(hourKey) || 0) + input);
+    tokenOutputHours.set(hourKey, (tokenOutputHours.get(hourKey) || 0) + output);
+  }
+
+  const subagentRows = db.prepare(`
+    SELECT json_extract(m.data, '$.agent') AS agent,
+           date(m.time_created/1000, 'unixepoch', 'localtime') AS day,
+           strftime('%H', m.time_created/1000, 'unixepoch', 'localtime') AS hour,
+           COUNT(*) AS cnt
+    FROM message m
+    WHERE json_extract(m.data, '$.role') = 'assistant'
+      AND json_extract(m.data, '$.agent') IS NOT NULL
+    GROUP BY agent, day, hour
+  `).all() as { agent: string; day: string; hour: string; cnt: number }[];
+
+  const subagentDays = new Map<string, number>();
+  const subagentHours = new Map<string, number>();
+  for (const { agent, day, hour, cnt } of subagentRows) {
+    const dayKey = `${agent}\t${day}`;
+    subagentDays.set(dayKey, (subagentDays.get(dayKey) || 0) + cnt);
+    const hourKey = `${agent}\t${day}\t${hour}`;
+    subagentHours.set(hourKey, (subagentHours.get(hourKey) || 0) + cnt);
+  }
+
+  const repoRows = db.prepare(`
+    SELECT directory,
+           date(time_created/1000, 'unixepoch', 'localtime') AS day,
+           COUNT(*) AS cnt
+    FROM session
+    GROUP BY directory, day
+  `).all() as { directory: string | null; day: string; cnt: number }[];
+
+  const repoDays = new Map<string, number>();
+  for (const { directory, day, cnt } of repoRows) {
+    const repo = directory ?? '';
+    const key = `${repo}\t${day}`;
+    repoDays.set(key, (repoDays.get(key) || 0) + cnt);
+  }
+
   const lastMessageRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM message`).get() as { r: number | null }).r ?? 0;
+  const lastSessionRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM session`).get() as { r: number | null }).r ?? 0;
   const sessionCount = (db.prepare(`SELECT COUNT(*) AS cnt FROM session`).get() as { cnt: number }).cnt;
 
-  return { toolDayBuckets, errorPatternDays, lastPartRowid, modelDays, agentDays, tokenDays, lastMessageRowid, sessionCount, htmlCache: new Map() };
+  return {
+    toolDayBuckets,
+    errorPatternDays,
+    toolErrorDetails,
+    mcpServerBuckets,
+    lastPartRowid,
+    modelDays,
+    agentDays,
+    tokenDays,
+    tokenInputDays,
+    tokenOutputDays,
+    tokenInputHours,
+    tokenOutputHours,
+    subagentDays,
+    subagentHours,
+    lastMessageRowid,
+    sessionCount,
+    repoDays,
+    lastSessionRowid,
+    htmlCache: new Map(),
+  };
 }
 
 function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
@@ -291,6 +407,11 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
     for (const { tool, status, day, cnt } of newParts) {
       const key = `${tool}\t${status}\t${day}`;
       c.toolDayBuckets.set(key, (c.toolDayBuckets.get(key) || 0) + cnt);
+
+      const { type, mcpServer } = classifyTool(tool ?? '');
+      const server = type === 'builtin' ? 'builtin' : (mcpServer ?? 'other');
+      const mcpKey = `${server}\t${status}\t${day}`;
+      c.mcpServerBuckets.set(mcpKey, (c.mcpServerBuckets.get(mcpKey) || 0) + cnt);
     }
 
     const newErrors = db.prepare(`
@@ -300,6 +421,22 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
     for (const { error, day } of newErrors) {
       const key = `${classifyError(error)}\t${day}`;
       c.errorPatternDays.set(key, (c.errorPatternDays.get(key) || 0) + 1);
+    }
+
+    const newToolErrorDetails = db.prepare(`
+      SELECT json_extract(data, '$.tool') AS tool,
+             date(time_created/1000, 'unixepoch', 'localtime') AS day,
+             COUNT(*) AS cnt
+      FROM part
+      WHERE rowid > ?
+        AND json_extract(data, '$.type') = 'tool'
+        AND json_extract(data, '$.state.status') = 'error'
+      GROUP BY tool, day
+    `).all(prevPartRowid) as { tool: string | null; day: string; cnt: number }[];
+    for (const { tool, day, cnt } of newToolErrorDetails) {
+      const toolName = tool ?? 'unknown';
+      const key = `${toolName}\t${day}`;
+      c.toolErrorDetails.set(key, (c.toolErrorDetails.get(key) || 0) + cnt);
     }
     c.lastPartRowid = currentPartRowid;
     c.htmlCache.clear();
@@ -318,7 +455,65 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
       if (model) { const k = `${model}\t${day}`; c.modelDays.set(k, (c.modelDays.get(k) || 0) + 1); }
       if (agent) { const k = `${agent}\t${day}`; c.agentDays.set(k, (c.agentDays.get(k) || 0) + 1); }
     }
+
+    const newTokenIoRows = db.prepare(`
+      SELECT date(time_created/1000, 'unixepoch', 'localtime') AS day,
+             strftime('%H', time_created/1000, 'unixepoch', 'localtime') AS hour,
+             SUM(COALESCE(json_extract(data, '$.tokens.input'), 0)) AS input_tokens,
+             SUM(COALESCE(json_extract(data, '$.tokens.output'), 0)) AS output_tokens
+      FROM message
+      WHERE rowid > ?
+        AND json_extract(data, '$.role') = 'assistant'
+      GROUP BY day, hour
+    `).all(c.lastMessageRowid) as { day: string; hour: string; input_tokens: number; output_tokens: number }[];
+    for (const { day, hour, input_tokens, output_tokens } of newTokenIoRows) {
+      const input = Number(input_tokens) || 0;
+      const output = Number(output_tokens) || 0;
+      c.tokenInputDays.set(day, (c.tokenInputDays.get(day) || 0) + input);
+      c.tokenOutputDays.set(day, (c.tokenOutputDays.get(day) || 0) + output);
+      const hourKey = `${day}\t${hour}`;
+      c.tokenInputHours.set(hourKey, (c.tokenInputHours.get(hourKey) || 0) + input);
+      c.tokenOutputHours.set(hourKey, (c.tokenOutputHours.get(hourKey) || 0) + output);
+    }
+
+    const newSubagentRows = db.prepare(`
+      SELECT json_extract(data, '$.agent') AS agent,
+             date(time_created/1000, 'unixepoch', 'localtime') AS day,
+             strftime('%H', time_created/1000, 'unixepoch', 'localtime') AS hour,
+             COUNT(*) AS cnt
+      FROM message
+      WHERE rowid > ?
+        AND json_extract(data, '$.role') = 'assistant'
+        AND json_extract(data, '$.agent') IS NOT NULL
+      GROUP BY agent, day, hour
+    `).all(c.lastMessageRowid) as { agent: string; day: string; hour: string; cnt: number }[];
+    for (const { agent, day, hour, cnt } of newSubagentRows) {
+      const dayKey = `${agent}\t${day}`;
+      c.subagentDays.set(dayKey, (c.subagentDays.get(dayKey) || 0) + cnt);
+      const hourKey = `${agent}\t${day}\t${hour}`;
+      c.subagentHours.set(hourKey, (c.subagentHours.get(hourKey) || 0) + cnt);
+    }
+
     c.lastMessageRowid = currentMsgRowid;
+    c.htmlCache.clear();
+  }
+
+  const currentSessionRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM session`).get() as { r: number | null }).r ?? 0;
+  if (currentSessionRowid > c.lastSessionRowid) {
+    const newRepoRows = db.prepare(`
+      SELECT directory,
+             date(time_created/1000, 'unixepoch', 'localtime') AS day,
+             COUNT(*) AS cnt
+      FROM session
+      WHERE rowid > ?
+      GROUP BY directory, day
+    `).all(c.lastSessionRowid) as { directory: string | null; day: string; cnt: number }[];
+    for (const { directory, day, cnt } of newRepoRows) {
+      const repo = directory ?? '';
+      const key = `${repo}\t${day}`;
+      c.repoDays.set(key, (c.repoDays.get(key) || 0) + cnt);
+    }
+    c.lastSessionRowid = currentSessionRowid;
     c.htmlCache.clear();
   }
 }
