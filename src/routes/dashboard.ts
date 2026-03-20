@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
 import { calcRepoDayActiveDurations } from '../lib/duration.js';
+import { resolveRepoBucketKey } from '../lib/repo-root.js';
 import { escapeHtml, formatDurationShort, formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
 import { buildLineChartSvg, buildStackedBarChartSvg, classifyTool, computeRatio, fillMissingDays } from '../lib/analytics.js';
 
@@ -193,7 +194,7 @@ interface AggCache {
 
   // Session count (for delete detection)
   sessionCount: number;
-  repoDays: Map<string, number>; // "directory\tday" → session count
+  repoDays: Map<string, number>; // "repoBucket\tday" → session count
   lastSessionRowid: number;
 
   // Rendered HTML per range (rebuilt from aggregates)
@@ -348,16 +349,19 @@ function fullBuild(db: ReturnType<typeof getDb>): AggCache {
   }
 
   const repoRows = db.prepare(`
-    SELECT directory,
-           date(time_created/1000, 'unixepoch', 'localtime') AS day,
+    SELECT p.worktree AS worktree,
+           s.directory AS directory,
+           date(s.time_created/1000, 'unixepoch', 'localtime') AS day,
            COUNT(*) AS cnt
-    FROM session
-    GROUP BY directory, day
-  `).all() as { directory: string | null; day: string; cnt: number }[];
+    FROM session s
+    JOIN project p ON s.project_id = p.id
+    WHERE s.parent_id IS NULL
+    GROUP BY p.worktree, s.directory, day
+  `).all() as { worktree: string | null; directory: string | null; day: string; cnt: number }[];
 
   const repoDays = new Map<string, number>();
-  for (const { directory, day, cnt } of repoRows) {
-    const repo = directory ?? '';
+  for (const { worktree, directory, day, cnt } of repoRows) {
+    const repo = resolveRepoBucketKey(worktree ?? '', directory ?? '');
     const key = `${repo}\t${day}`;
     repoDays.set(key, (repoDays.get(key) || 0) + cnt);
   }
@@ -503,15 +507,18 @@ function deltaUpdate(db: ReturnType<typeof getDb>, c: AggCache): void {
   const currentSessionRowid = (db.prepare(`SELECT MAX(rowid) AS r FROM session`).get() as { r: number | null }).r ?? 0;
   if (currentSessionRowid > c.lastSessionRowid) {
     const newRepoRows = db.prepare(`
-      SELECT directory,
-             date(time_created/1000, 'unixepoch', 'localtime') AS day,
+      SELECT p.worktree AS worktree,
+             s.directory AS directory,
+             date(s.time_created/1000, 'unixepoch', 'localtime') AS day,
              COUNT(*) AS cnt
-      FROM session
-      WHERE rowid > ?
-      GROUP BY directory, day
-    `).all(c.lastSessionRowid) as { directory: string | null; day: string; cnt: number }[];
-    for (const { directory, day, cnt } of newRepoRows) {
-      const repo = directory ?? '';
+      FROM session s
+      JOIN project p ON s.project_id = p.id
+      WHERE s.rowid > ?
+        AND s.parent_id IS NULL
+      GROUP BY p.worktree, s.directory, day
+    `).all(c.lastSessionRowid) as { worktree: string | null; directory: string | null; day: string; cnt: number }[];
+    for (const { worktree, directory, day, cnt } of newRepoRows) {
+      const repo = resolveRepoBucketKey(worktree ?? '', directory ?? '');
       const key = `${repo}\t${day}`;
       c.repoDays.set(key, (c.repoDays.get(key) || 0) + cnt);
     }
@@ -976,16 +983,24 @@ export function dashboardRoute(req: Request, res: Response) {
       const repoDayDurationMap = calcRepoDayActiveDurations(db, activeRepos, last7Days);
       const repoDaySessionRows = db.prepare(`
         SELECT
-          directory,
-          date(time_created/1000, 'unixepoch', 'localtime') AS day,
+          p.worktree AS worktree,
+          s.directory AS directory,
+          date(s.time_created/1000, 'unixepoch', 'localtime') AS day,
           COUNT(*) AS cnt
-        FROM session
-        WHERE parent_id IS NULL
-          AND directory IN (${activeRepos.map(() => '?').join(',')})
-          AND date(time_created/1000, 'unixepoch', 'localtime') IN (${last7Days.map(() => '?').join(',')})
-        GROUP BY directory, day
-      `).all(...activeRepos, ...last7Days) as { directory: string | null; day: string; cnt: number }[];
-      const repoDaySessionCountMap = new Map(repoDaySessionRows.map(row => [`${row.directory ?? ''}\t${row.day}`, row.cnt]));
+        FROM session s
+        JOIN project p ON s.project_id = p.id
+        WHERE s.parent_id IS NULL
+          AND date(s.time_created/1000, 'unixepoch', 'localtime') IN (${last7Days.map(() => '?').join(',')})
+        GROUP BY p.worktree, s.directory, day
+      `).all(...last7Days) as { worktree: string | null; directory: string | null; day: string; cnt: number }[];
+      const repoDaySessionCountMap = new Map<string, number>();
+      const activeRepoSet = new Set(activeRepos);
+      for (const row of repoDaySessionRows) {
+        const repo = resolveRepoBucketKey(row.worktree ?? '', row.directory ?? '');
+        if (!activeRepoSet.has(repo)) continue;
+        const key = `${repo}\t${row.day}`;
+        repoDaySessionCountMap.set(key, (repoDaySessionCountMap.get(key) || 0) + row.cnt);
+      }
 
       const repoTableRows = activeRepos.map(repo => {
         let totalActiveMs = 0;
