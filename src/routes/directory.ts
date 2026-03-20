@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
+import { calcSessionActiveDurations } from '../lib/duration.js';
 import {
   NAV_SEARCH,
   SESSION_COPY_SCRIPT,
@@ -10,31 +11,6 @@ import {
   prettifyPath,
   renderSessionCopyButton,
 } from '../lib/html.js';
-
-function calcSessionActiveDurations(
-  db: import('better-sqlite3').Database,
-  sessionIds: string[],
-): Map<string, number> {
-  if (sessionIds.length === 0) return new Map();
-  const placeholders = sessionIds.map(() => '?').join(',');
-  const rows = db.prepare(`
-    WITH ordered AS (
-      SELECT
-        m.session_id,
-        json_extract(m.data, '$.role') AS role,
-        m.time_created AS ts,
-        LAG(m.time_created) OVER (PARTITION BY m.session_id ORDER BY m.time_created) AS prev_ts
-      FROM message m
-      WHERE m.session_id IN (${placeholders})
-    )
-    SELECT
-      session_id,
-      SUM(CASE WHEN role = 'assistant' AND prev_ts IS NOT NULL THEN ts - prev_ts ELSE 0 END) AS active_ms
-    FROM ordered
-    GROUP BY session_id
-  `).all(...sessionIds) as { session_id: string; active_ms: number }[];
-  return new Map(rows.map(r => [r.session_id, r.active_ms]));
-}
 
 export function directoryRoute(req: Request, res: Response) {
   const db = getDb();

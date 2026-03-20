@@ -1,36 +1,8 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
-import * as htmlUtils from '../lib/html.js';
-import { escapeHtml, formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
+import { calcRepoDayActiveDurations } from '../lib/duration.js';
+import { escapeHtml, formatDurationShort, formatTokens, NAV_SEARCH, prettifyPath } from '../lib/html.js';
 import { buildLineChartSvg, buildStackedBarChartSvg, classifyTool, computeRatio, fillMissingDays } from '../lib/analytics.js';
-
-const htmlDurationUtils = htmlUtils as typeof htmlUtils & {
-  calcActiveDurations?: (timestamps: number[]) => number;
-  formatDurationShort?: (ms: number) => string;
-};
-
-const calcActiveDurations = htmlDurationUtils.calcActiveDurations ?? ((timestamps: number[]): number => {
-  if (timestamps.length === 0) return 0;
-  let total = 0;
-  let prev = timestamps[0];
-  for (let i = 1; i < timestamps.length; i += 1) {
-    const cur = timestamps[i];
-    const gap = cur - prev;
-    if (gap > 0 && gap <= 30 * 60 * 1000) total += gap;
-    prev = cur;
-  }
-  return total;
-});
-
-const formatDurationShort = htmlDurationUtils.formatDurationShort ?? ((ms: number): string => {
-  if (ms <= 0) return '0m';
-  const totalMinutes = Math.floor(ms / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h${minutes}m`;
-});
 
 interface DayCount {
   day: string;
@@ -1001,6 +973,20 @@ export function dashboardRoute(req: Request, res: Response) {
     if (activeRepos.length === 0) {
       repoBreakdownHtml = '<p style="color:#86868b;font-size:0.9em;">No repository data</p>';
     } else {
+      const repoDayDurationMap = calcRepoDayActiveDurations(db, activeRepos, last7Days);
+      const repoDaySessionRows = db.prepare(`
+        SELECT
+          directory,
+          date(time_created/1000, 'unixepoch', 'localtime') AS day,
+          COUNT(*) AS cnt
+        FROM session
+        WHERE parent_id IS NULL
+          AND directory IN (${activeRepos.map(() => '?').join(',')})
+          AND date(time_created/1000, 'unixepoch', 'localtime') IN (${last7Days.map(() => '?').join(',')})
+        GROUP BY directory, day
+      `).all(...activeRepos, ...last7Days) as { directory: string | null; day: string; cnt: number }[];
+      const repoDaySessionCountMap = new Map(repoDaySessionRows.map(row => [`${row.directory ?? ''}\t${row.day}`, row.cnt]));
+
       const repoTableRows = activeRepos.map(repo => {
         let totalActiveMs = 0;
         const dayCells = last7Days.map(day => {
@@ -1008,28 +994,11 @@ export function dashboardRoute(req: Request, res: Response) {
             return '<td style="text-align:center;color:#d2d2d7;">—</td>';
           }
 
-          const sessions = db.prepare(`
-            SELECT id, time_created
-            FROM session
-            WHERE directory = ?
-              AND date(time_created/1000, 'unixepoch', 'localtime') = ?
-              AND parent_id IS NULL
-            ORDER BY time_created ASC
-          `).all(repo, day) as { id: string; time_created: number }[];
-
-          if (sessions.length === 0) return '<td style="text-align:center;color:#d2d2d7;">—</td>';
-
-          const sessionIds = sessions.map(s => s.id);
-          const msgTimes = db.prepare(`
-            SELECT time_created FROM message
-            WHERE session_id IN (${sessionIds.map(() => '?').join(',')})
-            ORDER BY time_created ASC
-          `).all(...sessionIds) as { time_created: number }[];
-
-          const timestamps = [...sessions.map(s => s.time_created), ...msgTimes.map(m => m.time_created)].sort((a, b) => a - b);
-          const dur = calcActiveDurations(timestamps);
+          const key = `${repo}\t${day}`;
+          const dur = repoDayDurationMap.get(key) || 0;
+          const sessionCount = repoDaySessionCountMap.get(key) || 0;
           if (dur > 0) totalActiveMs += dur;
-          const label = dur > 0 ? formatDurationShort(dur) : sessions.length > 0 ? `${sessions.length}s` : '—';
+          const label = dur > 0 ? formatDurationShort(dur) : sessionCount > 0 ? `${sessionCount}s` : '—';
           return `<td style="text-align:center;font-size:0.82em;">${label}</td>`;
         });
 
