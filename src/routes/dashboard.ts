@@ -57,6 +57,7 @@ interface RecentSession {
   title: string;
   directory: string;
   time_created: number;
+  time_updated: number;
   total_tokens: number;
 }
 
@@ -664,8 +665,8 @@ export function dashboardRoute(req: Request, res: Response) {
     const activeProjects = (db.prepare(`SELECT COUNT(DISTINCT project_id) as cnt FROM session WHERE parent_id IS NULL${sessionWhereRange}`).get() as { cnt: number }).cnt;
 
     const recentSessionsBase = db.prepare(`
-      SELECT id, title, directory, time_created FROM session WHERE parent_id IS NULL ORDER BY time_created DESC LIMIT 5
-    `).all() as { id: string; title: string; directory: string; time_created: number }[];
+      SELECT id, title, directory, time_created, time_updated FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC LIMIT 5
+    `).all() as { id: string; title: string; directory: string; time_created: number; time_updated: number }[];
 
     // Batch token lookup for recent sessions (avoids correlated subquery)
     const recentIds = recentSessionsBase.map(s => s.id);
@@ -1072,18 +1073,19 @@ export function dashboardRoute(req: Request, res: Response) {
 
     // Recent sessions list
     const recentSessionsHtml = recentSessions.map(s => {
-      const dateStr = new Date(Number(s.time_created)).toLocaleString('ja-JP', {
+      const dateStr = new Date(Number(s.time_updated)).toLocaleString('ja-JP', {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
       const tokens = s.total_tokens > 0 ? formatTokens(s.total_tokens) : '—';
-      const dir = prettifyPath(s.directory || '');
+      const safeTitle = escapeHtml(s.title || '(no title)');
+      const safeDir = escapeHtml(prettifyPath(s.directory || ''));
       return `
-      <a href="/session/${s.id}" class="recent-item">
-        <div class="recent-title">${s.title || '(no title)'}</div>
+      <a href="/session/${encodeURIComponent(s.id)}" class="recent-item">
+        <div class="recent-title">${safeTitle}</div>
         <div class="recent-meta">
           <span>${dateStr}</span>
           <span class="recent-pill">${tokens} tokens</span>
-          <span class="recent-dir">${dir}</span>
+          <span class="recent-dir">${safeDir}</span>
         </div>
       </a>`;
     }).join('');

@@ -7,3 +7,7 @@ const dbPath = path.join(homedir(), '.local', 'share', 'opencode', 'opencode.db'
 export function getDb(): Database.Database {
   return new Database(dbPath, { readonly: true, fileMustExist: true });
 }
+
+export function getWritableDb(): Database.Database {
+  return new Database(dbPath, { readonly: false, fileMustExist: true });
+}
