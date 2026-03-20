@@ -1,13 +1,14 @@
 import type { Request, Response } from 'express';
 import { getDb } from '../lib/db.js';
 import { escapeHtml, NAV_SEARCH, prettifyPath } from '../lib/html.js';
+import { resolveRepoBucketKey } from '../lib/repo-root.js';
 
 interface RepoGroup {
-  /** Display name derived from the last path segment of worktree */
+  /** Display name derived from the last path segment of the bucket path */
   name: string;
-  /** Raw worktree path for tooltip */
+  /** Raw bucket path for tooltip */
   rawWorktree: string;
-  /** Prettified worktree path */
+  /** Prettified bucket path */
   prettyWorktree: string;
   /** project.icon_color if available */
   iconColor: string | null;
@@ -48,19 +49,15 @@ export function homeRoute(_req: Request, res: Response) {
     const repoMap = new Map<string, RepoGroup>();
 
     for (const row of rows) {
-      const key = row.repo_root;
+      const key = resolveRepoBucketKey(row.repo_root, row.directory);
 
       if (!repoMap.has(key)) {
-        const isGlobal = key === '/';
         const prettyWorktree = prettifyPath(key);
-        // Derive display name: use project.name if available, otherwise last path segment
+        // Derive display name: use project.name for repo buckets, otherwise last path segment.
         let name: string;
-        if (isGlobal) {
-          name = 'Other';
-        } else if (row.project_name) {
+        if (row.repo_root !== '/' && row.project_name) {
           name = row.project_name;
         } else {
-          // Last meaningful segment of the path
           const segments = key.replace(/[\\/]+$/, '').split(/[\\/]/);
           name = segments[segments.length - 1] || key;
         }
@@ -86,13 +83,7 @@ export function homeRoute(_req: Request, res: Response) {
       }
     }
 
-    // Sort repos: most recently active first, but push "Other" (global) to the end
-    const sortedRepos = Array.from(repoMap.values()).sort((a, b) => {
-      const aIsGlobal = a.rawWorktree === '/';
-      const bIsGlobal = b.rawWorktree === '/';
-      if (aIsGlobal !== bIsGlobal) return aIsGlobal ? 1 : -1;
-      return b.latestTime - a.latestTime;
-    });
+    const sortedRepos = Array.from(repoMap.values()).sort((a, b) => b.latestTime - a.latestTime);
 
     res.send(`
 <!DOCTYPE html>
@@ -133,8 +124,7 @@ export function homeRoute(_req: Request, res: Response) {
       ? `<span class="repo-icon" style="background:${escapeHtml(repo.iconColor)}"></span>`
       : '';
 
-    // Show path only if it differs from the name (i.e., not the global "Other" case)
-    const pathHtml = repo.rawWorktree !== '/'
+    const pathHtml = repo.prettyWorktree !== repo.name
       ? `<span class="repo-path">${escapeHtml(repo.prettyWorktree)}</span>`
       : '';
 
