@@ -677,18 +677,36 @@ export function dashboardRoute(req: Request, res: Response) {
     );
 
     // Tool success/error matrix
-    const toolMatrixRows = Array.from(toolSuccessErrorMap.entries())
+    const sortedToolMatrixRows = Array.from(toolSuccessErrorMap.entries())
       .map(([tool, { success, error }]) => ({ tool, success, error, total: success + error, rate: success + error > 0 ? ((error / (success + error)) * 100) : 0 }))
       .sort((a, b) => b.error - a.error)
-      .slice(0, 15);
+    const toolMatrixRows = sortedToolMatrixRows.slice(0, 15);
+    const otherToolMatrixRows = sortedToolMatrixRows.slice(15);
+    if (otherToolMatrixRows.length > 0) {
+      const otherBucket = otherToolMatrixRows.reduce(
+        (acc, row) => ({
+          tool: 'Other',
+          success: acc.success + row.success,
+          error: acc.error + row.error,
+          total: acc.total + row.total,
+          rate: 0,
+        }),
+        { tool: 'Other', success: 0, error: 0, total: 0, rate: 0 },
+      );
+      otherBucket.rate = otherBucket.total > 0 ? ((otherBucket.error / otherBucket.total) * 100) : 0;
+      toolMatrixRows.push(otherBucket);
+    }
 
     const toolMatrixHtml = toolMatrixRows.length > 0 ? toolMatrixRows.map(r => {
       const pct = r.rate.toFixed(1);
       const barW = Math.max(1, r.rate);
       const color = r.rate > 20 ? '#d32f2f' : r.rate > 5 ? '#f57c00' : '#4caf50';
+      const toolLabel = r.tool === 'Other'
+        ? `<span style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;color:#86868b;">${escapeHtml(r.tool ?? '')}</span>`
+        : `<a href="/tool-errors/${encodeURIComponent(r.tool ?? '')}" style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;color:inherit;text-decoration:none;">${escapeHtml(r.tool ?? '')}</a>`;
       return `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:0.82em;">
-        <a href="/tool-errors/${encodeURIComponent(r.tool ?? '')}" style="width:140px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;color:inherit;text-decoration:none;">${escapeHtml(r.tool ?? '')}</a>
+        ${toolLabel}
         <span style="width:55px;text-align:right;color:#4caf50;">${r.success.toLocaleString()}</span>
         <span style="width:45px;text-align:right;color:#d32f2f;">${r.error.toLocaleString()}</span>
         <div style="flex:1;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">
@@ -807,6 +825,13 @@ export function dashboardRoute(req: Request, res: Response) {
       .reduce((sum, [, value]) => sum + value, 0);
     const ioRatio = computeRatio(totalInput, totalInput + totalOutput);
     const ioRatioPct = (ioRatio * 100).toFixed(1);
+    const ioRatioBar = `
+      <div style="display:flex;align-items:center;gap:10px;min-width:260px;">
+        <div style="font-size:0.85em;color:#86868b;white-space:nowrap;">Input ratio: <strong style="color:#1d1d1f;">${ioRatioPct}%</strong></div>
+        <div style="flex:1;height:10px;background:#edf1f5;border-radius:999px;overflow:hidden;min-width:120px;">
+          <div style="height:100%;width:${Math.max(0, Math.min(100, ioRatio * 100))}%;background:linear-gradient(90deg,#1565c0,#2e7d32);border-radius:999px;"></div>
+        </div>
+      </div>`;
 
     if (view === 'hourly') {
       const hourInputTotals = new Array(24).fill(0);
@@ -835,8 +860,8 @@ export function dashboardRoute(req: Request, res: Response) {
       const hourlySvg = buildStackedBarChartSvg(barData, { width: 920, height: 280 });
       tokenTrendHtml = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:0.85em;color:#86868b;">Input ratio: <strong style="color:#1d1d1f;">${ioRatioPct}%</strong></div>
-        <div style="font-size:0.82em;"><a href="/?range=${range}">Daily</a> | <strong>Hourly</strong></div>
+        ${ioRatioBar}
+        <div style="font-size:0.82em;"><a href="/?range=${range}">View daily &rarr;</a></div>
       </div>
       <div style="overflow-x:auto;padding-bottom:4px;">${hourlySvg}</div>`;
     } else {
@@ -867,8 +892,8 @@ export function dashboardRoute(req: Request, res: Response) {
       const dailySvg = buildLineChartSvg(tokenSeries, { width: 920, height: 280 });
       tokenTrendHtml = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:0.85em;color:#86868b;">Input ratio: <strong style="color:#1d1d1f;">${ioRatioPct}%</strong></div>
-        <div style="font-size:0.82em;"><strong>Daily</strong> | <a href="/?range=${range}&view=hourly">Hourly</a></div>
+        ${ioRatioBar}
+        <div style="font-size:0.82em;"><a href="/?range=${range}&view=hourly">View hourly &rarr;</a></div>
       </div>
       <div style="overflow-x:auto;padding-bottom:4px;">${dailySvg}</div>`;
     }
@@ -915,7 +940,7 @@ export function dashboardRoute(req: Request, res: Response) {
       const hourlySvg = buildStackedBarChartSvg(barData, { width: 920, height: 280 });
       subagentTrendHtml = `
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;font-size:0.82em;">
-        <a href="/?range=${range}">Daily</a>&nbsp;|&nbsp;<strong>Hourly</strong>
+        <a href="/?range=${range}">View daily &rarr;</a>
       </div>
       <div style="overflow-x:auto;padding-bottom:4px;">${hourlySvg}</div>`;
     } else {
@@ -948,7 +973,7 @@ export function dashboardRoute(req: Request, res: Response) {
         : '<p style="color:#86868b;font-size:0.9em;">No subagent data</p>';
       subagentTrendHtml = `
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;font-size:0.82em;">
-        <strong>Daily</strong>&nbsp;|&nbsp;<a href="/?range=${range}&view=hourly">Hourly</a>
+        <a href="/?range=${range}&view=hourly">View hourly &rarr;</a>
       </div>
       <div style="overflow-x:auto;padding-bottom:4px;">${dailySvg3}</div>`;
     }
@@ -1172,7 +1197,7 @@ export function dashboardRoute(req: Request, res: Response) {
   </div>
 
   <div class="card">
-    <h2>Token I/O Trend</h2>
+    <h2>Token I/O Daily Trend</h2>
     ${tokenTrendHtml}
   </div>
 
@@ -1199,10 +1224,24 @@ export function dashboardRoute(req: Request, res: Response) {
       <h2>Agent Distribution</h2>
       ${agentBarChart}
     </div>
+    <div class="card">
+      <h2>MCP Tool Usage</h2>
+      <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
+        <span style="width:140px;">Server</span>
+        <span style="width:55px;text-align:right;">Calls</span>
+        <span style="width:45px;text-align:right;">Errors</span>
+        <span style="flex:1;">Error Rate</span>
+        <span style="width:45px;"></span>
+      </div>
+      ${mcpAggHtml}
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Tool Reliability</h2>
+  <div class="card" id="tool-reliability">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
+      <h2 style="margin:0;">Tool Reliability</h2>
+      <a href="#tool-reliability" style="font-size:0.82em;white-space:nowrap;">View all tool errors &rarr;</a>
+    </div>
     <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
       <span style="width:140px;">Tool</span>
       <span style="width:55px;text-align:right;">OK</span>
@@ -1211,18 +1250,6 @@ export function dashboardRoute(req: Request, res: Response) {
       <span style="width:45px;"></span>
     </div>
     ${toolMatrixHtml}
-  </div>
-
-  <div class="card">
-    <h2>MCP Tool Usage</h2>
-    <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
-      <span style="width:140px;">Server</span>
-      <span style="width:55px;text-align:right;">Calls</span>
-      <span style="width:45px;text-align:right;">Errors</span>
-      <span style="flex:1;">Error Rate</span>
-      <span style="width:45px;"></span>
-    </div>
-    ${mcpAggHtml}
   </div>
 
   <div class="card">
