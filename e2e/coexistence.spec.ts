@@ -1,0 +1,349 @@
+import { expect, test } from "@playwright/test";
+
+test("deep links render app shell on every React route", async ({ page }) => {
+  await page.route("**/api/dashboard**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "dashboard.snapshot",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        range: "all",
+        view: "daily",
+        summary: {
+          totalSessions: 2,
+          totalTokens: 327,
+          totalToolCalls: 4,
+          toolErrors: 2,
+          toolErrorRate: "50.0%",
+          activeProjects: 2,
+        },
+        recentSessions: [
+          {
+            id: "ses-root-1",
+            title: "Root monitor session",
+            directory: "/workspace/repo-alpha",
+            timeUpdated: 1704877260000,
+            totalTokens: 180,
+          },
+        ],
+        heatmapDays: [{ day: "2024-01-11", count: 2 }],
+        errorTrendSeries: [
+          {
+            label: "github_search",
+            color: "#d32f2f",
+            points: [{ day: "2024-01-11", value: 1 }],
+          },
+        ],
+        tokenTrend: {
+          inputRatioPercent: 55.6,
+          dailySeries: [
+            {
+              label: "input",
+              color: "#2563eb",
+              points: [{ day: "2024-01-11", value: 100 }],
+            },
+            {
+              label: "output",
+              color: "#16a34a",
+              points: [{ day: "2024-01-11", value: 80 }],
+            },
+          ],
+          hourlyBars: [],
+        },
+        subagentTrend: {
+          dailySeries: [
+            {
+              label: "subagent",
+              color: "#7c3aed",
+              points: [{ day: "2024-01-11", value: 1 }],
+            },
+          ],
+          hourlyBars: [],
+        },
+        activeRepos: {
+          dayHeaders: ["2024-01-11"],
+          rows: [
+            {
+              repo: "/workspace/repo-alpha",
+              dayCells: [{ day: "2024-01-11", label: "1", muted: false }],
+              totalLabel: "1",
+            },
+          ],
+        },
+        modelUsage: [{ label: "gpt-4.1", count: 2 }],
+        toolUsage: [{ label: "read", count: 3 }],
+        agentDistribution: [{ label: "main", count: 2 }],
+        mcpUsage: [
+          {
+            server: "Builtin Tools",
+            calls: 3,
+            errors: 1,
+            errorRate: 33.3,
+            isBuiltin: true,
+          },
+        ],
+        toolReliabilityMatrix: [
+          {
+            tool: "github_search",
+            success: 1,
+            error: 1,
+            total: 2,
+            errorRate: 50,
+          },
+        ],
+        errorPatterns: [{ label: "Network/HTTP error", count: 1 }],
+      }),
+    });
+  });
+
+  await page.route("**/api/monitor/snapshot", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "monitor.snapshot",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        activeRootSessions: [
+          {
+            id: "ses-root-1",
+            title: "Root monitor session",
+            directory: "/workspace/repo-alpha",
+            updatedAt: "2024-01-10T09:01:00.000Z",
+            messageCount: 3,
+            toolCallCount: 2,
+            compactionCount: 1,
+            subagentCount: 1,
+            signalLevel: "error",
+          },
+        ],
+        compactionCounts: {
+          main: 1,
+          subagent: 1,
+          total: 2,
+        },
+        signalBadges: [
+          {
+            key: "active",
+            label: "Active sessions",
+            level: "info",
+            count: 1,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/monitor/events", async (route) => {
+    await route.abort("failed");
+  });
+
+  await page.route("**/api/directories", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "directories.list",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        repoGroups: [
+          {
+            name: "repo-alpha",
+            rawWorktree: "/workspace/repo-alpha",
+            prettyWorktree: "/workspace/repo-alpha",
+            iconColor: "#4caf50",
+            totalCount: 1,
+            latestTime: "2024-01-10T09:01:00.000Z",
+            directories: [
+              {
+                rawDirectory: "/workspace/repo-alpha",
+                prettyDirectory: "/workspace/repo-alpha",
+                sessionCount: 1,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/dir/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "directory.sessions",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        directory: "/workspace/repo-alpha",
+        sort: { selected: "date", options: ["date", "tokens", "messages"] },
+        filter: { query: "" },
+        sessions: [
+          {
+            id: "ses-root-1",
+            title: "Root monitor session",
+            createdAt: "2024-01-10T09:00:00.000Z",
+            updatedAt: "2024-01-10T09:01:00.000Z",
+            messageCount: 3,
+            totalTokens: 180,
+            subagentCount: 1,
+            durationMs: 20000,
+            summary: { additions: 10, deletions: 4, files: 2 },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/search**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const query = requestUrl.searchParams.get("q") ?? "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "search.results",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        query,
+        searchTerms: query ? [query] : [],
+        results: query
+          ? [
+              {
+                id: "ses-root-1",
+                title: "Root monitor session",
+                directory: "/workspace/repo-alpha",
+                createdAt: "2024-01-10T09:00:00.000Z",
+                snippet: "Investigate monitor boundary behavior",
+                messageCount: 3,
+                totalTokens: 180,
+              },
+            ]
+          : [],
+      }),
+    });
+  });
+
+  await page.route("**/api/session/ses-root-1", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "session.detail",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        session: {
+          id: "ses-root-1",
+          title: "Root monitor session",
+          directory: "/workspace/repo-alpha",
+          parentId: null,
+          createdAt: "2024-01-10T09:00:00.000Z",
+          updatedAt: "2024-01-10T09:01:00.000Z",
+          summary: {
+            additions: 10,
+            deletions: 4,
+            files: 2,
+          },
+        },
+        tokens: {
+          total: 180,
+          input: 100,
+          output: 80,
+          reasoning: 20,
+          cacheRead: 40,
+          cacheWrite: 5,
+          cost: 0.17,
+        },
+        compactions: {
+          main: 0,
+          subagent: 1,
+          total: 1,
+        },
+        modelBreakdown: [
+          {
+            modelId: "gpt-4.1",
+            providerId: "openai",
+            messageCount: 2,
+            inputTokens: 100,
+            outputTokens: 80,
+            reasoningTokens: 20,
+            cacheReadTokens: 40,
+            cacheWriteTokens: 5,
+            totalTokens: 180,
+            totalCost: 0.17,
+          },
+        ],
+        subagents: [
+          {
+            id: "ses-child-1",
+            title: "Subagent follow-up",
+            updatedAt: "2024-01-10T09:01:50.000Z",
+            durationMs: 20_000,
+            compactionCount: 1,
+            signalLevel: "warning",
+          },
+        ],
+        signalBadges: [
+          {
+            key: "tool-errors",
+            label: "Tool errors",
+            level: "error",
+            count: 1,
+          },
+        ],
+        messages: [],
+        todos: [],
+        summaryDiffs: null,
+      }),
+    });
+  });
+
+  await page.route("**/api/tool-errors/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind: "tool-errors.detail",
+        generatedAt: "2024-01-11T11:00:00.000Z",
+        tool: "github_search",
+        dailyErrorCounts: [{ day: "2024-01-11", count: 1 }],
+        latestErrors: [
+          {
+            timeCreated: 1704877260000,
+            sessionId: "ses-root-1",
+            error: "HTTP 500 upstream",
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("dashboard")).toBeVisible();
+
+  await page.goto("/directories");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("repo-section").first()).toContainText(
+    "repo-alpha",
+  );
+
+  await page.goto("/search?q=monitor");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByText("Root monitor session").first()).toBeVisible();
+
+  await page.goto("/dir/%2Fworkspace%2Frepo-alpha");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByText("Root monitor session").first()).toBeVisible();
+
+  await page.goto("/session/ses-root-1");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Root monitor session" }),
+  ).toBeVisible();
+
+  await page.goto("/tool-errors/github_search");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByText("Tool Errors: github_search")).toBeVisible();
+
+  await page.goto("/monitor");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Recent Sessions" }),
+  ).toBeVisible();
+});

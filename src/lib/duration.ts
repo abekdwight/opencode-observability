@@ -1,13 +1,15 @@
-import { resolveRepoBucketKey } from './repo-root.js';
-type SqliteDatabase = import('better-sqlite3').Database;
+import { resolveRepoBucketKey } from "./repo-root.js";
+
+type SqliteDatabase = import("better-sqlite3").Database;
 
 export function calcSessionActiveDurations(
   db: SqliteDatabase,
   sessionIds: string[],
 ): Map<string, number> {
   if (sessionIds.length === 0) return new Map();
-  const placeholders = sessionIds.map(() => '?').join(',');
-  const rows = db.prepare(`
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(`
     WITH ordered AS (
       SELECT
         m.session_id,
@@ -22,8 +24,9 @@ export function calcSessionActiveDurations(
       SUM(CASE WHEN role = 'assistant' AND prev_ts IS NOT NULL THEN ts - prev_ts ELSE 0 END) AS active_ms
     FROM ordered
     GROUP BY session_id
-  `).all(...sessionIds) as { session_id: string; active_ms: number }[];
-  return new Map(rows.map(r => [r.session_id, r.active_ms]));
+  `)
+    .all(...sessionIds) as { session_id: string; active_ms: number }[];
+  return new Map(rows.map((r) => [r.session_id, r.active_ms]));
 }
 
 export function calcRepoDayActiveDurations(
@@ -32,8 +35,9 @@ export function calcRepoDayActiveDurations(
   days: string[],
 ): Map<string, number> {
   if (repositories.length === 0 || days.length === 0) return new Map();
-  const dayPlaceholders = days.map(() => '?').join(',');
-  const rows = db.prepare(`
+  const dayPlaceholders = days.map(() => "?").join(",");
+  const rows = db
+    .prepare(`
     WITH root_sessions AS (
       SELECT s.id, p.worktree AS worktree, s.directory AS directory
       FROM session s
@@ -59,12 +63,18 @@ export function calcRepoDayActiveDurations(
     FROM ordered
     WHERE day IN (${dayPlaceholders})
     GROUP BY worktree, directory, day
-  `).all(...days) as { worktree: string | null; directory: string | null; day: string; active_ms: number }[];
+  `)
+    .all(...days) as {
+    worktree: string | null;
+    directory: string | null;
+    day: string;
+    active_ms: number;
+  }[];
 
   const repoSet = new Set(repositories);
   const result = new Map<string, number>();
   for (const { worktree, directory, day, active_ms } of rows) {
-    const repo = resolveRepoBucketKey(worktree ?? '', directory ?? '');
+    const repo = resolveRepoBucketKey(worktree ?? "", directory ?? "");
     if (!repoSet.has(repo)) continue;
     const key = `${repo}\t${day}`;
     result.set(key, (result.get(key) || 0) + active_ms);

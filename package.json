@@ -1,24 +1,79 @@
 {
-  "name": "opencode-telemetry",
+  "name": "opencode-observability",
   "version": "0.1.0",
-  "private": true,
-  "description": "CLI tool to print OpenCode user messages as markdown",
+  "type": "module",
+  "description": "Local-first monitor and triage app for OpenCode observability",
+  "license": "MIT",
+  "main": "dist/server/plugin/index.js",
+  "types": "dist/server/plugin/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server/plugin/index.d.ts",
+      "default": "./dist/server/plugin/index.js"
+    }
+  },
+  "bin": {
+    "opencode-observability": "dist/server/cli/opencode-observability.js",
+    "opencode-telemetry": "dist/server/cli/opencode-observability.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "dev": "npm run dev:full",
+    "dev:server": "tsx watch src/index.ts",
+    "dev:app": "vite --config vite.config.ts",
+    "dev:full": "npm run build:app && npm run dev:server",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && npm run build:server && npm run build:app",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:app": "vite build --config vite.config.ts",
+    "start": "node dist/server/cli/opencode-observability.js",
+    "preview": "vite preview --config vite.config.ts --host 127.0.0.1 --port 4173",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "fixtures:build": "tsx tests/helpers/fixture-db.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
+    "@vitejs/plugin-react": "^6.0.1",
     "better-sqlite3": "^11.10.0",
-    "express": "^4.18.2",
-    "marked": "^11.1.1"
+    "hono": "^4.12.8",
+    "marked": "^11.1.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1",
+    "recharts": "^3.8.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@opencode-ai/plugin": "^1.2.27",
+    "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/express": "^4.17.21",
     "@types/node": "^22.13.10",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vite": "^8.0.1",
+    "vitest": "^4.1.0"
   }
 }
