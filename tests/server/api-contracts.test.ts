@@ -7,12 +7,21 @@ import {
   test,
   vi,
 } from "vitest";
+import { getWritableDb } from "../../src/lib/db.js";
 import { createApiApp } from "../../src/server/app.js";
+import {
+  getDashboardApiCacheSnapshotForTests,
+  invalidateDashboardApiCache,
+  readDashboardSnapshot,
+} from "../../src/server/dashboard-api.js";
 import { MONITOR_SSE_HEARTBEAT_INTERVAL_MS } from "../../src/server/monitor-api.js";
 import { resetMonitorRuntimeStoreForTest } from "../../src/server/monitor-runtime-store.js";
+import * as dashboardService from "../../src/services/dashboard/dashboard-service.js";
 import {
   ALERT_SESSION_ID,
   CHILD_SESSION_ID,
+  FUTURE_SESSION_ID,
+  OLD_SESSION_ID,
   ROOT_SESSION_ID,
   restoreDbPath,
   useFixtureDb,
@@ -22,6 +31,35 @@ type SseMessage = {
   event: string;
   data: string;
 };
+
+function totalStacks(
+  bars: Array<{
+    label: string;
+    stacks: Array<{ name: string; value: number }>;
+  }>,
+  label: string,
+): number {
+  return (
+    bars
+      .find((bar) => bar.label === label)
+      ?.stacks.reduce((sum, stack) => sum + stack.value, 0) ?? 0
+  );
+}
+
+function stackValue(
+  bars: Array<{
+    label: string;
+    stacks: Array<{ name: string; value: number }>;
+  }>,
+  label: string,
+  name: string,
+): number {
+  return (
+    bars
+      .find((bar) => bar.label === label)
+      ?.stacks.find((stack) => stack.name === name)?.value ?? 0
+  );
+}
 
 function parseSseMessage(block: string): SseMessage | null {
   const lines = block
@@ -113,6 +151,7 @@ describe("server api contracts", () => {
 
   beforeEach(() => {
     resetMonitorRuntimeStoreForTest();
+    invalidateDashboardApiCache();
   });
 
   afterAll(() => {
@@ -401,13 +440,18 @@ describe("server api contracts", () => {
 
     expect(body.kind).toBe("directories.list");
     expect(body.repoGroups.map((group) => group.rawWorktree)).toEqual([
-      "/workspace/repo-beta",
       "/workspace/repo-alpha",
+      "/workspace/repo-beta",
     ]);
     expect(body.repoGroups[0].directories).toEqual([
       {
-        rawDirectory: "/workspace/repo-beta/packages/api",
-        prettyDirectory: "/workspace/repo-beta/packages/api",
+        rawDirectory: "/workspace/repo-alpha",
+        prettyDirectory: "/workspace/repo-alpha",
+        sessionCount: 1,
+      },
+      {
+        rawDirectory: "/workspace/repo-alpha/future",
+        prettyDirectory: "/workspace/repo-alpha/future",
         sessionCount: 1,
       },
     ]);
@@ -663,16 +707,30 @@ describe("server api contracts", () => {
     expect(serialized).not.toContain("part-root-1-tool-read");
   });
 
-  test("GET /api/dashboard returns the dashboard contract shape", async () => {
+  test("GET /api/dashboard returns bounded all-window dashboard data", async () => {
     const app = createApiApp();
-    const response = await app.request("/api/dashboard?range=all&view=daily");
+    const response = await app.request(
+      "/api/dashboard?preset=custom&start=2023-10-14&end=2024-01-11&view=daily",
+    );
 
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as {
       kind: string;
-      range: string;
-      view: string;
+      selection: {
+        preset: string;
+        start: string;
+        end: string;
+        view: string;
+        timezone: string;
+        refreshable: boolean;
+        bounds: {
+          startDayInclusive: string;
+          endDayInclusive: string;
+          endDayExclusive: string;
+          dayCount: number;
+        };
+      };
       summary: {
         totalSessions: number;
         totalTokens: number;
@@ -683,10 +741,23 @@ describe("server api contracts", () => {
       };
       recentSessions: Array<{ id: string }>;
       heatmapDays: Array<{ day: string; count: number }>;
+      errorTrendSeries: Array<{
+        points: Array<{ day: string; value: number }>;
+      }>;
+      errorTrendHourlyBars: Array<unknown>;
       tokenTrend: {
         inputRatioPercent: number;
-        dailySeries: Array<unknown>;
+        dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
         hourlyBars: Array<unknown>;
+      };
+      modelPerformance: Array<{ label: string; count: number }>;
+      modelUsage: Array<{ label: string; count: number }>;
+      modelTokenConsumption: Array<{ label: string; count: number }>;
+      toolUsage: Array<{ label: string; count: number }>;
+      agentDistribution: Array<{ label: string; count: number }>;
+      activeRepos: {
+        dayHeaders: string[];
+        rows: Array<{ repo: string }>;
       };
       mcpUsage: Array<{ server: string; calls: number; errors: number }>;
       toolReliabilityMatrix: Array<{ tool: string; error: number }>;
@@ -694,31 +765,82 @@ describe("server api contracts", () => {
     };
 
     expect(body.kind).toBe("dashboard.snapshot");
-    expect(body.range).toBe("all");
-    expect(body.view).toBe("daily");
+    expect(body.selection).toMatchObject({
+      preset: "custom",
+      start: "2023-10-14",
+      end: "2024-01-11",
+      view: "daily",
+      refreshable: true,
+      bounds: {
+        startDayInclusive: "2023-10-14",
+        endDayInclusive: "2024-01-11",
+        endDayExclusive: "2024-01-12",
+        dayCount: 90,
+      },
+    });
+    expect(body.selection.timezone).toBeTruthy();
     expect(body.summary).toEqual({
-      totalSessions: 2,
-      totalTokens: 327,
+      totalSessions: 3,
+      totalTokens: 351,
       totalToolCalls: 4,
       toolErrors: 2,
       toolErrorRate: "50.0%",
       activeProjects: 2,
     });
     expect(body.recentSessions.map((session) => session.id)).toEqual([
-      ALERT_SESSION_ID,
       ROOT_SESSION_ID,
+      ALERT_SESSION_ID,
+      OLD_SESSION_ID,
     ]);
     expect(body.heatmapDays).not.toEqual([]);
     expect(body.heatmapDays.some((entry) => entry.count > 0)).toBe(true);
+    expect(body.heatmapDays).toHaveLength(3);
+    expect(body.errorTrendSeries.length).toBeGreaterThan(0);
+    expect(body.errorTrendSeries[0]?.points).toHaveLength(90);
+    expect(body.errorTrendHourlyBars).toEqual([]);
     expect(body.tokenTrend.dailySeries.length).toBeGreaterThan(0);
+    expect(body.tokenTrend.dailySeries[0]).toMatchObject({
+      points: expect.arrayContaining([
+        { day: "2023-10-14", value: 0 },
+        { day: "2024-01-11", value: 114 },
+      ]),
+    });
+    expect(body.tokenTrend.dailySeries[0]?.points).toHaveLength(90);
     expect(body.tokenTrend.hourlyBars).toEqual([]);
+    expect(body.activeRepos.dayHeaders).toHaveLength(90);
+    expect(body.activeRepos.rows.map((row) => row.repo)).toEqual([
+      "/workspace/repo-beta",
+      "/workspace/repo-alpha",
+    ]);
+    expect(body.modelUsage).toEqual(
+      expect.arrayContaining([{ label: "gpt-4.1", count: 3 }]),
+    );
+    expect(body.modelPerformance.length).toBeGreaterThan(0);
+    expect(body.modelPerformance.map((entry) => entry.label)).toEqual(
+      expect.arrayContaining(["gpt-4.1", "claude-3.5-sonnet"]),
+    );
+    expect(body.modelTokenConsumption.length).toBeGreaterThan(0);
+    expect(body.toolUsage).toEqual(
+      expect.arrayContaining([{ label: "webfetch", count: 1 }]),
+    );
+    expect(body.agentDistribution).toEqual(
+      expect.arrayContaining([{ label: "reviewer", count: 2 }]),
+    );
     expect(
       body.mcpUsage.find((entry) => entry.server === "Builtin Tools"),
     ).toMatchObject({ calls: 3, errors: 1 });
+    expect(body.mcpUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ server: "github", calls: 1, errors: 1 }),
+      ]),
+    );
     expect(
       body.toolReliabilityMatrix.find(
         (entry) => entry.tool === "github_search",
       ),
+    ).toMatchObject({ error: 1 });
+    expect(
+      body.toolReliabilityMatrix.find((entry) => entry.tool === "webfetch"),
     ).toMatchObject({ error: 1 });
     expect(
       body.errorPatterns.find((entry) => entry.label === "Network/HTTP error")
@@ -728,30 +850,534 @@ describe("server api contracts", () => {
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("<svg");
     expect(serialized).not.toContain("<div");
+    expect(serialized).not.toContain(FUTURE_SESSION_ID);
   });
 
-  test("GET /api/dashboard supports hourly view semantics", async () => {
+  test("GET /api/dashboard returns bounded day-window dashboard data", async () => {
     const app = createApiApp();
-    const response = await app.request("/api/dashboard?range=all&view=hourly");
+    const response = await app.request(
+      "/api/dashboard?preset=today&view=daily",
+    );
 
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as {
-      range: string;
-      view: string;
-      tokenTrend: { dailySeries: Array<unknown>; hourlyBars: Array<unknown> };
+      selection: {
+        preset: string;
+        bounds: { dayCount: number };
+      };
+      summary: {
+        totalSessions: number;
+        totalTokens: number;
+        totalToolCalls: number;
+        toolErrors: number;
+        toolErrorRate: string;
+        activeProjects: number;
+      };
+      recentSessions: Array<{ id: string }>;
+      heatmapDays: Array<{ day: string; count: number }>;
+      errorTrendSeries: Array<{
+        points: Array<{ day: string; value: number }>;
+      }>;
+      tokenTrend: {
+        dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
+      };
+      subagentTrend: {
+        dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
+      };
+      activeRepos: {
+        dayHeaders: string[];
+        rows: Array<{ repo: string }>;
+      };
+      modelUsage: Array<{ label: string; count: number }>;
+      modelPerformance: Array<{ label: string }>;
+      toolUsage: Array<{ label: string; count: number }>;
+      agentDistribution: Array<{ label: string; count: number }>;
+      mcpUsage: Array<{ server: string; calls: number; errors: number }>;
+      toolReliabilityMatrix: Array<{ tool: string; error: number }>;
+    };
+
+    expect(body.selection).toMatchObject({
+      preset: "today",
+      bounds: { dayCount: 1 },
+    });
+    expect(body.summary).toEqual({
+      totalSessions: 1,
+      totalTokens: 222,
+      totalToolCalls: 3,
+      toolErrors: 1,
+      toolErrorRate: "33.3%",
+      activeProjects: 1,
+    });
+    expect(body.recentSessions.map((session) => session.id)).toEqual([
+      ROOT_SESSION_ID,
+    ]);
+    expect(body.heatmapDays).toEqual([{ day: "2024-01-11", count: 1 }]);
+    expect(body.errorTrendSeries[0]?.points).toEqual([
+      { day: "2024-01-11", value: 1 },
+    ]);
+    expect(body.tokenTrend.dailySeries[0]?.points).toEqual([
+      { day: "2024-01-11", value: 114 },
+    ]);
+    expect(body.subagentTrend.dailySeries[0]?.points).toEqual([
+      { day: "2024-01-11", value: 2 },
+    ]);
+    expect(body.activeRepos.dayHeaders).toEqual(["2024-01-11"]);
+    expect(body.activeRepos.rows.map((row) => row.repo)).toEqual([
+      "/workspace/repo-alpha",
+    ]);
+    expect(body.modelUsage).toEqual(
+      expect.arrayContaining([{ label: "gpt-4.1", count: 2 }]),
+    );
+    expect(body.modelPerformance.map((entry) => entry.label)).not.toContain(
+      "claude-3.5-sonnet",
+    );
+    expect(body.toolUsage).not.toEqual(
+      expect.arrayContaining([{ label: "webfetch", count: 1 }]),
+    );
+    expect(body.agentDistribution).not.toEqual(
+      expect.arrayContaining([{ label: "reviewer", count: 1 }]),
+    );
+    expect(body.mcpUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          server: "Builtin Tools",
+          calls: 2,
+          errors: 0,
+        }),
+      ]),
+    );
+    expect(body.mcpUsage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ server: "github", calls: 1, errors: 1 }),
+      ]),
+    );
+    expect(
+      body.toolReliabilityMatrix.find((entry) => entry.tool === "webfetch"),
+    ).toBeUndefined();
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(OLD_SESSION_ID);
+    expect(serialized).not.toContain(FUTURE_SESSION_ID);
+  });
+
+  test("GET /api/dashboard returns bounded week-window dashboard data", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/dashboard?preset=last7d&view=daily",
+    );
+
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      selection: {
+        preset: string;
+        bounds: { dayCount: number };
+      };
+      summary: {
+        totalSessions: number;
+        totalTokens: number;
+        totalToolCalls: number;
+        toolErrors: number;
+        toolErrorRate: string;
+        activeProjects: number;
+      };
+      recentSessions: Array<{ id: string }>;
+      heatmapDays: Array<{ day: string; count: number }>;
+      errorTrendSeries: Array<{
+        points: Array<{ day: string; value: number }>;
+      }>;
+      tokenTrend: {
+        dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
+      };
+      subagentTrend: {
+        dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
+      };
+      activeRepos: {
+        dayHeaders: string[];
+        rows: Array<{ repo: string }>;
+      };
+      modelUsage: Array<{ label: string; count: number }>;
+      modelPerformance: Array<{ label: string }>;
+      toolUsage: Array<{ label: string; count: number }>;
+      agentDistribution: Array<{ label: string; count: number }>;
+      mcpUsage: Array<{ server: string }>;
+      toolReliabilityMatrix: Array<{ tool: string; error: number }>;
+    };
+
+    expect(body.selection).toMatchObject({
+      preset: "last7d",
+      bounds: { dayCount: 7 },
+    });
+    expect(body.summary).toEqual({
+      totalSessions: 2,
+      totalTokens: 327,
+      totalToolCalls: 4,
+      toolErrors: 2,
+      toolErrorRate: "50.0%",
+      activeProjects: 2,
+    });
+    expect(body.recentSessions.map((session) => session.id)).toEqual([
+      ROOT_SESSION_ID,
+      ALERT_SESSION_ID,
+    ]);
+    expect(body.heatmapDays).toEqual([
+      { day: "2024-01-10", count: 1 },
+      { day: "2024-01-11", count: 1 },
+    ]);
+    expect(body.errorTrendSeries[0]?.points).toHaveLength(7);
+    expect(body.tokenTrend.dailySeries[0]?.points).toHaveLength(7);
+    expect(body.subagentTrend.dailySeries[0]?.points).toHaveLength(7);
+    expect(body.activeRepos.dayHeaders).toHaveLength(7);
+    expect(body.activeRepos.rows.map((row) => row.repo).sort()).toEqual([
+      "/workspace/repo-alpha",
+      "/workspace/repo-beta",
+    ]);
+    expect(body.modelUsage).toEqual(
+      expect.arrayContaining([{ label: "claude-3.5-sonnet", count: 1 }]),
+    );
+    expect(body.modelPerformance.map((entry) => entry.label)).toContain(
+      "claude-3.5-sonnet",
+    );
+    expect(body.toolUsage).toEqual(
+      expect.arrayContaining([{ label: "webfetch", count: 1 }]),
+    );
+    expect(body.agentDistribution).toEqual(
+      expect.arrayContaining([{ label: "reviewer", count: 1 }]),
+    );
+    expect(body.mcpUsage.map((entry) => entry.server)).toEqual(
+      expect.arrayContaining(["Builtin Tools", "github"]),
+    );
+    expect(
+      body.toolReliabilityMatrix.find((entry) => entry.tool === "webfetch"),
+    ).toMatchObject({ error: 1 });
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(OLD_SESSION_ID);
+    expect(serialized).not.toContain(FUTURE_SESSION_ID);
+  });
+
+  test("GET /api/dashboard supports hourly view semantics", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/dashboard?preset=custom&start=2023-10-14&end=2024-01-11&view=hourly",
+    );
+
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      selection: {
+        preset: string;
+        view: string;
+        bounds: { dayCount: number };
+      };
+      errorTrendSeries: Array<unknown>;
+      errorTrendHourlyBars: Array<{
+        label: string;
+        stacks: Array<{ name: string; value: number }>;
+      }>;
+      tokenTrend: {
+        dailySeries: Array<unknown>;
+        hourlyBars: Array<{
+          label: string;
+          stacks: Array<{ name: string; value: number }>;
+        }>;
+      };
       subagentTrend: {
         dailySeries: Array<unknown>;
-        hourlyBars: Array<unknown>;
+        hourlyBars: Array<{
+          label: string;
+          stacks: Array<{ name: string; value: number }>;
+        }>;
       };
     };
 
-    expect(body.range).toBe("all");
-    expect(body.view).toBe("hourly");
+    expect(body.selection).toMatchObject({
+      preset: "custom",
+      view: "hourly",
+      bounds: { dayCount: 90 },
+    });
+    expect(body.errorTrendSeries).toEqual([]);
+    expect(body.errorTrendHourlyBars).toHaveLength(24);
+    expect(totalStacks(body.errorTrendHourlyBars, "10")).toBe(2);
     expect(body.tokenTrend.dailySeries).toEqual([]);
     expect(body.tokenTrend.hourlyBars).toHaveLength(24);
+    expect(stackValue(body.tokenTrend.hourlyBars, "10", "Input")).toBe(179);
+    expect(stackValue(body.tokenTrend.hourlyBars, "10", "Output")).toBe(172);
     expect(body.subagentTrend.dailySeries).toEqual([]);
     expect(body.subagentTrend.hourlyBars).toHaveLength(24);
+    expect(totalStacks(body.subagentTrend.hourlyBars, "10")).toBe(7);
+  });
+
+  test("GET /api/dashboard sums hourly buckets across bounded multi-day and single-day selections", async () => {
+    const app = createApiApp();
+    const [dayResponse, weekResponse] = await Promise.all([
+      app.request("/api/dashboard?preset=today&view=hourly"),
+      app.request("/api/dashboard?preset=last7d&view=hourly"),
+    ]);
+
+    expect(dayResponse.status).toBe(200);
+    expect(weekResponse.status).toBe(200);
+
+    const dayBody = (await dayResponse.json()) as {
+      errorTrendHourlyBars: Array<{
+        label: string;
+        stacks: Array<{ name: string; value: number }>;
+      }>;
+      tokenTrend: {
+        hourlyBars: Array<{
+          label: string;
+          stacks: Array<{ name: string; value: number }>;
+        }>;
+      };
+      subagentTrend: {
+        hourlyBars: Array<{
+          label: string;
+          stacks: Array<{ name: string; value: number }>;
+        }>;
+      };
+    };
+    const weekBody = (await weekResponse.json()) as typeof dayBody;
+
+    expect(dayBody.errorTrendHourlyBars).toHaveLength(24);
+    expect(totalStacks(dayBody.errorTrendHourlyBars, "10")).toBe(1);
+    expect(stackValue(dayBody.tokenTrend.hourlyBars, "10", "Input")).toBe(114);
+    expect(stackValue(dayBody.tokenTrend.hourlyBars, "10", "Output")).toBe(108);
+    expect(totalStacks(dayBody.subagentTrend.hourlyBars, "10")).toBe(4);
+
+    expect(weekBody.errorTrendHourlyBars).toHaveLength(24);
+    expect(totalStacks(weekBody.errorTrendHourlyBars, "10")).toBe(2);
+    expect(stackValue(weekBody.tokenTrend.hourlyBars, "10", "Input")).toBe(169);
+    expect(stackValue(weekBody.tokenTrend.hourlyBars, "10", "Output")).toBe(
+      158,
+    );
+    expect(totalStacks(weekBody.subagentTrend.hourlyBars, "10")).toBe(6);
+  });
+
+  test("GET /api/dashboard rejects inverted custom ranges", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/dashboard?preset=custom&start=2024-01-11&end=2024-01-10&view=daily",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: "Custom range start date must be on or before the end date.",
+    });
+  });
+
+  test("GET /api/dashboard rejects custom ranges over 90 days", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/dashboard?preset=custom&start=2023-10-13&end=2024-01-11&view=daily",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: "Custom ranges are limited to 90 days.",
+    });
+  });
+
+  test("GET /api/dashboard rejects invalid custom date formats", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/dashboard?preset=custom&start=2024-01-32&end=2024-01-11&view=daily",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: "Custom range requires valid start and end dates.",
+    });
+  });
+
+  test("dashboard cache hydrates bounded all-window day buckets on first load", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+    const buildSpy = vi.spyOn(
+      dashboardService,
+      "buildDashboardAggregateStateForWindow",
+    );
+
+    try {
+      const body = readDashboardSnapshot(db, { range: "all", view: "daily" });
+
+      expect(body.summary.totalSessions).toBe(3);
+      expect(buildSpy).toHaveBeenCalledTimes(90);
+      expect(
+        buildSpy.mock.calls.some(([, windowArg]) => {
+          const window = windowArg as {
+            startDayInclusive: string;
+            endDayExclusive: string;
+          };
+          return (
+            window.startDayInclusive === "2023-10-14" &&
+            window.endDayExclusive === "2023-10-15"
+          );
+        }),
+      ).toBe(true);
+      expect(
+        buildSpy.mock.calls.some(([, windowArg]) => {
+          const window = windowArg as {
+            startDayInclusive: string;
+            endDayExclusive: string;
+          };
+          return (
+            window.startDayInclusive === "2024-01-11" &&
+            window.endDayExclusive === "2024-01-12"
+          );
+        }),
+      ).toBe(true);
+      const snapshot = getDashboardApiCacheSnapshotForTests();
+      expect(snapshot.rawKeys).toHaveLength(90);
+      expect(snapshot.rawKeys[0]).toBe("2023-10-14");
+      expect(snapshot.rawKeys.at(-1)).toBe("2024-01-11");
+    } finally {
+      buildSpy.mockRestore();
+      db.close();
+    }
+  });
+
+  test("dashboard cache reuses day buckets across overlapping bounded windows", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+    const buildSpy = vi.spyOn(
+      dashboardService,
+      "buildDashboardAggregateStateForWindow",
+    );
+
+    try {
+      const weekBody = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+      const allBody = readDashboardSnapshot(db, {
+        range: "all",
+        view: "daily",
+      });
+
+      expect(weekBody.summary.totalSessions).toBe(2);
+      expect(allBody.summary.totalSessions).toBe(3);
+      expect(buildSpy).toHaveBeenCalledTimes(90);
+      const weekDayBuilds = buildSpy.mock.calls.filter(([, windowArg]) => {
+        const window = windowArg as {
+          startDayInclusive: string;
+          endDayExclusive: string;
+        };
+        return (
+          window.startDayInclusive === "2024-01-05" &&
+          window.endDayExclusive === "2024-01-06"
+        );
+      });
+      expect(weekDayBuilds).toHaveLength(1);
+
+      const snapshot = getDashboardApiCacheSnapshotForTests();
+      expect(snapshot.rawKeys).toHaveLength(90);
+      expect(snapshot.rawKeys[0]).toBe("2023-10-14");
+      expect(snapshot.rawKeys.at(-1)).toBe("2024-01-11");
+    } finally {
+      buildSpy.mockRestore();
+      db.close();
+    }
+  });
+
+  test("dashboard cache refreshes live windows every 30 seconds but keeps fixed historical windows stable", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+    const updateSpy = vi.spyOn(
+      dashboardService,
+      "updateDashboardAggregateStateForWindow",
+    );
+
+    try {
+      const liveFirst = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+      vi.advanceTimersByTime(29_000);
+      const liveSecond = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+      vi.advanceTimersByTime(2_000);
+      const liveThird = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+
+      const historicalWindow = {
+        startDayInclusive: "2024-01-04",
+        endDayExclusive: "2024-01-05",
+      };
+      const historicalFirst = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: historicalWindow,
+      });
+      vi.advanceTimersByTime(31_000);
+      const historicalSecond = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: historicalWindow,
+      });
+
+      expect(liveFirst.generatedAt).toBe(liveSecond.generatedAt);
+      expect(liveThird.generatedAt).not.toBe(liveSecond.generatedAt);
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(
+        db,
+        expect.any(Object),
+        expect.objectContaining({
+          startDayInclusive: "2024-01-11",
+          endDayExclusive: "2024-01-12",
+        }),
+      );
+
+      expect(historicalFirst.generatedAt).toBe(historicalSecond.generatedAt);
+    } finally {
+      updateSpy.mockRestore();
+      db.close();
+    }
+  });
+
+  test("dashboard cache clears when session count drops", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+
+    try {
+      const window = {
+        startDayInclusive: "2024-01-04",
+        endDayExclusive: "2024-01-05",
+      };
+      const before = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window,
+      });
+      expect(before.summary.totalSessions).toBe(1);
+      expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
+        "2024-01-04",
+      ]);
+
+      db.prepare("DELETE FROM session WHERE id = ?").run(OLD_SESSION_ID);
+      vi.advanceTimersByTime(1_000);
+
+      const after = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window,
+      });
+      expect(after.summary.totalSessions).toBe(0);
+      expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
+        "2024-01-04",
+      ]);
+      expect(after.generatedAt).not.toBe(before.generatedAt);
+    } finally {
+      db.close();
+    }
   });
 
   test("GET /api/tool-errors/:tool returns timeline and latest errors", async () => {

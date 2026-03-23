@@ -8,6 +8,8 @@ export const FIXTURE_DB_PATH = path.resolve(
 export const ROOT_SESSION_ID = "ses-root-1";
 export const CHILD_SESSION_ID = "ses-child-1";
 export const ALERT_SESSION_ID = "ses-root-2";
+export const OLD_SESSION_ID = "ses-root-0";
+export const FUTURE_SESSION_ID = "ses-root-3";
 
 const schemaSql = `
 PRAGMA foreign_keys = ON;
@@ -83,8 +85,12 @@ CREATE TABLE todo (
 
 function buildFixture() {
   const now = Date.now();
-  const dayOne = now - 45 * 60_000;
-  const dayTwo = now - 4 * 60_000;
+  const MINUTE = 60_000;
+  const DAY = 24 * 60 * MINUTE;
+  const dayOne = now - 45 * MINUTE;
+  const dayTwo = dayOne - DAY;
+  const dayThree = dayOne - 7 * DAY;
+  const dayFuture = dayOne + DAY;
 
   fs.mkdirSync(path.dirname(FIXTURE_DB_PATH), { recursive: true });
   fs.rmSync(FIXTURE_DB_PATH, { force: true });
@@ -184,6 +190,38 @@ function buildFixture() {
     time_created: dayTwo,
     time_updated: dayTwo + 70_000,
     time_compacting: dayTwo + 30_000,
+  });
+  insertSession.run({
+    id: OLD_SESSION_ID,
+    project_id: "proj-beta",
+    parent_id: null,
+    slug: "root-zero",
+    directory: "/workspace/repo-beta/legacy",
+    title: "Legacy root session",
+    version: "1",
+    summary_additions: 1,
+    summary_deletions: 0,
+    summary_files: 1,
+    summary_diffs: "diff --git a/legacy.ts b/legacy.ts",
+    time_created: dayThree,
+    time_updated: dayThree + 45_000,
+    time_compacting: null,
+  });
+  insertSession.run({
+    id: FUTURE_SESSION_ID,
+    project_id: "proj-alpha",
+    parent_id: null,
+    slug: "root-future",
+    directory: "/workspace/repo-alpha/future",
+    title: "Future root session",
+    version: "1",
+    summary_additions: 2,
+    summary_deletions: 0,
+    summary_files: 1,
+    summary_diffs: "diff --git a/future.ts b/future.ts",
+    time_created: dayFuture,
+    time_updated: dayFuture + 45_000,
+    time_compacting: null,
   });
 
   const insertMessage = db.prepare(`
@@ -308,6 +346,37 @@ function buildFixture() {
       summary: true,
       cost: 0.01,
       tokens: { total: 15, input: 5, output: 10 },
+    },
+  );
+  insertMessageJson("msg-old-1-user", OLD_SESSION_ID, dayThree, {
+    role: "user",
+    time: { created: dayThree },
+  });
+  insertMessageJson("msg-old-1-assistant", OLD_SESSION_ID, dayThree + 11_000, {
+    role: "assistant",
+    time: { created: dayThree + 11_000, completed: dayThree + 14_000 },
+    modelID: "gpt-4.1",
+    providerID: "openai",
+    agent: "reviewer",
+    cost: 0.02,
+    tokens: { total: 24, input: 10, output: 14 },
+  });
+  insertMessageJson("msg-future-1-user", FUTURE_SESSION_ID, dayFuture, {
+    role: "user",
+    time: { created: dayFuture },
+  });
+  insertMessageJson(
+    "msg-future-1-assistant",
+    FUTURE_SESSION_ID,
+    dayFuture + 11_000,
+    {
+      role: "assistant",
+      time: { created: dayFuture + 11_000, completed: dayFuture + 15_000 },
+      modelID: "gpt-4.1",
+      providerID: "openai",
+      agent: "reviewer",
+      cost: 0.04,
+      tokens: { total: 66, input: 30, output: 36 },
     },
   );
 

@@ -3,8 +3,16 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { resolveAppDistDir } from "../lib/app-dist-path.js";
 import { getWritableDb } from "../lib/db.js";
+import {
+  readDashboardAffectedDaysForSessionIds,
+  readSessionDeletionTargetIds,
+} from "../repositories/dashboard/dashboard-repository.js";
 import { renderAppShell } from "./app-shell.js";
-import { dashboardApi } from "./dashboard-api.js";
+import {
+  dashboardApi,
+  invalidateDashboardApiCache,
+  invalidateDashboardApiCacheForDays,
+} from "./dashboard-api.js";
 import { requireDeleteConfirmation } from "./delete-guard.js";
 import { directoriesApi } from "./directories-api.js";
 import { monitorApi } from "./monitor-api.js";
@@ -39,10 +47,24 @@ export function createApiApp() {
     const db = getWritableDb();
     try {
       db.exec("PRAGMA foreign_keys = ON");
+      const targetSessionIds = readSessionDeletionTargetIds(db, sessionId);
+      const affectedDays = readDashboardAffectedDaysForSessionIds(
+        db,
+        targetSessionIds,
+      );
       const deleteStmt = db.prepare(
         "DELETE FROM session WHERE id = ? OR parent_id = ?",
       );
       const result = deleteStmt.run(sessionId, sessionId);
+
+      if (result.changes > 0) {
+        if (affectedDays.length > 0) {
+          invalidateDashboardApiCacheForDays(affectedDays);
+        } else {
+          invalidateDashboardApiCache();
+        }
+      }
+
       return c.json({ deleted: result.changes });
     } catch (err) {
       return c.json({ error: String(err) }, 500);

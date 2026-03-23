@@ -1,3 +1,4 @@
+import type { DashboardSelectionBoundsContract } from "../../contracts/dashboard.js";
 import {
   buildLineChartSvg,
   buildStackedBarChartSvg,
@@ -5,6 +6,14 @@ import {
   computeRatio,
   fillMissingDays,
 } from "../../lib/analytics.js";
+import {
+  addLocalDays,
+  buildDashboardSelectionBounds,
+  computeDashboardRefreshEligibility,
+  countInclusiveDays,
+  parseLocalDate,
+  toLocalDateString,
+} from "../../lib/dashboard-time.js";
 import { calcRepoDayActiveDurations } from "../../lib/duration.js";
 import { resolveRepoBucketKey } from "../../lib/repo-root.js";
 import {
@@ -15,6 +24,7 @@ import {
   prettifyPath,
 } from "../../lib/text-format.js";
 import {
+  type DashboardRepositoryWindow,
   fetchDashboardLiveSummary,
   fetchDashboardMessageData,
   fetchDashboardPartData,
@@ -69,6 +79,7 @@ export interface DashboardAggregateState {
   lastPartRowid: number;
 
   modelDays: Map<string, number>;
+  modelTokenDays: Map<string, number>;
   agentDays: Map<string, number>;
   tokenDays: Map<string, number>;
   tokenInputDays: Map<string, number>;
@@ -82,8 +93,6 @@ export interface DashboardAggregateState {
   sessionCount: number;
   repoDays: Map<string, number>;
   lastSessionRowid: number;
-
-  htmlCache: Map<string, { html: string; time: number }>;
 }
 
 export interface DashboardSummaryMetrics {
@@ -177,14 +186,18 @@ export interface DashboardBarItem {
 export interface DashboardViewModel {
   range: DashboardRange;
   view: DashboardView;
+  selection: DashboardSelectionBoundsContract;
   summary: DashboardSummaryMetrics;
   recentSessions: DashboardRecentSessionItem[];
   heatmapDays: DayCount[];
   errorTrendSeries: DashboardLineSeries[];
+  errorTrendHourlyBars: DashboardStackBar[];
   tokenTrend: DashboardTokenTrendData;
   subagentTrend: DashboardSubagentTrendData;
   activeRepos: DashboardRepoBreakdownData;
   modelUsage: DashboardBarItem[];
+  modelPerformance: DashboardBarItem[];
+  modelTokenConsumption: DashboardBarItem[];
   toolUsage: DashboardBarItem[];
   agentDistribution: DashboardBarItem[];
   mcpUsage: DashboardMcpUsageRow[];
@@ -192,23 +205,36 @@ export interface DashboardViewModel {
   errorPatterns: DashboardBarItem[];
 }
 
-function buildHeatmapSvg(dayCounts: DayCount[]): string {
+const ERROR_TREND_COLORS = [
+  "#d32f2f",
+  "#1565c0",
+  "#2e7d32",
+  "#e65100",
+  "#6a1b9a",
+  "#86868b",
+] as const;
+
+function buildHeatmapSvg(
+  dayCounts: DayCount[],
+  selection: DashboardSelectionBoundsContract,
+): string {
   const dayMap = new Map<string, number>();
   for (const { day, cnt } of dayCounts) {
     dayMap.set(day, cnt);
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const days: { date: Date; dateStr: string }[] = [];
-  for (let i = 364; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    days.push({ date: d, dateStr: `${y}-${m}-${day}` });
+  for (const day of buildDayRange(
+    selection.startDayInclusive,
+    selection.endDayInclusive,
+  )) {
+    const date = parseLocalDate(day);
+    if (!date) continue;
+    days.push({ date, dateStr: day });
+  }
+
+  if (days.length === 0) {
+    return '<p style="color:#86868b;font-size:0.9em;">No activity</p>';
   }
 
   const counts = days.map((d) => dayMap.get(d.dateStr) ?? 0);
@@ -231,7 +257,7 @@ function buildHeatmapSvg(dayCounts: DayCount[]): string {
   const firstDate = days[0].date;
   const startDow = firstDate.getDay();
 
-  const totalCols = Math.ceil((365 + startDow) / 7);
+  const totalCols = Math.ceil((days.length + startDow) / 7);
   const svgWidth = LEFT_PAD + totalCols * STEP;
   const svgHeight = TOP_PAD + 7 * STEP;
 
@@ -337,30 +363,166 @@ function classifyError(error: string): string {
   return "Other";
 }
 
-function toLocalDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+export { addLocalDays, parseLocalDate } from "../../lib/dashboard-time.js";
+
+function buildDayRange(
+  startDayInclusive: string,
+  endDayInclusive: string,
+): string[] {
+  const days: string[] = [];
+  const start = parseLocalDate(startDayInclusive);
+  const end = parseLocalDate(endDayInclusive);
+  if (!start || !end || start.getTime() > end.getTime()) return days;
+
+  const cursor = new Date(start);
+  while (cursor.getTime() <= end.getTime()) {
+    days.push(toLocalDateString(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return days;
 }
 
-function getMinDay(range: DashboardRange): string | null {
-  if (range === "all") return null;
-  const d = new Date();
-  if (range === "week") d.setDate(d.getDate() - 6);
-  else if (range === "month") d.setDate(d.getDate() - 29);
-  return toLocalDateStr(d);
+const DASHBOARD_HISTORY_START_DAY = "1970-01-01";
+
+export function getDashboardWindow(
+  range: DashboardRange,
+): DashboardRepositoryWindow {
+  const endExclusive = new Date();
+  endExclusive.setHours(0, 0, 0, 0);
+  const start = new Date(endExclusive);
+  if (range === "week") start.setDate(start.getDate() - 6);
+  else if (range === "month") start.setDate(start.getDate() - 29);
+  else if (range === "all") start.setTime(Number.NaN);
+  endExclusive.setDate(endExclusive.getDate() + 1);
+  return {
+    startDayInclusive:
+      range === "all" ? DASHBOARD_HISTORY_START_DAY : toLocalDateString(start),
+    endDayExclusive: toLocalDateString(endExclusive),
+  };
+}
+
+export function buildBoundedSelection(
+  window: DashboardRepositoryWindow,
+): DashboardSelectionBoundsContract {
+  return buildDashboardSelectionBounds(window);
+}
+
+function isDayWithinSelection(
+  day: string,
+  selection: DashboardSelectionBoundsContract,
+): boolean {
+  return day >= selection.startDayInclusive && day <= selection.endDayInclusive;
+}
+
+export function isDashboardSelectionRefreshable(
+  selection: DashboardSelectionBoundsContract,
+  now = new Date(),
+): boolean {
+  return computeDashboardRefreshEligibility(selection.endDayInclusive, now);
+}
+
+export function materializeDashboardCacheWindow(
+  range: DashboardRange,
+): DashboardRepositoryWindow {
+  const selection = buildBoundedSelection(getDashboardWindow(range));
+  return {
+    startDayInclusive: selection.startDayInclusive,
+    endDayExclusive: selection.endDayExclusive,
+  };
+}
+
+export function cloneDashboardAggregateState(
+  state: DashboardAggregateState,
+): DashboardAggregateState {
+  return {
+    toolDayBuckets: new Map(state.toolDayBuckets),
+    errorPatternDays: new Map(state.errorPatternDays),
+    toolErrorDetails: new Map(state.toolErrorDetails),
+    mcpServerBuckets: new Map(state.mcpServerBuckets),
+    lastPartRowid: state.lastPartRowid,
+    modelDays: new Map(state.modelDays),
+    modelTokenDays: new Map(state.modelTokenDays),
+    agentDays: new Map(state.agentDays),
+    tokenDays: new Map(state.tokenDays),
+    tokenInputDays: new Map(state.tokenInputDays),
+    tokenOutputDays: new Map(state.tokenOutputDays),
+    tokenInputHours: new Map(state.tokenInputHours),
+    tokenOutputHours: new Map(state.tokenOutputHours),
+    subagentDays: new Map(state.subagentDays),
+    subagentHours: new Map(state.subagentHours),
+    lastMessageRowid: state.lastMessageRowid,
+    sessionCount: state.sessionCount,
+    repoDays: new Map(state.repoDays),
+    lastSessionRowid: state.lastSessionRowid,
+  };
+}
+
+function mergeCountMaps<K>(maps: Map<K, number>[]): Map<K, number> {
+  const merged = new Map<K, number>();
+  for (const map of maps) {
+    for (const [key, value] of map) {
+      merged.set(key, (merged.get(key) || 0) + value);
+    }
+  }
+  return merged;
+}
+
+export function mergeDashboardAggregateStates(
+  states: DashboardAggregateState[],
+): DashboardAggregateState {
+  if (states.length === 0) {
+    return createEmptyAggregateState();
+  }
+
+  return {
+    toolDayBuckets: mergeCountMaps(states.map((state) => state.toolDayBuckets)),
+    errorPatternDays: mergeCountMaps(
+      states.map((state) => state.errorPatternDays),
+    ),
+    toolErrorDetails: mergeCountMaps(
+      states.map((state) => state.toolErrorDetails),
+    ),
+    mcpServerBuckets: mergeCountMaps(
+      states.map((state) => state.mcpServerBuckets),
+    ),
+    lastPartRowid: Math.max(...states.map((state) => state.lastPartRowid)),
+    modelDays: mergeCountMaps(states.map((state) => state.modelDays)),
+    modelTokenDays: mergeCountMaps(states.map((state) => state.modelTokenDays)),
+    agentDays: mergeCountMaps(states.map((state) => state.agentDays)),
+    tokenDays: mergeCountMaps(states.map((state) => state.tokenDays)),
+    tokenInputDays: mergeCountMaps(states.map((state) => state.tokenInputDays)),
+    tokenOutputDays: mergeCountMaps(
+      states.map((state) => state.tokenOutputDays),
+    ),
+    tokenInputHours: mergeCountMaps(
+      states.map((state) => state.tokenInputHours),
+    ),
+    tokenOutputHours: mergeCountMaps(
+      states.map((state) => state.tokenOutputHours),
+    ),
+    subagentDays: mergeCountMaps(states.map((state) => state.subagentDays)),
+    subagentHours: mergeCountMaps(states.map((state) => state.subagentHours)),
+    lastMessageRowid: Math.max(
+      ...states.map((state) => state.lastMessageRowid),
+    ),
+    sessionCount: states.reduce((sum, state) => sum + state.sessionCount, 0),
+    repoDays: mergeCountMaps(states.map((state) => state.repoDays)),
+    lastSessionRowid: Math.max(
+      ...states.map((state) => state.lastSessionRowid),
+    ),
+  };
 }
 
 function filterMap(
   map: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const [key, cnt] of map) {
     const tab = key.lastIndexOf("\t");
     const day = key.substring(tab + 1);
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     const label = key.substring(0, tab);
     out.set(label, (out.get(label) || 0) + cnt);
   }
@@ -410,6 +572,10 @@ function applyMessageData(
     if (model) {
       const key = `${model}\t${day}`;
       state.modelDays.set(key, (state.modelDays.get(key) || 0) + 1);
+      state.modelTokenDays.set(
+        key,
+        (state.modelTokenDays.get(key) || 0) + tokens,
+      );
     }
     if (agent) {
       const key = `${agent}\t${day}`;
@@ -471,6 +637,7 @@ function createEmptyAggregateState(): DashboardAggregateState {
     mcpServerBuckets: new Map(),
     lastPartRowid: 0,
     modelDays: new Map(),
+    modelTokenDays: new Map(),
     agentDays: new Map(),
     tokenDays: new Map(),
     tokenInputDays: new Map(),
@@ -483,7 +650,6 @@ function createEmptyAggregateState(): DashboardAggregateState {
     sessionCount: 0,
     repoDays: new Map(),
     lastSessionRowid: 0,
-    htmlCache: new Map(),
   };
 }
 
@@ -610,12 +776,12 @@ function renderToolMatrixHtml(rows: DashboardToolReliabilityRow[]): string {
 
 function buildMcpUsageData(
   mcpServerBuckets: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
 ): DashboardMcpUsageRow[] {
   const mcpServerMap = new Map<string, { calls: number; errors: number }>();
   for (const [key, cnt] of mcpServerBuckets) {
     const parts = key.split("\t");
-    if (minDay && parts[2] < minDay) continue;
+    if (!isDayWithinSelection(parts[2] ?? "", selection)) continue;
     const server = parts[0];
     const status = parts[1];
     const entry = mcpServerMap.get(server) || { calls: 0, errors: 0 };
@@ -697,12 +863,12 @@ function renderMcpAggHtml(rows: DashboardMcpUsageRow[]): string {
 
 function buildErrorTrendData(
   toolErrorDetails: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
 ): DashboardLineSeries[] {
   const toolErrorTotals = new Map<string, number>();
   for (const [key, cnt] of toolErrorDetails) {
     const [tool, day] = key.split("\t");
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     toolErrorTotals.set(tool, (toolErrorTotals.get(tool) || 0) + cnt);
   }
   const topErrorTools = Array.from(toolErrorTotals.entries())
@@ -716,30 +882,12 @@ function buildErrorTrendData(
   errorTrendSeriesMap.set("Other", new Map());
   for (const [key, cnt] of toolErrorDetails) {
     const [tool, day] = key.split("\t");
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     const seriesKey = topErrorToolSet.has(tool) ? tool : "Other";
     const m = errorTrendSeriesMap.get(seriesKey);
     if (!m) continue;
     m.set(day, (m.get(day) || 0) + cnt);
   }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const startDay30 = new Date(today);
-  startDay30.setDate(startDay30.getDate() - 29);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const effectiveStart =
-    minDay && minDay > fmt(startDay30) ? minDay : fmt(startDay30);
-
-  const seriesColors = [
-    "#d32f2f",
-    "#1565c0",
-    "#2e7d32",
-    "#e65100",
-    "#6a1b9a",
-    "#86868b",
-  ];
 
   return [
     ...topErrorTools,
@@ -755,11 +903,122 @@ function buildErrorTrendData(
     )
     .map((item, i) => ({
       label: item.tool,
-      color: seriesColors[i] ?? "#86868b",
+      color: ERROR_TREND_COLORS[i] ?? "#86868b",
       points: toDashboardDayValues(
-        fillMissingDays(item.data, effectiveStart, fmt(today)),
+        fillMissingDays(
+          item.data,
+          selection.startDayInclusive,
+          selection.endDayInclusive,
+        ),
       ),
     }));
+}
+
+function buildErrorTrendHourlyBars(
+  db: SqliteDatabase,
+  window: DashboardRepositoryWindow,
+  labels: string[],
+): DashboardStackBar[] {
+  const stackLabels = labels.filter((label) => label !== "Other");
+  const includeOther = labels.includes("Other");
+  if (stackLabels.length === 0 && !includeOther) return [];
+
+  const labelSet = new Set(stackLabels);
+  const hourTotals = new Map<string, number[]>();
+  for (const label of stackLabels) {
+    hourTotals.set(label, new Array(24).fill(0));
+  }
+  if (includeOther) {
+    hourTotals.set("Other", new Array(24).fill(0));
+  }
+
+  const params = [window.startDayInclusive, window.endDayExclusive];
+  const rows = db
+    .prepare(`
+      SELECT json_extract(p.data, '$.tool') AS tool,
+             strftime('%H', p.time_created/1000, 'unixepoch', 'localtime') AS hour
+      FROM part p
+      WHERE json_extract(p.data, '$.type') = 'tool'
+        AND json_extract(p.data, '$.state.status') = 'error'
+        AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
+        AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
+    `)
+    .all(...params) as Array<{ tool: string | null; hour: string }>;
+
+  for (const { tool, hour } of rows) {
+    const hourIndex = Number(hour);
+    if (!Number.isInteger(hourIndex) || hourIndex < 0 || hourIndex > 23)
+      continue;
+    const label = tool ?? "unknown";
+    const seriesKey = labelSet.has(label)
+      ? label
+      : includeOther
+        ? "Other"
+        : null;
+    if (!seriesKey) continue;
+    const totals = hourTotals.get(seriesKey);
+    if (!totals) continue;
+    totals[hourIndex] += 1;
+  }
+
+  const orderedLabels = [...stackLabels, ...(includeOther ? ["Other"] : [])];
+  return Array.from({ length: 24 }, (_, hour) => ({
+    label: String(hour).padStart(2, "0"),
+    stacks: orderedLabels
+      .map((label, index) => ({
+        name: label,
+        value: hourTotals.get(label)?.[hour] ?? 0,
+        color: ERROR_TREND_COLORS[index] ?? "#86868b",
+      }))
+      .filter((stack) => stack.value > 0),
+  }));
+}
+
+function buildModelPerformanceData(
+  db: SqliteDatabase,
+  window: DashboardRepositoryWindow,
+): DashboardBarItem[] {
+  const params = [window.startDayInclusive, window.endDayExclusive];
+  const rows = db
+    .prepare(`
+      SELECT json_extract(m.data, '$.modelID') AS model,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.output'), 0)) AS output_tokens,
+             SUM(
+               CASE
+                 WHEN json_extract(m.data, '$.time.created') IS NOT NULL
+                  AND json_extract(m.data, '$.time.completed') IS NOT NULL
+                  AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
+                 THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
+                 ELSE 0
+               END
+             ) AS duration_ms
+      FROM message m
+      WHERE json_extract(m.data, '$.role') = 'assistant'
+        AND json_extract(m.data, '$.modelID') IS NOT NULL
+        AND json_extract(m.data, '$.modelID') != ''
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
+      GROUP BY model
+    `)
+    .all(...params) as Array<{
+    model: string | null;
+    output_tokens: number;
+    duration_ms: number;
+  }>;
+
+  return rows
+    .map((row) => {
+      const outputTokens = Number(row.output_tokens) || 0;
+      const durationMs = Number(row.duration_ms) || 0;
+      const tps = durationMs > 0 ? (outputTokens * 1000) / durationMs : 0;
+      return {
+        label: row.model || "(unknown)",
+        count: Number(tps.toFixed(2)),
+      };
+    })
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
 }
 
 function renderErrorTrendSvg(errorTrendSeries: DashboardLineSeries[]): string {
@@ -776,14 +1035,14 @@ function buildTokenTrendData(
   tokenOutputDays: Map<string, number>,
   tokenInputHours: Map<string, number>,
   tokenOutputHours: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
   view: DashboardView,
 ): DashboardTokenTrendData {
   const totalInput = [...tokenInputDays.entries()]
-    .filter(([day]) => !minDay || day >= minDay)
+    .filter(([day]) => isDayWithinSelection(day, selection))
     .reduce((sum, [, value]) => sum + value, 0);
   const totalOutput = [...tokenOutputDays.entries()]
-    .filter(([day]) => !minDay || day >= minDay)
+    .filter(([day]) => isDayWithinSelection(day, selection))
     .reduce((sum, [, value]) => sum + value, 0);
   const inputRatioPercent =
     computeRatio(totalInput, totalInput + totalOutput) * 100;
@@ -794,13 +1053,13 @@ function buildTokenTrendData(
 
     for (const [key, value] of tokenInputHours) {
       const [day, hour] = key.split("\t");
-      if (minDay && day < minDay) continue;
+      if (!isDayWithinSelection(day, selection)) continue;
       hourInputTotals[Number(hour)] += value;
     }
 
     for (const [key, value] of tokenOutputHours) {
       const [day, hour] = key.split("\t");
-      if (minDay && day < minDay) continue;
+      if (!isDayWithinSelection(day, selection)) continue;
       hourOutputTotals[Number(hour)] += value;
     }
 
@@ -822,24 +1081,15 @@ function buildTokenTrendData(
     };
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start30 = new Date(today);
-  start30.setDate(start30.getDate() - 29);
-  const fmtDay = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const effStart =
-    minDay && minDay > fmtDay(start30) ? minDay : fmtDay(start30);
-
   const inputDayMap = new Map<string, number>();
   for (const [day, value] of tokenInputDays) {
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     inputDayMap.set(day, value);
   }
 
   const outputDayMap = new Map<string, number>();
   for (const [day, value] of tokenOutputDays) {
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     outputDayMap.set(day, value);
   }
 
@@ -848,14 +1098,22 @@ function buildTokenTrendData(
       label: "Input",
       color: "#1565c0",
       points: toDashboardDayValues(
-        fillMissingDays(inputDayMap, effStart, fmtDay(today)),
+        fillMissingDays(
+          inputDayMap,
+          selection.startDayInclusive,
+          selection.endDayInclusive,
+        ),
       ),
     },
     {
       label: "Output",
       color: "#2e7d32",
       points: toDashboardDayValues(
-        fillMissingDays(outputDayMap, effStart, fmtDay(today)),
+        fillMissingDays(
+          outputDayMap,
+          selection.startDayInclusive,
+          selection.endDayInclusive,
+        ),
       ),
     },
   ];
@@ -909,13 +1167,13 @@ function renderTokenTrendHtml(
 function buildSubagentTrendData(
   subagentDays: Map<string, number>,
   subagentHours: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
   view: DashboardView,
 ): DashboardSubagentTrendData {
   const subagentTotals = new Map<string, number>();
   for (const [key, cnt] of subagentDays) {
     const [agent, day] = key.split("\t");
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     subagentTotals.set(agent, (subagentTotals.get(agent) || 0) + cnt);
   }
   const topAgents = Array.from(subagentTotals.entries())
@@ -934,7 +1192,7 @@ function buildSubagentTrendData(
       const agent = parts[0];
       const day = parts[1];
       const hour = Number(parts[2]);
-      if (minDay && day < minDay) continue;
+      if (!isDayWithinSelection(day, selection)) continue;
       const seriesKey = topAgentSet.has(agent) ? agent : "Other";
       const hourBucket = agentHourMap.get(seriesKey);
       if (!hourBucket) continue;
@@ -973,15 +1231,6 @@ function buildSubagentTrendData(
     };
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start30 = new Date(today);
-  start30.setDate(start30.getDate() - 29);
-  const fmtDay = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const effStart =
-    minDay && minDay > fmtDay(start30) ? minDay : fmtDay(start30);
-
   const seriesColors = [
     "#0066cc",
     "#d32f2f",
@@ -997,7 +1246,7 @@ function buildSubagentTrendData(
   }
   for (const [key, cnt] of subagentDays) {
     const [agent, day] = key.split("\t");
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     const seriesKey = topAgentSet.has(agent) ? agent : "Other";
     const dayMap = agentDaySeriesMap.get(seriesKey);
     if (!dayMap) continue;
@@ -1020,7 +1269,11 @@ function buildSubagentTrendData(
       label: item.agent,
       color: seriesColors[i] ?? "#86868b",
       points: toDashboardDayValues(
-        fillMissingDays(item.data, effStart, fmtDay(today)),
+        fillMissingDays(
+          item.data,
+          selection.startDayInclusive,
+          selection.endDayInclusive,
+        ),
       ),
     }));
 
@@ -1065,12 +1318,12 @@ function renderSubagentTrendHtml(
 function buildRepoBreakdownData(
   db: SqliteDatabase,
   repoDays: Map<string, number>,
-  minDay: string | null,
+  selection: DashboardSelectionBoundsContract,
 ): DashboardRepoBreakdownData {
   const repoSessionCounts = new Map<string, number>();
   for (const [key, cnt] of repoDays) {
     const [repo, day] = key.split("\t");
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     repoSessionCounts.set(repo, (repoSessionCounts.get(repo) || 0) + cnt);
   }
 
@@ -1080,20 +1333,14 @@ function buildRepoBreakdownData(
     .slice(0, 10)
     .map(([repo]) => repo);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const last7Days: string[] = [];
-  for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    last7Days.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-    );
-  }
+  const selectedDays = buildDayRange(
+    selection.startDayInclusive,
+    selection.endDayInclusive,
+  );
 
   if (activeRepos.length === 0) {
     return {
-      dayHeaders: last7Days,
+      dayHeaders: selectedDays,
       rows: [],
     };
   }
@@ -1101,14 +1348,14 @@ function buildRepoBreakdownData(
   const repoDayDurationMap = calcRepoDayActiveDurations(
     db,
     activeRepos,
-    last7Days,
+    selectedDays,
   );
   const repoDaySessionCountMap = new Map<string, number>();
   const activeRepoSet = new Set(activeRepos);
   for (const [key, cnt] of repoDays) {
     const [repo, day] = key.split("\t");
     if (!activeRepoSet.has(repo)) continue;
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     const repoDayKey = `${repo}\t${day}`;
     repoDaySessionCountMap.set(
       repoDayKey,
@@ -1118,11 +1365,7 @@ function buildRepoBreakdownData(
 
   const rows: DashboardRepoRow[] = activeRepos.map((repo) => {
     let totalActiveMs = 0;
-    const dayCells: DashboardRepoDayCell[] = last7Days.map((day) => {
-      if (minDay && day < minDay) {
-        return { day, label: "—", muted: true };
-      }
-
+    const dayCells: DashboardRepoDayCell[] = selectedDays.map((day) => {
       const key = `${repo}\t${day}`;
       const dur = repoDayDurationMap.get(key) || 0;
       const sessionCount = repoDaySessionCountMap.get(key) || 0;
@@ -1152,7 +1395,7 @@ function buildRepoBreakdownData(
   });
 
   return {
-    dayHeaders: last7Days,
+    dayHeaders: selectedDays,
     rows,
   };
 }
@@ -1204,16 +1447,17 @@ function renderRepoBreakdownHtml(repoData: DashboardRepoBreakdownData): string {
 function buildDashboardData(
   db: SqliteDatabase,
   state: DashboardAggregateState,
-  range: DashboardRange,
   view: DashboardView,
+  selection: DashboardSelectionBoundsContract,
+  window: DashboardRepositoryWindow,
+  range: DashboardRange,
 ): DashboardViewModel {
-  const minDay = getMinDay(range);
-  const liveSummary = fetchDashboardLiveSummary(db, minDay);
+  const liveSummary = fetchDashboardLiveSummary(db, window);
 
   const filteredToolStatusDay = new Map<string, number>();
   for (const [key, cnt] of state.toolDayBuckets) {
     const parts = key.split("\t");
-    if (minDay && parts[2] < minDay) continue;
+    if (!isDayWithinSelection(parts[2] ?? "", selection)) continue;
     const tsKey = `${parts[0]}\t${parts[1]}`;
     filteredToolStatusDay.set(
       tsKey,
@@ -1241,13 +1485,14 @@ function buildDashboardData(
     .slice(0, 10)
     .map(([tool, cnt]) => ({ tool, cnt }));
 
-  const errorPatterns = filterMap(state.errorPatternDays, minDay);
-  const modelCounts = filterMap(state.modelDays, minDay);
-  const agentCounts = filterMap(state.agentDays, minDay);
+  const errorPatterns = filterMap(state.errorPatternDays, selection);
+  const modelCounts = filterMap(state.modelDays, selection);
+  const modelTokenCounts = filterMap(state.modelTokenDays, selection);
+  const agentCounts = filterMap(state.agentDays, selection);
 
   let totalTokens = 0;
   for (const [day, tokens] of state.tokenDays) {
-    if (minDay && day < minDay) continue;
+    if (!isDayWithinSelection(day, selection)) continue;
     totalTokens += tokens;
   }
 
@@ -1255,6 +1500,12 @@ function buildDashboardData(
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([model, cnt]) => ({ model, cnt }));
+  const modelTokenConsumption: DashboardBarItem[] = Array.from(
+    modelTokenCounts.entries(),
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([label, count]) => ({ label, count }));
   const agentRows: AgentCount[] = Array.from(agentCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
@@ -1277,9 +1528,23 @@ function buildDashboardData(
       total_tokens: recentTokenMap.get(session.id) || 0,
     }));
 
+  const errorTrendSeries = buildErrorTrendData(
+    state.toolErrorDetails,
+    selection,
+  );
+  const errorTrendHourlyBars =
+    view === "hourly"
+      ? buildErrorTrendHourlyBars(
+          db,
+          window,
+          errorTrendSeries.map((series) => series.label),
+        )
+      : [];
+
   return {
     range,
     view,
+    selection,
     summary: {
       totalSessions: liveSummary.totalSessions,
       totalTokens,
@@ -1290,26 +1555,29 @@ function buildDashboardData(
     },
     recentSessions: buildRecentSessionsData(recentSessionsWithTokens),
     heatmapDays: liveSummary.heatmapRows,
-    errorTrendSeries: buildErrorTrendData(state.toolErrorDetails, minDay),
+    errorTrendSeries: view === "hourly" ? [] : errorTrendSeries,
+    errorTrendHourlyBars,
     tokenTrend: buildTokenTrendData(
       state.tokenInputDays,
       state.tokenOutputDays,
       state.tokenInputHours,
       state.tokenOutputHours,
-      minDay,
+      selection,
       view,
     ),
     subagentTrend: buildSubagentTrendData(
       state.subagentDays,
       state.subagentHours,
-      minDay,
+      selection,
       view,
     ),
-    activeRepos: buildRepoBreakdownData(db, state.repoDays, minDay),
+    activeRepos: buildRepoBreakdownData(db, state.repoDays, selection),
     modelUsage: modelRows.map((row) => ({
       label: row.model ?? "(unknown)",
       count: row.cnt,
     })),
+    modelPerformance: buildModelPerformanceData(db, window),
+    modelTokenConsumption,
     toolUsage: toolRows.map((row) => ({
       label: row.tool ?? "(unknown)",
       count: row.cnt,
@@ -1318,7 +1586,7 @@ function buildDashboardData(
       label: row.agent ?? "(unknown)",
       count: row.cnt,
     })),
-    mcpUsage: buildMcpUsageData(state.mcpServerBuckets, minDay),
+    mcpUsage: buildMcpUsageData(state.mcpServerBuckets, selection),
     toolReliabilityMatrix: buildToolReliabilityMatrixData(toolSuccessErrorMap),
     errorPatterns: Array.from(errorPatterns.entries())
       .sort((a, b) => b[1] - a[1])
@@ -1326,23 +1594,35 @@ function buildDashboardData(
   };
 }
 
-export function buildDashboardAggregateState(
+export function buildDashboardAggregateStateForWindow(
   db: SqliteDatabase,
+  window: DashboardRepositoryWindow,
 ): DashboardAggregateState {
   const state = createEmptyAggregateState();
-  applyPartData(state, fetchDashboardPartData(db));
-  applyMessageData(state, fetchDashboardMessageData(db));
-  applyRepoData(state, fetchDashboardRepoData(db));
+  applyPartData(state, fetchDashboardPartData(db, window));
+  applyMessageData(state, fetchDashboardMessageData(db, window));
+  applyRepoData(state, fetchDashboardRepoData(db, window));
   return state;
 }
 
-export function updateDashboardAggregateState(
+export function buildDashboardAggregateState(
+  db: SqliteDatabase,
+  range: DashboardRange,
+): DashboardAggregateState {
+  return buildDashboardAggregateStateForWindow(
+    db,
+    materializeDashboardCacheWindow(range),
+  );
+}
+
+export function updateDashboardAggregateStateForWindow(
   db: SqliteDatabase,
   state: DashboardAggregateState,
+  window: DashboardRepositoryWindow,
 ): DashboardAggregateState {
-  const repoData = fetchDashboardRepoData(db, state.lastSessionRowid);
+  const repoData = fetchDashboardRepoData(db, window, state.lastSessionRowid);
   if (repoData.sessionCount < state.sessionCount) {
-    return buildDashboardAggregateState(db);
+    return buildDashboardAggregateStateForWindow(db, window);
   }
 
   let changed = false;
@@ -1352,22 +1632,49 @@ export function updateDashboardAggregateState(
     changed = true;
   }
 
-  const partData = fetchDashboardPartData(db, state.lastPartRowid);
+  const partData = fetchDashboardPartData(db, window, state.lastPartRowid);
   if (partData.currentRowId > state.lastPartRowid) {
     applyPartData(state, partData);
     changed = true;
   }
 
-  const messageData = fetchDashboardMessageData(db, state.lastMessageRowid);
+  const messageData = fetchDashboardMessageData(
+    db,
+    window,
+    state.lastMessageRowid,
+  );
   if (messageData.currentRowId > state.lastMessageRowid) {
     applyMessageData(state, messageData);
     changed = true;
   }
 
   if (changed) {
-    state.htmlCache.clear();
+    return cloneDashboardAggregateState(state);
   }
   return state;
+}
+
+export function updateDashboardAggregateState(
+  db: SqliteDatabase,
+  state: DashboardAggregateState,
+  range: DashboardRange,
+): DashboardAggregateState {
+  return updateDashboardAggregateStateForWindow(
+    db,
+    state,
+    materializeDashboardCacheWindow(range),
+  );
+}
+
+export function buildDashboardViewModelForWindow(
+  db: SqliteDatabase,
+  state: DashboardAggregateState,
+  window: DashboardRepositoryWindow,
+  range: DashboardRange,
+  view: DashboardView,
+): DashboardViewModel {
+  const selection = buildBoundedSelection(window);
+  return buildDashboardData(db, state, view, selection, window, range);
 }
 
 export function buildDashboardViewModel(
@@ -1376,7 +1683,13 @@ export function buildDashboardViewModel(
   range: DashboardRange,
   view: DashboardView,
 ): DashboardViewModel {
-  return buildDashboardData(db, state, range, view);
+  return buildDashboardViewModelForWindow(
+    db,
+    state,
+    materializeDashboardCacheWindow(range),
+    range,
+    view,
+  );
 }
 
 export function renderDashboardHtml(vm: DashboardViewModel): string {
@@ -1396,7 +1709,7 @@ export function renderDashboardHtml(vm: DashboardViewModel): string {
   const toolMatrixHtml = renderToolMatrixHtml(vm.toolReliabilityMatrix);
   const errorPatternChart = buildBarChart(vm.errorPatterns, "#d32f2f");
   const errorTrendSvg = renderErrorTrendSvg(vm.errorTrendSeries);
-  const heatmapSvg = buildHeatmapSvg(vm.heatmapDays);
+  const heatmapSvg = buildHeatmapSvg(vm.heatmapDays, vm.selection);
 
   return `
 <!DOCTYPE html>
@@ -1478,7 +1791,7 @@ export function renderDashboardHtml(vm: DashboardViewModel): string {
   </div>
 
   <div class="card">
-    <h2>Activity (last 365 days)</h2>
+    <h2>Activity</h2>
     <div class="heatmap-scroll">
       ${heatmapSvg}
     </div>

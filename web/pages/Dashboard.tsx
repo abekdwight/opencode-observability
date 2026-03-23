@@ -28,13 +28,37 @@ import type {
 import { ActivityHeatmap } from "../components/charts/ActivityHeatmap";
 import { CssBarChart } from "../components/charts/CssBarChart";
 import { CHART_THEME } from "../lib/chart-theme";
+import {
+  applyDashboardDraftSelection,
+  cancelDashboardDraftSelection,
+  createDashboardRequestVersionTracker,
+  createDashboardSelectionController,
+  type DashboardPresetId,
+  type DashboardSelectionControllerState,
+  serializeAppliedDashboardSelection,
+  setDashboardDraftDates,
+  setDashboardDraftPreset,
+  setDashboardDraftView,
+} from "../lib/dashboard-selection";
 
-const RANGES: { value: DashboardRangeContract; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "month", label: "1 Month" },
-  { value: "week", label: "1 Week" },
-  { value: "day", label: "1 Day" },
+const PRESET_OPTIONS: {
+  value: DashboardPresetId;
+  label: string;
+  helper: string;
+}[] = [
+  { value: "last30d", label: "1 Month", helper: "Last 30 days" },
+  { value: "last7d", label: "1 Week", helper: "Last 7 days" },
+  { value: "today", label: "1 Day", helper: "Today" },
+  { value: "custom", label: "Custom Range", helper: "Select specific dates" },
 ];
+
+function getTimezoneLabel(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "Local time";
+  }
+}
 
 const REFRESH_INTERVAL = 30_000;
 
@@ -99,6 +123,103 @@ function flattenStackBars(bars: DashboardStackBarContract[]): {
     return row;
   });
   return { data, keys };
+}
+
+const TOKEN_CONSUMPTION_COLORS = [
+  CHART_THEME.colors.primary,
+  CHART_THEME.colors.success,
+  CHART_THEME.colors.warning,
+  CHART_THEME.colors.error,
+  "#0288d1",
+  "#6a1b9a",
+  "#8a5700",
+  "#5e35b1",
+  CHART_THEME.colors.muted,
+] as const;
+
+function summarizeBarItems(
+  items: DashboardBarItemContract[],
+  limit = 8,
+): DashboardBarItemContract[] {
+  const sorted = [...items]
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count);
+  if (sorted.length <= limit) return sorted;
+
+  const top = sorted.slice(0, limit);
+  const otherCount = sorted
+    .slice(limit)
+    .reduce((sum, item) => sum + item.count, 0);
+  return otherCount > 0 ? [...top, { label: "Other", count: otherCount }] : top;
+}
+
+function polarToCartesian(
+  cx: number,
+  cy: number,
+  radius: number,
+  angleInDegrees: number,
+): { x: number; y: number } {
+  const radians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: cx + radius * Math.cos(radians),
+    y: cy + radius * Math.sin(radians),
+  };
+}
+
+function describePieSlice(
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+): string {
+  const start = polarToCartesian(cx, cy, radius, endAngle);
+  const end = polarToCartesian(cx, cy, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+  return [
+    "M",
+    cx,
+    cy,
+    "L",
+    start.x,
+    start.y,
+    "A",
+    radius,
+    radius,
+    0,
+    largeArcFlag,
+    0,
+    end.x,
+    end.y,
+    "Z",
+  ].join(" ");
+}
+
+interface PieSlice {
+  label: string;
+  value: number;
+  color: string;
+  startAngle: number;
+  endAngle: number;
+}
+
+function buildPieSlices(items: DashboardBarItemContract[]): PieSlice[] {
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+  if (total <= 0) return [];
+
+  let cursor = 0;
+  return items.map((item, index) => {
+    const sweep = (item.count / total) * 360;
+    const slice = {
+      label: item.label,
+      value: item.count,
+      color: TOKEN_CONSUMPTION_COLORS[index % TOKEN_CONSUMPTION_COLORS.length],
+      startAngle: cursor,
+      endAngle: cursor + sweep,
+    };
+    cursor += sweep;
+    return slice;
+  });
 }
 
 /* ── Custom Recharts Tooltip ── */
@@ -192,25 +313,267 @@ function SummaryMetrics({ data }: { data: DashboardContract }) {
   );
 }
 
-function RangeSelector({
-  currentRange,
-  onSelect,
+function ViewToggle({
+  view,
+  onToggle,
 }: {
-  currentRange: DashboardRangeContract;
-  onSelect: (range: DashboardRangeContract) => void;
+  view: DashboardViewContract;
+  onToggle: (v: DashboardViewContract) => void;
 }) {
   return (
-    <div className="range-bar">
-      {RANGES.map((r) => (
+    <div className="view-toggle-bar" role="tablist" aria-label="View mode">
+      <button
+        type="button"
+        className={`view-toggle-btn${view === "daily" ? " active" : ""}`}
+        onClick={() => onToggle("daily")}
+        aria-pressed={view === "daily"}
+        data-testid="dashboard-view-toggle-daily"
+      >
+        Daily
+      </button>
+      <button
+        type="button"
+        className={`view-toggle-btn${view === "hourly" ? " active" : ""}`}
+        onClick={() => onToggle("hourly")}
+        aria-pressed={view === "hourly"}
+        data-testid="dashboard-view-toggle-hourly"
+      >
+        Hourly
+      </button>
+    </div>
+  );
+}
+
+function PresetDropdown({
+  value,
+  onChange,
+}: {
+  value: DashboardPresetId;
+  onChange: (preset: DashboardPresetId) => void;
+}) {
+  const selectedOption = PRESET_OPTIONS.find((o) => o.value === value);
+  return (
+    <div className="preset-dropdown-wrapper">
+      <select
+        className="preset-dropdown"
+        value={value}
+        onChange={(e) => onChange(e.target.value as DashboardPresetId)}
+        data-testid="dashboard-time-preset"
+        aria-label="Time range preset"
+      >
+        {PRESET_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {selectedOption && selectedOption.value !== "custom" && (
+        <span className="preset-helper" data-testid="dashboard-preset-helper">
+          {selectedOption.helper}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CustomRangePopover({
+  isOpen,
+  onClose,
+  draftStart,
+  draftEnd,
+  onChangeDates,
+  onApply,
+  onCancel,
+  validationError,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  draftStart: string;
+  draftEnd: string;
+  onChangeDates: (dates: { start?: string; end?: string }) => void;
+  onApply: () => void;
+  onCancel: () => void;
+  validationError: string | null;
+}) {
+  const popoverRef = React.useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  React.useEffect(() => {
+    if (!isOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(event.target as Node)
+      ) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, onClose]);
+
+  // Close on Escape key
+  React.useEffect(() => {
+    if (!isOpen) return;
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="custom-range-popover"
+      ref={popoverRef}
+      role="dialog"
+      aria-label="Custom date range"
+    >
+      <div className="custom-range-fields">
+        <label className="custom-range-label">
+          <span>Start date</span>
+          <input
+            type="date"
+            value={draftStart}
+            onChange={(e) => onChangeDates({ start: e.target.value })}
+            data-testid="dashboard-range-start"
+            aria-label="Start date"
+          />
+        </label>
+        <label className="custom-range-label">
+          <span>End date</span>
+          <input
+            type="date"
+            value={draftEnd}
+            onChange={(e) => onChangeDates({ end: e.target.value })}
+            data-testid="dashboard-range-end"
+            aria-label="End date"
+          />
+        </label>
+      </div>
+      {validationError && (
+        <div className="custom-range-error" data-testid="dashboard-range-error">
+          {validationError}
+        </div>
+      )}
+      <div className="custom-range-actions">
         <button
           type="button"
-          key={r.value}
-          className={`range-btn${r.value === currentRange ? " active" : ""}`}
-          onClick={() => onSelect(r.value)}
+          className="custom-range-btn secondary"
+          onClick={onCancel}
+          data-testid="dashboard-range-cancel"
         >
-          {r.label}
+          Cancel
         </button>
-      ))}
+        <button
+          type="button"
+          className="custom-range-btn primary"
+          onClick={onApply}
+          data-testid="dashboard-range-apply"
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TimeRangeSelector({
+  controller,
+  onApply,
+  onCancel,
+}: {
+  controller: DashboardSelectionControllerState;
+  onApply: (controller: DashboardSelectionControllerState) => void;
+  onCancel: (controller: DashboardSelectionControllerState) => void;
+}) {
+  const [isPopoverOpen, setIsPopoverOpen] = React.useState(false);
+  const [localController, setLocalController] = React.useState(controller);
+
+  // Sync local controller when applied selection changes externally
+  React.useEffect(() => {
+    setLocalController(controller);
+  }, [controller]);
+
+  const handlePresetChange = (preset: DashboardPresetId) => {
+    const nextController = setDashboardDraftPreset(localController, preset);
+    setLocalController(nextController);
+    if (preset === "custom") {
+      setIsPopoverOpen(true);
+    } else {
+      // Auto-apply preset selections
+      const applied = applyDashboardDraftSelection(nextController);
+      if (!applied.validationError) {
+        onApply(applied);
+      }
+    }
+  };
+
+  const handleChangeDates = (dates: { start?: string; end?: string }) => {
+    setLocalController(setDashboardDraftDates(localController, dates));
+  };
+
+  const handleApply = () => {
+    const applied = applyDashboardDraftSelection(localController);
+    if (applied.validationError) {
+      setLocalController(applied);
+    } else {
+      onApply(applied);
+      setIsPopoverOpen(false);
+    }
+  };
+
+  const handleCancel = () => {
+    const cancelled = cancelDashboardDraftSelection(localController);
+    setLocalController(cancelled);
+    onCancel(cancelled);
+    setIsPopoverOpen(false);
+  };
+
+  const isCustom = localController.draftSelection.preset === "custom";
+
+  return (
+    <div className="time-range-selector">
+      <div className="time-range-controls">
+        <PresetDropdown
+          value={localController.draftSelection.preset}
+          onChange={handlePresetChange}
+        />
+        {isCustom && (
+          <button
+            type="button"
+            className="custom-range-trigger"
+            onClick={() => setIsPopoverOpen(!isPopoverOpen)}
+            data-testid="dashboard-custom-range-trigger"
+            aria-expanded={isPopoverOpen}
+            aria-haspopup="dialog"
+          >
+            {localController.draftSelection.start &&
+            localController.draftSelection.end
+              ? `${localController.draftSelection.start} → ${localController.draftSelection.end}`
+              : "Select dates..."}
+          </button>
+        )}
+        <span className="timezone-label" data-testid="dashboard-timezone-label">
+          {getTimezoneLabel()}
+        </span>
+      </div>
+      {isCustom && (
+        <CustomRangePopover
+          isOpen={isPopoverOpen}
+          onClose={() => setIsPopoverOpen(false)}
+          draftStart={localController.draftSelection.start}
+          draftEnd={localController.draftSelection.end}
+          onChangeDates={handleChangeDates}
+          onApply={handleApply}
+          onCancel={handleCancel}
+          validationError={localController.validationError}
+        />
+      )}
     </div>
   );
 }
@@ -271,16 +634,104 @@ function RecentSessions({
 
 function ErrorTrendSection({
   series,
+  hourlyBars,
+  view,
+  onToggleView,
 }: {
   series: DashboardLineSeriesContract[];
+  hourlyBars: DashboardStackBarContract[];
+  view: DashboardViewContract;
+  onToggleView: (v: DashboardViewContract) => void;
 }) {
   const flatData = React.useMemo(() => flattenLineSeries(series), [series]);
+  const hourlyData = React.useMemo(
+    () => flattenStackBars(hourlyBars),
+    [hourlyBars],
+  );
+
+  if (view === "hourly") {
+    const { data, keys } = hourlyData;
+
+    return (
+      <section className="card">
+        <div className="trend-header">
+          <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
+            Error Daily Trend
+          </h2>
+          <button
+            type="button"
+            className="view-toggle"
+            onClick={() => onToggleView("daily")}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#0066cc",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            View daily &rarr;
+          </button>
+        </div>
+        {hourlyBars.length === 0 ? (
+          <p className="no-data">No error data</p>
+        ) : (
+          <div className="chart-scroll">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={data}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={CHART_THEME.axis.gridColor}
+                />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: CHART_THEME.axis.fontSize }}
+                  stroke={CHART_THEME.axis.tickColor}
+                />
+                <YAxis
+                  tick={{ fontSize: CHART_THEME.axis.fontSize }}
+                  stroke={CHART_THEME.axis.tickColor}
+                  allowDecimals={false}
+                />
+                <Tooltip content={<ChartTooltipContent />} />
+                <Legend />
+                {keys.map((k) => (
+                  <Bar
+                    key={k.name}
+                    dataKey={k.name}
+                    stackId="error"
+                    fill={k.color}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="card">
-      <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-        Error Daily Trend
-      </h2>
+      <div className="trend-header">
+        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
+          Error Daily Trend
+        </h2>
+        <button
+          type="button"
+          className="view-toggle"
+          onClick={() => onToggleView("hourly")}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#0066cc",
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          View hourly &rarr;
+        </button>
+      </div>
       {series.length === 0 ? (
         <p className="no-data">No error data</p>
       ) : (
@@ -306,7 +757,7 @@ function ErrorTrendSection({
               {series.map((s) => (
                 <Line
                   key={s.label}
-                  type="monotone"
+                  type="linear"
                   dataKey={s.label}
                   stroke={s.color}
                   strokeWidth={2}
@@ -321,18 +772,252 @@ function ErrorTrendSection({
   );
 }
 
+function ModelPerformanceSection({
+  items,
+}: {
+  items: DashboardBarItemContract[];
+}) {
+  return (
+    <section className="card">
+      <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
+        Model Performance (TPS)
+      </h2>
+      <CssBarChart items={items} barColor={CHART_THEME.colors.success} />
+    </section>
+  );
+}
+
+function ModelTokenConsumptionSection({
+  items,
+}: {
+  items: DashboardBarItemContract[];
+}) {
+  const [mode, setMode] = React.useState<"pie" | "stacked">("pie");
+  const displayItems = React.useMemo(
+    () => summarizeBarItems(items, 8),
+    [items],
+  );
+  const totalTokens = React.useMemo(
+    () => displayItems.reduce((sum, item) => sum + item.count, 0),
+    [displayItems],
+  );
+  const pieSlices = React.useMemo(
+    () => buildPieSlices(displayItems),
+    [displayItems],
+  );
+
+  return (
+    <section className="card">
+      <div className="trend-header">
+        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
+          Model Token Consumption
+        </h2>
+        <div className="range-bar" role="tablist" aria-label="Model token view">
+          <button
+            type="button"
+            className={`range-btn${mode === "pie" ? " active" : ""}`}
+            onClick={() => setMode("pie")}
+            aria-pressed={mode === "pie"}
+          >
+            Pie
+          </button>
+          <button
+            type="button"
+            className={`range-btn${mode === "stacked" ? " active" : ""}`}
+            onClick={() => setMode("stacked")}
+            aria-pressed={mode === "stacked"}
+          >
+            Stacked bar
+          </button>
+        </div>
+      </div>
+
+      {displayItems.length === 0 ? (
+        <p className="no-data">No data</p>
+      ) : (
+        <>
+          {mode === "pie" ? (
+            <div className="chart-scroll">
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <svg
+                  viewBox="0 0 260 220"
+                  role="img"
+                  aria-label="Model token consumption pie chart"
+                  style={{ display: "block", maxWidth: 320, width: "100%" }}
+                >
+                  <circle cx="130" cy="98" r="78" fill="#f5f5f7" />
+                  {pieSlices.length === 1 ? (
+                    <circle
+                      cx="130"
+                      cy="98"
+                      r="78"
+                      fill={pieSlices[0].color}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                    >
+                      <title>
+                        {pieSlices[0].label}: {formatTokens(pieSlices[0].value)}
+                      </title>
+                    </circle>
+                  ) : (
+                    pieSlices.map((slice) => (
+                      <path
+                        key={slice.label}
+                        d={describePieSlice(
+                          130,
+                          98,
+                          78,
+                          slice.startAngle,
+                          slice.endAngle,
+                        )}
+                        fill={slice.color}
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                      >
+                        <title>
+                          {slice.label}: {formatTokens(slice.value)}
+                        </title>
+                      </path>
+                    ))
+                  )}
+                  <circle
+                    cx="130"
+                    cy="98"
+                    r="42"
+                    fill="#ffffff"
+                    stroke="#d2d2d7"
+                  />
+                  <text
+                    x="130"
+                    y="92"
+                    textAnchor="middle"
+                    fontSize="18"
+                    fontWeight="700"
+                    fill="#1d1d1f"
+                  >
+                    {formatTokens(totalTokens)}
+                  </text>
+                  <text
+                    x="130"
+                    y="110"
+                    textAnchor="middle"
+                    fontSize="11"
+                    fill="#86868b"
+                  >
+                    tokens
+                  </text>
+                </svg>
+              </div>
+            </div>
+          ) : (
+            <div className="chart-scroll">
+              <div
+                style={{
+                  display: "flex",
+                  height: 18,
+                  borderRadius: 999,
+                  overflow: "hidden",
+                  background: "#edf1f5",
+                }}
+              >
+                {displayItems.map((item, index) => {
+                  const widthPct =
+                    totalTokens > 0 ? (item.count / totalTokens) * 100 : 0;
+                  return (
+                    <div
+                      key={item.label}
+                      title={`${item.label}: ${formatTokens(item.count)}`}
+                      style={{
+                        width: `${widthPct}%`,
+                        minWidth: widthPct > 0 ? 2 : 0,
+                        background:
+                          TOKEN_CONSUMPTION_COLORS[
+                            index % TOKEN_CONSUMPTION_COLORS.length
+                          ],
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: 8,
+              marginTop: 12,
+            }}
+          >
+            {displayItems.map((item, index) => (
+              <div
+                key={item.label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: "0.82em",
+                  color: "#1d1d1f",
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background:
+                      TOKEN_CONSUMPTION_COLORS[
+                        index % TOKEN_CONSUMPTION_COLORS.length
+                      ],
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {item.label}
+                </span>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    color: "#86868b",
+                    fontWeight: 600,
+                  }}
+                >
+                  {formatTokens(item.count)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function TokenTrendSection({
   tokenTrend,
   range,
   view,
+  dayCount,
   onToggleView,
 }: {
   tokenTrend: DashboardTokenTrendContract;
   range: DashboardRangeContract;
   view: DashboardViewContract;
+  dayCount: number;
   onToggleView: (v: DashboardViewContract) => void;
 }) {
   const ioRatioPct = tokenTrend.inputRatioPercent.toFixed(1);
+  const isSingleDay = dayCount === 1;
+  const hourlySubtitle = isSingleDay
+    ? "Showing hourly breakdown for selected day"
+    : "Showing sum of hourly activity across selected days";
 
   const ioRatioBar = (
     <div className="io-ratio-bar">
@@ -354,26 +1039,18 @@ function TokenTrendSection({
     const { data, keys } = flattenStackBars(tokenTrend.hourlyBars);
     return (
       <section className="card">
-        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-          Token I/O Trend
-        </h2>
-        <div className="trend-header">
-          {ioRatioBar}
-          <button
-            type="button"
-            className="view-toggle"
-            onClick={() => onToggleView("daily")}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#0066cc",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            View daily &rarr;
-          </button>
+        <div className="trend-header-with-toggle">
+          <div>
+            <h2
+              style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 6px 0" }}
+            >
+              Token I/O Trend
+            </h2>
+            <p className="hourly-subtitle">{hourlySubtitle}</p>
+          </div>
+          <ViewToggle view={view} onToggle={onToggleView} />
         </div>
+        <div className="trend-header">{ioRatioBar}</div>
         <div className="chart-scroll">
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={data}>
@@ -411,26 +1088,13 @@ function TokenTrendSection({
 
   return (
     <section className="card">
-      <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-        Token I/O Trend
-      </h2>
-      <div className="trend-header">
-        {ioRatioBar}
-        <button
-          type="button"
-          className="view-toggle"
-          onClick={() => onToggleView("hourly")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#0066cc",
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          View hourly &rarr;
-        </button>
+      <div className="trend-header-with-toggle">
+        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
+          Token I/O Trend
+        </h2>
+        <ViewToggle view={view} onToggle={onToggleView} />
       </div>
+      <div className="trend-header">{ioRatioBar}</div>
       <div className="chart-scroll">
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={flatData}>
@@ -452,7 +1116,7 @@ function TokenTrendSection({
             {tokenTrend.dailySeries.map((s) => (
               <Line
                 key={s.label}
-                type="monotone"
+                type="linear"
                 dataKey={s.label}
                 stroke={s.color}
                 strokeWidth={2}
@@ -470,35 +1134,34 @@ function SubagentTrendSection({
   subagentTrend,
   range,
   view,
+  dayCount,
   onToggleView,
 }: {
   subagentTrend: DashboardSubagentTrendContract;
   range: DashboardRangeContract;
   view: DashboardViewContract;
+  dayCount: number;
   onToggleView: (v: DashboardViewContract) => void;
 }) {
+  const isSingleDay = dayCount === 1;
+  const hourlySubtitle = isSingleDay
+    ? "Showing hourly breakdown for selected day"
+    : "Showing sum of hourly activity across selected days";
+
   if (view === "hourly") {
     const { data, keys } = flattenStackBars(subagentTrend.hourlyBars);
     return (
       <section className="card">
-        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-          Subagent Activity
-        </h2>
-        <div className="trend-header-end">
-          <button
-            type="button"
-            className="view-toggle"
-            onClick={() => onToggleView("daily")}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#0066cc",
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            View daily &rarr;
-          </button>
+        <div className="trend-header-with-toggle">
+          <div>
+            <h2
+              style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 6px 0" }}
+            >
+              Subagent Activity
+            </h2>
+            <p className="hourly-subtitle">{hourlySubtitle}</p>
+          </div>
+          <ViewToggle view={view} onToggle={onToggleView} />
         </div>
         <div className="chart-scroll">
           <ResponsiveContainer width="100%" height={280}>
@@ -537,24 +1200,11 @@ function SubagentTrendSection({
 
   return (
     <section className="card">
-      <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-        Subagent Activity
-      </h2>
-      <div className="trend-header-end">
-        <button
-          type="button"
-          className="view-toggle"
-          onClick={() => onToggleView("hourly")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#0066cc",
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          View hourly &rarr;
-        </button>
+      <div className="trend-header-with-toggle">
+        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
+          Subagent Activity
+        </h2>
+        <ViewToggle view={view} onToggle={onToggleView} />
       </div>
       {subagentTrend.dailySeries.length === 0 ? (
         <p className="no-data">No subagent data</p>
@@ -581,7 +1231,7 @@ function SubagentTrendSection({
               {subagentTrend.dailySeries.map((s) => (
                 <Line
                   key={s.label}
-                  type="monotone"
+                  type="linear"
                   dataKey={s.label}
                   stroke={s.color}
                   strokeWidth={2}
@@ -818,10 +1468,36 @@ function ErrorPatternsSection({
 
 export function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const range = (searchParams.get("range") ?? "all") as DashboardRangeContract;
-  const view = (searchParams.get("view") ?? "daily") as DashboardViewContract;
+  const controllerFromUrl = React.useMemo(
+    () => createDashboardSelectionController(searchParams),
+    [searchParams],
+  );
+  const [selectionController, setSelectionController] =
+    React.useState(controllerFromUrl);
+  const requestVersionTrackerRef = React.useRef(
+    createDashboardRequestVersionTracker(),
+  );
 
-  const apiUrl = `/api/dashboard?range=${range}&view=${view}`;
+  React.useEffect(() => {
+    const currentApplied = serializeAppliedDashboardSelection(
+      selectionController.appliedSelection,
+    ).toString();
+    const nextApplied = serializeAppliedDashboardSelection(
+      controllerFromUrl.appliedSelection,
+    ).toString();
+    if (currentApplied !== nextApplied) {
+      setSelectionController(controllerFromUrl);
+    }
+  }, [controllerFromUrl, selectionController.appliedSelection]);
+
+  const { appliedSelection, apiUrl } = selectionController;
+  const view = appliedSelection.view;
+  const range: DashboardRangeContract =
+    appliedSelection.preset === "today"
+      ? "day"
+      : appliedSelection.preset === "last30d"
+        ? "month"
+        : "week";
 
   const [data, setData] = React.useState<DashboardContract | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -830,9 +1506,12 @@ export function Dashboard() {
   /* Fetch + periodic refresh */
   React.useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
+    const controllers = new Set<AbortController>();
 
     async function load() {
+      const requestVersion = requestVersionTrackerRef.current.start();
+      const controller = new AbortController();
+      controllers.add(controller);
       try {
         setLoading(true);
         setError(null);
@@ -847,49 +1526,79 @@ export function Dashboard() {
           throw new Error(body?.message ?? `HTTP ${res.status}`);
         }
         const json = (await res.json()) as DashboardContract;
-        if (!cancelled) setData(json);
+        if (
+          !cancelled &&
+          requestVersionTrackerRef.current.isCurrent(requestVersion)
+        ) {
+          setData(json);
+        }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (!cancelled)
+        if (
+          !cancelled &&
+          requestVersionTrackerRef.current.isCurrent(requestVersion)
+        )
           setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) setLoading(false);
+        controllers.delete(controller);
+        if (
+          !cancelled &&
+          requestVersionTrackerRef.current.isCurrent(requestVersion)
+        ) {
+          setLoading(false);
+        }
       }
     }
 
     load();
 
-    const timer = setInterval(() => {
-      if (!cancelled) load();
-    }, REFRESH_INTERVAL);
+    const timer = appliedSelection.refreshable
+      ? setInterval(() => {
+          if (!cancelled) load();
+        }, REFRESH_INTERVAL)
+      : null;
 
     return () => {
       cancelled = true;
-      controller.abort();
-      clearInterval(timer);
+      for (const controller of controllers) {
+        controller.abort();
+      }
+      if (timer) {
+        clearInterval(timer);
+      }
     };
-  }, [apiUrl]);
+  }, [apiUrl, appliedSelection.refreshable]);
 
-  const handleRangeSelect = React.useCallback(
-    (r: DashboardRangeContract) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("range", r);
-        return next;
-      });
+  const applyController = React.useCallback(
+    (nextController: typeof selectionController) => {
+      setSelectionController(nextController);
+      setSearchParams(
+        serializeAppliedDashboardSelection(nextController.appliedSelection),
+      );
     },
     [setSearchParams],
   );
 
+  const handleRangeSelect = React.useCallback(
+    (preset: DashboardPresetId) => {
+      applyController(
+        applyDashboardDraftSelection(
+          setDashboardDraftPreset(selectionController, preset),
+        ),
+      );
+    },
+    [applyController, selectionController],
+  );
+
   const handleViewToggle = React.useCallback(
     (v: DashboardViewContract) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("view", v);
-        return next;
-      });
+      applyController(
+        applyDashboardDraftSelection(
+          setDashboardDraftView(selectionController, v),
+        ),
+      );
     },
-    [setSearchParams],
+    [applyController, selectionController],
   );
 
   if (loading && !data) {
@@ -920,7 +1629,17 @@ export function Dashboard() {
       <SummaryMetrics data={data} />
 
       {/* 2. Range Selector */}
-      <RangeSelector currentRange={range} onSelect={handleRangeSelect} />
+      <div className="dashboard-controls">
+        <TimeRangeSelector
+          controller={selectionController}
+          onApply={(nextController) => {
+            applyController(nextController);
+          }}
+          onCancel={(nextController) => {
+            applyController(nextController);
+          }}
+        />
+      </div>
 
       {/* 3. Recent Sessions */}
       <RecentSessions sessions={data.recentSessions} />
@@ -928,19 +1647,29 @@ export function Dashboard() {
       {/* 4. Activity Heatmap */}
       <section className="card">
         <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-          Activity (last 365 days)
+          Activity (selected range)
         </h2>
-        <ActivityHeatmap days={data.heatmapDays} />
+        <ActivityHeatmap
+          days={data.heatmapDays}
+          startDay={appliedSelection.bounds.startDayInclusive}
+          endDay={appliedSelection.bounds.endDayInclusive}
+        />
       </section>
 
       {/* 5. Error Daily Trend */}
-      <ErrorTrendSection series={data.errorTrendSeries} />
+      <ErrorTrendSection
+        series={data.errorTrendSeries}
+        hourlyBars={data.errorTrendHourlyBars}
+        view={view}
+        onToggleView={handleViewToggle}
+      />
 
       {/* 6. Token I/O Trend */}
       <TokenTrendSection
         tokenTrend={data.tokenTrend}
         range={range}
         view={view}
+        dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
       />
 
@@ -949,14 +1678,17 @@ export function Dashboard() {
         subagentTrend={data.subagentTrend}
         range={range}
         view={view}
+        dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
       />
 
       {/* 8. Active Repositories */}
       <ActiveReposSection repos={data.activeRepos} />
 
-      {/* 9-11. Model Usage, Top Tools, Agent Distribution (CSS-only bars) */}
+      {/* 9-14. Model views, usage, tools, MCP (CSS-only bars) */}
       <div className="charts-grid">
+        <ModelPerformanceSection items={data.modelPerformance} />
+        <ModelTokenConsumptionSection items={data.modelTokenConsumption} />
         <section className="card">
           <h2
             style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}

@@ -23,6 +23,23 @@ function toDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function parseDateStr(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function getDaysBetween(startStr: string, endStr: string): Date[] {
+  const start = parseDateStr(startStr);
+  const end = parseDateStr(endStr);
+  const days: Date[] = [];
+  const current = new Date(start);
+  while (current <= end) {
+    days.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return days;
+}
+
 interface HeatmapDay {
   date: Date;
   dateStr: string;
@@ -30,10 +47,14 @@ interface HeatmapDay {
 
 interface Props {
   days: DashboardHeatmapDayContract[];
+  startDay: string;
+  endDay: string;
 }
 
 export const ActivityHeatmap = React.memo(function ActivityHeatmap({
   days: dayCounts,
+  startDay,
+  endDay,
 }: Props) {
   const dayMap = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -41,24 +62,22 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
     return m;
   }, [dayCounts]);
 
-  const { heatmapDays, startDow, maxCount } = React.useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const result: HeatmapDay[] = [];
-    for (let i = 364; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      result.push({ date: d, dateStr: toDateStr(d) });
-    }
+  const { heatmapDays, startDow, maxCount, totalDays } = React.useMemo(() => {
+    const days = getDaysBetween(startDay, endDay);
+    const result: HeatmapDay[] = days.map((d) => ({
+      date: d,
+      dateStr: toDateStr(d),
+    }));
     const counts = result.map((d) => dayMap.get(d.dateStr) ?? 0);
     return {
       heatmapDays: result,
-      startDow: result[0].date.getDay(),
+      startDow: result[0]?.date.getDay() ?? 0,
       maxCount: Math.max(...counts, 1),
+      totalDays: result.length,
     };
-  }, [dayMap]);
+  }, [dayMap, startDay, endDay]);
 
-  const totalCols = Math.ceil((365 + startDow) / 7);
+  const totalCols = Math.ceil((totalDays + startDow) / 7);
   const svgWidth = LEFT_PAD + totalCols * STEP;
   const svgHeight = TOP_PAD + 7 * STEP;
 
@@ -92,7 +111,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
         width={svgWidth}
         height={svgHeight}
         role="img"
-        aria-label="Activity heatmap showing sessions over the last 365 days"
+        aria-label={`Activity heatmap showing sessions from ${startDay} to ${endDay}`}
         style={{ display: "block", overflow: "visible" }}
         onMouseLeave={() => setTooltip(null)}
       >
