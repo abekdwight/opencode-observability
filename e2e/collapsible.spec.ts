@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { SessionDetailContract } from "../src/contracts/session.js";
 
 const MONITOR_SNAPSHOT = {
   kind: "monitor.snapshot",
@@ -37,9 +38,10 @@ const MONITOR_SNAPSHOT = {
   ],
 };
 
-const SESSION_DETAIL = {
+const SESSION_DETAIL: SessionDetailContract = {
   kind: "session.detail",
   generatedAt: "2024-01-11T11:00:00.000Z",
+  durationMs: 33_000,
   session: {
     id: "ses-root-1",
     title: "Root monitor session",
@@ -88,9 +90,15 @@ const SESSION_DETAIL = {
     { key: "subagents", label: "Subagents", level: "info", count: 1 },
     { key: "compactions", label: "Compactions", level: "warning", count: 1 },
   ],
+  messages: [],
+  todos: [],
+  summaryDiffs: null,
 };
 
-function stubApis(page: import("@playwright/test").Page) {
+function stubApis(
+  page: import("@playwright/test").Page,
+  sessionDetail: SessionDetailContract = SESSION_DETAIL,
+) {
   return Promise.all([
     page.route("**/api/monitor/snapshot", async (route) => {
       await route.fulfill({
@@ -106,7 +114,7 @@ function stubApis(page: import("@playwright/test").Page) {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(SESSION_DETAIL),
+        body: JSON.stringify(sessionDetail),
       });
     }),
   ]);
@@ -197,5 +205,66 @@ test.describe("session model breakdown disclosure", () => {
     // Collapse it again
     await toggle.click();
     await expect(content).not.toBeVisible();
+  });
+
+  test("message collapse toggle stays visible and markdown tables render as tables", async ({
+    page,
+  }) => {
+    const longMarkdown = Array.from(
+      { length: 80 },
+      (_, i) =>
+        `Paragraph ${i + 1}: This is a long message for overflow testing.`,
+    ).join("\n\n");
+    const sessionWithMessages: SessionDetailContract = {
+      ...SESSION_DETAIL,
+      messages: [
+        {
+          role: "assistant",
+          text: longMarkdown,
+          modelId: "gpt-4.1",
+          agent: "Sisyphus",
+          outputTpsLabel: "12.0 tok/s",
+          createdAt: "2024-01-10T09:00:20.000Z",
+          toolCalls: [],
+          subagentLinks: [],
+        },
+        {
+          role: "assistant",
+          text: "| Col A | Col B |\n| --- | --- |\n| one | two |",
+          modelId: "gpt-4.1",
+          agent: "Sisyphus",
+          outputTpsLabel: "12.0 tok/s",
+          createdAt: "2024-01-10T09:00:30.000Z",
+          toolCalls: [],
+          subagentLinks: [],
+        },
+      ],
+      todos: [],
+      summaryDiffs: null,
+    };
+
+    await stubApis(page, sessionWithMessages);
+    await page.goto("/session/ses-root-1");
+
+    const firstMessageToggle = page
+      .getByTestId("message-0")
+      .locator(".expand-btn");
+    await expect(firstMessageToggle).toBeVisible();
+    await expect(firstMessageToggle).toHaveText("続きを表示");
+
+    await firstMessageToggle.click();
+    await expect(firstMessageToggle).toBeVisible();
+    await expect(firstMessageToggle).toHaveText("折りたたむ");
+
+    await firstMessageToggle.click();
+    await expect(firstMessageToggle).toBeVisible();
+    await expect(firstMessageToggle).toHaveText("続きを表示");
+
+    const table = page
+      .getByTestId("message-1")
+      .locator(".message-content table");
+    await expect(table).toBeVisible();
+    await expect(table.locator("thead th")).toHaveCount(2);
+    await expect(table.locator("tbody td")).toHaveCount(2);
   });
 });

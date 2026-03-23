@@ -25,4 +25,16 @@ describe("safe rendering", () => {
     expect(html).toContain('href="#"');
     expect(html).not.toContain("javascript:alert");
   });
+
+  test("renders gfm markdown tables as HTML table elements", () => {
+    const html = renderSafeMarkdown(
+      "| Col A | Col B |\n| --- | --- |\n| one | two |",
+    );
+
+    expect(html).toContain("<table>");
+    expect(html).toContain("<thead>");
+    expect(html).toContain("<tbody>");
+    expect(html).toContain("<th>Col A</th>");
+    expect(html).toContain("<td>one</td>");
+  });
 });

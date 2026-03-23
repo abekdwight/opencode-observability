@@ -5,6 +5,7 @@ import type {
   SessionMessageContract,
   SessionToolCallContract,
 } from "../../src/contracts/session.js";
+import { renderSafeMarkdown as renderSharedMarkdown } from "../../src/lib/rendering.js";
 import { useJson } from "../hooks/useJson";
 import {
   formatDuration,
@@ -33,8 +34,7 @@ function writePref(key: string, value: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Simple markdown → HTML  (client-side, no server dependency on marked)
-// We escape first, then process markdown primitives to stay safe.
+// Rendering helpers
 // ---------------------------------------------------------------------------
 function escapeHtml(s: string): string {
   return s
@@ -42,40 +42,6 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function renderSafeMarkdown(raw: string): string {
-  const escaped = escapeHtml(raw);
-  // Code blocks: ```...```
-  let html = escaped.replace(
-    /```(\w*)\n([\s\S]*?)```/g,
-    (_m, _lang, code) => `<pre><code>${code}</code></pre>`,
-  );
-  // Inline code: `...`
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  // Bold: **...**
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  // Italic: *...*
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  // Headings
-  html = html.replace(/^##### (.+)$/gm, "<h5>$1</h5>");
-  html = html.replace(/^#### (.+)$/gm, "<h4>$1</h4>");
-  html = html.replace(/^### (.+)$/gm, "<h3>$1</h3>");
-  html = html.replace(/^## (.+)$/gm, "<h2>$1</h2>");
-  html = html.replace(/^# (.+)$/gm, "<h1>$1</h1>");
-  // Unordered list items
-  html = html.replace(/^- (.+)$/gm, "<li>$1</li>");
-  // Links: [text](url) — only http/https
-  html = html.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener">$1</a>',
-  );
-  // Paragraphs (double newline)
-  html = html.replace(/\n\n/g, "</p><p>");
-  html = `<p>${html}</p>`;
-  // Clean up empty paragraphs
-  html = html.replace(/<p>\s*<\/p>/g, "");
-  return html;
 }
 
 function renderSafeDiff(diff: string): string {
@@ -132,8 +98,8 @@ function buildCopyCommand(sessionId: string, directory: string): string {
     "";
   const isWindows = /Win/i.test(ua) || /Windows/i.test(navigator.userAgent);
   const quote = isWindows
-    ? (v: string) => "'" + v.replace(/'/g, "''") + "'"
-    : (v: string) => "'" + v.replace(/'/g, "'\\''") + "'";
+    ? (v: string) => `'${v.replace(/'/g, "''")}'`
+    : (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
   const d = quote(directory);
   const s = quote(sessionId);
   return isWindows
@@ -212,17 +178,33 @@ export function SessionDetail() {
       if (!contentEl) continue;
       const overflows = contentEl.scrollHeight > COLLAPSE_HEIGHT;
       el.classList.toggle("overflows", overflows);
-      if (!overflows) {
+      if (!overflows || !collapseEnabled) {
         el.classList.remove("collapsed");
-      } else if (collapseEnabled) {
+      } else {
         el.classList.add("collapsed");
+      }
+
+      const btn = el.querySelector<HTMLElement>(".expand-btn");
+      if (!btn) continue;
+      const isCollapsed = el.classList.contains("collapsed");
+      if (!overflows || isCollapsed) {
+        btn.textContent = "続きを表示";
+        btn.classList.remove("has-overflow");
+      } else {
+        btn.textContent = "折りたたむ";
+        btn.classList.add("has-overflow");
       }
     }
   }, [plainMode, collapseEnabled]);
 
   React.useEffect(() => {
-    recheckOverflows();
-  }, [recheckOverflows]);
+    const rafId = requestAnimationFrame(() => {
+      recheckOverflows();
+    });
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
+  }, [data?.messages, recheckOverflows]);
 
   // --- Anchor-based scroll preservation ---
   const getAnchor = React.useCallback(() => {
@@ -257,31 +239,12 @@ export function SessionDetail() {
 
   const toggleCollapseAll = React.useCallback(() => {
     const anchor = getAnchor();
-    setCollapseEnabled((prev) => {
-      const next = !prev;
-      requestAnimationFrame(() => {
-        for (const [, el] of messageBodyRefs.current) {
-          if (!el || !el.classList.contains("overflows")) continue;
-          const btn = el.querySelector<HTMLElement>(".expand-btn");
-          if (next) {
-            el.classList.add("collapsed");
-            if (btn) {
-              btn.textContent = "続きを表示";
-              btn.classList.remove("has-overflow");
-            }
-          } else {
-            el.classList.remove("collapsed");
-            if (btn) {
-              btn.textContent = "折りたたむ";
-              btn.classList.add("has-overflow");
-            }
-          }
-        }
-        restoreAnchor(anchor);
-      });
-      return next;
+    setCollapseEnabled((prev) => !prev);
+    requestAnimationFrame(() => {
+      recheckOverflows();
+      restoreAnchor(anchor);
     });
-  }, [getAnchor, restoreAnchor]);
+  }, [getAnchor, recheckOverflows, restoreAnchor]);
 
   const cycleFilter = React.useCallback(() => {
     setFilterMode((prev) => {
@@ -597,15 +560,7 @@ export function SessionDetail() {
           <div className="metric-card">
             <div className="metric-label">所要時間</div>
             <div className="metric-value">
-              {data.subagents.length > 0
-                ? formatDuration(
-                    data.subagents.reduce(
-                      (max, s) => Math.max(max, s.durationMs),
-                      0,
-                    ),
-                  )
-                : (formatTimestamp(data.session.createdAt).split(" ").pop() ??
-                  "—")}
+              {formatDuration(data.durationMs)}
             </div>
             <div className="metric-sub">
               {formatTimestamp(data.session.createdAt)}
@@ -716,7 +671,6 @@ export function SessionDetail() {
             msg={msg}
             msgIdx={msgIdx}
             hidden={filterMode !== "all" && msg.role !== filterMode}
-            plainMode={plainMode}
             toolsVisible={toolsVisible}
             openDetails={openDetails}
             toggleToolDetail={toggleToolDetail}
@@ -837,7 +791,6 @@ const MessageRow = React.memo(function MessageRow({
   msg,
   msgIdx,
   hidden,
-  plainMode,
   toolsVisible,
   openDetails,
   toggleToolDetail,
@@ -847,7 +800,6 @@ const MessageRow = React.memo(function MessageRow({
   msg: SessionMessageContract;
   msgIdx: number;
   hidden: boolean;
-  plainMode: boolean;
   toolsVisible: boolean;
   openDetails: Set<string>;
   toggleToolDetail: (id: string) => void;
@@ -923,11 +875,11 @@ const MessageRow = React.memo(function MessageRow({
           toggleToolDetail={toggleToolDetail}
         />
       ) : null}
-      <div className="message-body collapsed" ref={registerRef}>
+      <div className="message-body" ref={registerRef}>
         <div
           className="message-content"
           dangerouslySetInnerHTML={{
-            __html: renderSafeMarkdown(msg.text),
+            __html: renderSharedMarkdown(msg.text),
           }}
         />
         <div className="message-raw">

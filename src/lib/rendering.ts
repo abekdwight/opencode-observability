@@ -1,8 +1,17 @@
 import { marked } from "marked";
-import { escapeHtml } from "./text-format.js";
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 export function renderSafeMarkdown(markdown: string): string {
-  return sanitizeMarkedHtml(marked.parse(escapeHtml(markdown)) as string);
+  return sanitizeMarkedHtml(
+    marked.parse(escapeHtml(markdown), { gfm: true }) as string,
+  );
 }
 
 export function renderSafeDiff(diffText: string): string {
