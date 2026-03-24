@@ -3,6 +3,7 @@ import type {
   MonitorSnapshotContract,
 } from "../contracts/monitor.js";
 import type {
+  MonitorAlertCategory,
   MonitorIngestEventContract,
   MonitorIngestRequestContract,
   MonitorIngestResponseContract,
@@ -10,6 +11,7 @@ import type {
   MonitorSessionRuntimeStatus,
 } from "../contracts/monitor-ingest.js";
 import { getMonitorHeartbeatTtlMs } from "../lib/config.js";
+import { getDb } from "../lib/db.js";
 
 interface RuntimeSourceState {
   instanceId: string;
@@ -31,6 +33,8 @@ interface RuntimeSessionState {
   toolCallCount: number;
   compactionCount: number;
   todoCount: number;
+  alertCount: number;
+  alertCategoryCounts: Partial<Record<MonitorAlertCategory, number>>;
   status: MonitorSessionRuntimeStatus;
   lastSeenAtMs: number;
 }
@@ -81,6 +85,25 @@ function asRuntimeStatus(
     return value;
   }
   return undefined;
+}
+
+function asAlertCategory(value: unknown): MonitorAlertCategory | undefined {
+  if (
+    value === "model" ||
+    value === "token" ||
+    value === "network" ||
+    value === "retry" ||
+    value === "compaction" ||
+    value === "limit" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function placeholders(size: number): string {
+  return Array.from({ length: size }, () => "?").join(",");
 }
 
 function buildSessionKey(sourceId: string, sessionId: string): string {
@@ -183,6 +206,8 @@ class MonitorRuntimeStore {
         activeSessions.set(key, session);
       }
     }
+    const dbSubagentCountsByParent =
+      this.enrichActiveSessionsFromDb(activeSessions);
 
     const roots = new Map<string, RuntimeRootAggregate>();
     const rootBySessionKey = new Map<string, string>();
@@ -219,6 +244,13 @@ class MonitorRuntimeStore {
       }
     }
 
+    for (const aggregate of roots.values()) {
+      const dbCount = dbSubagentCountsByParent.get(aggregate.session.id) ?? 0;
+      if (dbCount > aggregate.subagentCount) {
+        aggregate.subagentCount = dbCount;
+      }
+    }
+
     const activeRootSessions: MonitorSessionSummary[] = Array.from(
       roots.values(),
       (aggregate) => ({
@@ -231,13 +263,6 @@ class MonitorRuntimeStore {
         toolCallCount: aggregate.session.toolCallCount,
         compactionCount: aggregate.session.compactionCount,
         subagentCount: aggregate.subagentCount,
-        signalLevel: this.getSignalLevel(
-          aggregate.session.status,
-          aggregate.session.compactionCount,
-          aggregate.session.todoCount,
-          aggregate.hasRetry,
-          aggregate.hasTodos,
-        ),
       }),
     ).sort(
       (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
@@ -255,8 +280,8 @@ class MonitorRuntimeStore {
       }
     }
 
-    const retryCount = activeRootSessions.filter(
-      (session) => session.signalLevel === "error",
+    const retryCount = Array.from(roots.values()).filter(
+      (aggregate) => aggregate.hasRetry || aggregate.session.status === "retry",
     ).length;
     const totalSubagentCount = activeRootSessions.reduce(
       (sum, session) => sum + session.subagentCount,
@@ -265,6 +290,30 @@ class MonitorRuntimeStore {
     const todoSessionCount = Array.from(roots.values()).filter(
       (aggregate) => aggregate.hasTodos,
     ).length;
+    const alertCategoryTotals: Record<MonitorAlertCategory, number> = {
+      model: 0,
+      token: 0,
+      network: 0,
+      retry: 0,
+      compaction: 0,
+      limit: 0,
+      other: 0,
+    };
+    for (const session of activeSessions.values()) {
+      for (const [rawCategory, value] of Object.entries(
+        session.alertCategoryCounts,
+      )) {
+        const category = asAlertCategory(rawCategory);
+        if (!category) {
+          continue;
+        }
+        alertCategoryTotals[category] += asNonNegativeInteger(value) ?? 0;
+      }
+    }
+    const totalAlertEvents = Object.values(alertCategoryTotals).reduce(
+      (sum, count) => sum + count,
+      0,
+    );
 
     return {
       kind: "monitor.snapshot",
@@ -279,26 +328,52 @@ class MonitorRuntimeStore {
         {
           key: "active",
           label: "Active sessions",
-          level: activeRootSessions.length > 0 ? "info" : "success",
           count: activeRootSessions.length,
         },
         {
           key: "retry",
           label: "Retrying sessions",
-          level: retryCount > 0 ? "error" : "success",
           count: retryCount,
         },
         {
           key: "subagent",
           label: "Active subagents",
-          level: totalSubagentCount > 0 ? "info" : "success",
           count: totalSubagentCount,
         },
         {
           key: "todos",
           label: "Sessions with todos",
-          level: todoSessionCount > 0 ? "warning" : "success",
           count: todoSessionCount,
+        },
+        {
+          key: "alerts",
+          label: "Alert events",
+          count: totalAlertEvents,
+        },
+        {
+          key: "model",
+          label: "Model errors",
+          count: alertCategoryTotals.model,
+        },
+        {
+          key: "token",
+          label: "Token refresh errors",
+          count: alertCategoryTotals.token,
+        },
+        {
+          key: "network",
+          label: "Network retries",
+          count: alertCategoryTotals.network,
+        },
+        {
+          key: "limit",
+          label: "Model limit hits",
+          count: alertCategoryTotals.limit,
+        },
+        {
+          key: "compaction-alert",
+          label: "Compaction bursts",
+          count: alertCategoryTotals.compaction,
         },
       ],
     };
@@ -324,7 +399,7 @@ class MonitorRuntimeStore {
   ): RuntimeSourceState {
     const current = this.sources.get(sourceId) ?? {
       instanceId: sourceId,
-      lastHeartbeatAtMs: 0,
+      lastHeartbeatAtMs: nowMs,
       lastSeenAtMs: nowMs,
     };
 
@@ -335,6 +410,112 @@ class MonitorRuntimeStore {
     current.lastSeenAtMs = nowMs;
     this.sources.set(sourceId, current);
     return current;
+  }
+
+  private enrichActiveSessionsFromDb(
+    activeSessions: Map<string, RuntimeSessionState>,
+  ): Map<string, number> {
+    const subagentCountsByParent = new Map<string, number>();
+    if (activeSessions.size === 0) {
+      return subagentCountsByParent;
+    }
+
+    const sessionIds = Array.from(
+      new Set(Array.from(activeSessions.values(), (session) => session.id)),
+    );
+    if (sessionIds.length === 0) {
+      return subagentCountsByParent;
+    }
+
+    const idPlaceholders = placeholders(sessionIds.length);
+    let db: ReturnType<typeof getDb> | null = null;
+
+    try {
+      db = getDb();
+      const messageRows = db
+        .prepare(
+          `SELECT session_id AS sessionId, COUNT(*) AS cnt FROM message WHERE session_id IN (${idPlaceholders}) GROUP BY session_id`,
+        )
+        .all(...sessionIds) as Array<{ sessionId: string; cnt: number }>;
+      const toolRows = db
+        .prepare(
+          `SELECT p.session_id AS sessionId, COUNT(*) AS cnt
+           FROM part p
+           WHERE p.session_id IN (${idPlaceholders})
+             AND json_extract(p.data, '$.type') = 'tool'
+           GROUP BY p.session_id`,
+        )
+        .all(...sessionIds) as Array<{ sessionId: string; cnt: number }>;
+      const parentRows = db
+        .prepare(
+          `SELECT id AS sessionId, parent_id AS parentId FROM session WHERE id IN (${idPlaceholders})`,
+        )
+        .all(...sessionIds) as Array<{
+        sessionId: string;
+        parentId: string | null;
+      }>;
+      const subagentRows = db
+        .prepare(
+          `SELECT parent_id AS parentId, COUNT(*) AS cnt FROM session WHERE parent_id IN (${idPlaceholders}) GROUP BY parent_id`,
+        )
+        .all(...sessionIds) as Array<{ parentId: string | null; cnt: number }>;
+
+      const messageCountBySessionId = new Map<string, number>(
+        messageRows.map((row) => [
+          row.sessionId,
+          asNonNegativeInteger(row.cnt) ?? 0,
+        ]),
+      );
+      const toolCountBySessionId = new Map<string, number>(
+        toolRows.map((row) => [
+          row.sessionId,
+          asNonNegativeInteger(row.cnt) ?? 0,
+        ]),
+      );
+      const parentBySessionId = new Map<string, string | null>(
+        parentRows.map((row) => [
+          row.sessionId,
+          asNonEmptyString(row.parentId),
+        ]),
+      );
+
+      for (const session of activeSessions.values()) {
+        const dbMessageCount = messageCountBySessionId.get(session.id);
+        if (typeof dbMessageCount === "number") {
+          session.messageCount = Math.max(session.messageCount, dbMessageCount);
+        }
+        const dbToolCount = toolCountBySessionId.get(session.id);
+        if (typeof dbToolCount === "number") {
+          session.toolCallCount = Math.max(session.toolCallCount, dbToolCount);
+        }
+        if (!session.parentId && parentBySessionId.has(session.id)) {
+          session.parentId = parentBySessionId.get(session.id) ?? null;
+        }
+      }
+
+      for (const row of subagentRows) {
+        const parentId = asNonEmptyString(row.parentId);
+        if (!parentId) {
+          continue;
+        }
+        subagentCountsByParent.set(
+          parentId,
+          asNonNegativeInteger(row.cnt) ?? 0,
+        );
+      }
+    } catch {
+      return subagentCountsByParent;
+    } finally {
+      if (db) {
+        try {
+          db.close();
+        } catch {
+          // ignore close error and keep runtime snapshot available
+        }
+      }
+    }
+
+    return subagentCountsByParent;
   }
 
   private applyHeartbeat(
@@ -364,7 +545,9 @@ class MonitorRuntimeStore {
     for (const [key, session] of this.sessions) {
       if (session.sourceId !== sourceId) continue;
       if (!activeSessionSet.has(session.id)) {
-        this.sessions.delete(key);
+        session.status = "idle";
+        session.lastSeenAtMs = heartbeatAtMs;
+        this.sessions.set(key, session);
       }
     }
 
@@ -408,6 +591,18 @@ class MonitorRuntimeStore {
       case "session.error": {
         const session = this.upsertSession(sourceId, event.session, nowMs);
         session.status = "retry";
+        session.lastSeenAtMs = nowMs;
+        this.sessions.set(session.key, session);
+        return;
+      }
+      case "session.alert": {
+        const session = this.upsertSession(sourceId, event.session, nowMs);
+        const category = asAlertCategory(event.category) ?? "other";
+        const increment = asNonNegativeInteger(event.increment) ?? 1;
+        const currentCategoryCount = session.alertCategoryCounts[category] ?? 0;
+        session.alertCategoryCounts[category] =
+          currentCategoryCount + increment;
+        session.alertCount += increment;
         session.lastSeenAtMs = nowMs;
         this.sessions.set(session.key, session);
         return;
@@ -513,6 +708,8 @@ class MonitorRuntimeStore {
         0,
       todoCount:
         asNonNegativeInteger(patch.todoCount) ?? existing?.todoCount ?? 0,
+      alertCount: existing?.alertCount ?? 0,
+      alertCategoryCounts: { ...(existing?.alertCategoryCounts ?? {}) },
       status: asRuntimeStatus(patch.status) ?? existing?.status ?? "idle",
       lastSeenAtMs: nowMs,
     };
@@ -545,22 +742,6 @@ class MonitorRuntimeStore {
       }
       currentKey = parentKey;
     }
-  }
-
-  private getSignalLevel(
-    status: MonitorSessionRuntimeStatus,
-    compactionCount: number,
-    todoCount: number,
-    hasRetry: boolean,
-    hasTodos: boolean,
-  ): MonitorSessionSummary["signalLevel"] {
-    if (status === "retry" || hasRetry) {
-      return "error";
-    }
-    if (compactionCount > 0 || todoCount > 0 || hasTodos) {
-      return "warning";
-    }
-    return "success";
   }
 
   private emit(): void {

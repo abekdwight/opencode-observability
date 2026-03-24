@@ -1,4 +1,8 @@
-import type { SignalBadge, SignalLevel } from "./shared.js";
+export interface MonitorSignalBadge {
+  key: string;
+  label: string;
+  count: number;
+}
 
 export interface MonitorSessionSummary {
   id: string;
@@ -10,7 +14,6 @@ export interface MonitorSessionSummary {
   toolCallCount: number;
   compactionCount: number;
   subagentCount: number;
-  signalLevel: SignalLevel;
 }
 
 export interface MonitorSnapshotContract {
@@ -22,5 +25,5 @@ export interface MonitorSnapshotContract {
     subagent: number;
     total: number;
   };
-  signalBadges: SignalBadge[];
+  signalBadges: MonitorSignalBadge[];
 }

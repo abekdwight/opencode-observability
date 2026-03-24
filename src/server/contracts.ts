@@ -4,7 +4,7 @@ import type {
   MonitorSnapshotContract,
 } from "../contracts/monitor.js";
 import type { SessionDetailContract } from "../contracts/session.js";
-import type { SignalBadge, SignalLevel } from "../contracts/shared.js";
+import type { SignalBadge } from "../contracts/shared.js";
 import { getMonitorActiveWindowMs } from "../lib/config.js";
 import {
   buildSessionDetailSnapshot,
@@ -102,15 +102,6 @@ function countSubagentSessions(
   );
 }
 
-function getSignalLevel(
-  toolErrorCount: number,
-  compactionCount: number,
-): SignalLevel {
-  if (toolErrorCount > 0) return "error";
-  if (compactionCount > 0) return "warning";
-  return "success";
-}
-
 function buildRootSessionSummary(
   db: Database.Database,
   row: SessionRow,
@@ -121,7 +112,6 @@ function buildRootSessionSummary(
       .get(row.id),
   );
   const toolCallCount = countToolCalls(db, row.id);
-  const toolErrorCount = countToolErrors(db, row.id);
   const compactionCount = countCompactionMessages(db, row.id);
   const subagentCount = countSubagentSessions(db, row.id);
 
@@ -135,7 +125,6 @@ function buildRootSessionSummary(
     toolCallCount,
     compactionCount,
     subagentCount,
-    signalLevel: getSignalLevel(toolErrorCount, compactionCount),
   };
 }
 
@@ -196,9 +185,19 @@ export function buildMonitorSnapshotContract(
         )
       : 0;
 
-  const alertingRoots = activeRootSessions.filter(
-    (session) => session.signalLevel === "error",
-  ).length;
+  const alertingRoots =
+    activeRootIds.length > 0
+      ? getCount(
+          db,
+          `SELECT COUNT(DISTINCT s.id) AS cnt
+           FROM session s
+           JOIN part p ON p.session_id = s.id
+           WHERE s.id IN (${rootIdPlaceholders})
+             AND json_extract(p.data, '$.type') = 'tool'
+             AND json_extract(p.data, '$.state.status') = 'error'`,
+          activeRootIds,
+        )
+      : 0;
   const compactingRoots = activeRootSessions.filter(
     (session) => session.compactionCount > 0,
   ).length;
@@ -222,29 +221,25 @@ export function buildMonitorSnapshotContract(
         )
       : 0;
 
-  const signalBadges: SignalBadge[] = [
+  const signalBadges: MonitorSnapshotContract["signalBadges"] = [
     {
       key: "alerting",
       label: "Alerting sessions",
-      level: alertingRoots > 0 ? "error" : "success",
       count: alertingRoots,
     },
     {
       key: "compacting",
       label: "Compacting sessions",
-      level: compactingRoots > 0 ? "warning" : "info",
       count: compactingRoots,
     },
     {
       key: "subagent",
       label: "Subagent sessions",
-      level: subagentSessions > 0 ? "info" : "success",
       count: subagentSessions,
     },
     {
       key: "todos",
       label: "Open todos",
-      level: openTodos > 0 ? "warning" : "success",
       count: openTodos,
     },
   ];
