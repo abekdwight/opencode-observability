@@ -160,13 +160,14 @@ function formatPercentRatio(value: number | null, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-function formatMetricBand(
-  low: number | null,
-  high: number | null,
+function formatDeviation(
+  p10: number | null,
+  p90: number | null,
   digits = 2,
 ): string {
-  if (low == null || high == null) return "—";
-  return `${low.toFixed(digits)}–${high.toFixed(digits)}`;
+  if (p10 == null || p90 == null) return "—";
+  const sigma = Math.abs(p90 - p10) / 2.56;
+  return `σ≈${sigma.toFixed(digits)}`;
 }
 
 function prettifyPath(path: string): string {
@@ -269,6 +270,58 @@ function ChartTooltipContent({
         </div>
       ))}
     </div>
+  );
+}
+
+function ModelPerformanceHeaderHelp({
+  label,
+  tooltip,
+  align = "left",
+}: {
+  label: string;
+  tooltip: string;
+  align?: "left" | "right";
+}) {
+  const tooltipId = React.useId();
+
+  return (
+    <span
+      className={`model-performance-th-content${
+        align === "right" ? " is-right" : ""
+      }`}
+    >
+      <span className="model-performance-th-label">{label}</span>
+      <button
+        type="button"
+        className="model-performance-info-btn"
+        aria-label={`${label} help`}
+        aria-describedby={tooltipId}
+      >
+        <span className="model-performance-info-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+            <circle
+              cx="8"
+              cy="8"
+              r="6.75"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.25"
+            />
+            <path
+              d="M7.25 6.25h1.5V12h-1.5zM8 4.05a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9Z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+        <span
+          className="model-performance-tooltip"
+          id={tooltipId}
+          role="tooltip"
+        >
+          {tooltip}
+        </span>
+      </button>
+    </span>
   );
 }
 
@@ -814,40 +867,38 @@ function ModelPerformanceSection({
   }, [rows]);
 
   const chartRows = React.useMemo(() => {
-    const sourceRows = sortedRows.slice(0, 10);
-    return sourceRows
-      .map((row, index) => {
-        const typical = row.tpsP50 ?? row.avgTps;
-        if (typical == null) return null;
+    return sortedRows
+      .slice(0, 10)
+      .map((row) => {
+        const tps = row.tpsP50 ?? row.avgTps;
+        if (tps == null) return null;
 
-        const lowCandidate = row.tpsP10 ?? row.avgTps ?? typical;
-        const highCandidate = row.tpsP90 ?? row.avgTps ?? typical;
-        const low = Math.min(typical, lowCandidate);
-        const high = Math.max(typical, highCandidate);
+        const lowCandidate = row.tpsP10 ?? row.avgTps ?? tps;
+        const highCandidate = row.tpsP90 ?? row.avgTps ?? tps;
+        const low = Math.min(tps, lowCandidate);
+        const high = Math.max(tps, highCandidate);
 
         return {
-          rank: index + 1,
           label: row.model,
           provider: row.provider,
-          typical,
+          tps,
           low,
           high,
           weighted: row.avgTps,
-          band: formatMetricBand(row.tpsP10, row.tpsP90),
+          deviation: formatDeviation(row.tpsP10, row.tpsP90),
         };
       })
       .filter(
         (
           row,
         ): row is {
-          rank: number;
           label: string;
           provider: string;
-          typical: number;
+          tps: number;
           low: number;
           high: number;
           weighted: number | null;
-          band: string;
+          deviation: string;
         } => row != null,
       );
   }, [sortedRows]);
@@ -856,47 +907,42 @@ function ModelPerformanceSection({
     if (chartRows.length === 0) {
       return {
         data: [] as Array<{
-          rank: number;
           label: string;
           provider: string;
-          typical: number;
+          tps: number;
           weighted: number | null;
-          band: string;
+          deviation: string;
           error: [number, number];
           clipped: boolean;
         }>,
         yMax: 10,
-        clippedCount: 0,
       };
     }
 
     const upperBounds = chartRows.map((row) => row.high);
-    const maxTypical = Math.max(...chartRows.map((row) => row.typical), 1);
+    const maxTps = Math.max(...chartRows.map((row) => row.tps), 1);
     const robustUpper = quantileNumber(upperBounds, 0.9);
-    const yMax = Math.max(maxTypical * 1.25, robustUpper * 1.1, 10);
+    const yMax = Math.max(maxTps * 1.25, robustUpper * 1.1, 10);
 
     const data = chartRows.map((row) => {
       const clippedUpper = Math.min(row.high, yMax);
       return {
-        rank: row.rank,
         label: row.label,
         provider: row.provider,
-        typical: row.typical,
+        tps: row.tps,
         weighted: row.weighted,
-        band: row.band,
+        deviation: row.deviation,
         error: [
-          Math.max(0, row.typical - row.low),
-          Math.max(0, clippedUpper - row.typical),
+          Math.max(0, row.tps - row.low),
+          Math.max(0, clippedUpper - row.tps),
         ] as [number, number],
         clipped: row.high > yMax,
       };
     });
 
-    const clippedCount = data.filter((row) => row.clipped).length;
     return {
       data,
       yMax: Number(yMax.toFixed(2)),
-      clippedCount,
     };
   }, [chartRows]);
 
@@ -940,72 +986,83 @@ function ModelPerformanceSection({
           </button>
         </div>
       </div>
-      <p className="hourly-subtitle" style={{ marginBottom: 12 }}>
-        主指標は Typical TPS(P50)。降順で並べ、P10-P90帯と latency
-        分位で体感の振れ幅を併記。
-      </p>
-      <div className="model-performance-meta">
-        <span className="recent-pill recent-pill-info">
-          Sort: Typical TPS ↓
-        </span>
-        <span className="recent-pill recent-pill-warning">
-          P10-P90 は観測レンジ（CIではない）
-        </span>
-        {mode === "chart" ? (
-          <span className="recent-pill">Chart: Top 10 models</span>
-        ) : null}
-        {mode === "chart" && chartView.clippedCount > 0 ? (
-          <span className="recent-pill recent-pill-error">
-            Outlier compressed: {chartView.clippedCount}
-          </span>
-        ) : null}
-      </div>
+
       {mode === "table" ? (
         <div className="model-performance-table-scroll">
           <table className="repo-table model-performance-table">
             <thead>
               <tr>
-                <th style={{ textAlign: "left" }}>Rank</th>
-                <th style={{ textAlign: "left" }}>Model</th>
-                <th style={{ textAlign: "left" }}>Provider</th>
-                <th style={{ textAlign: "right" }}>Typical TPS (P50)</th>
-                <th style={{ textAlign: "right" }}>Speed band (P10–P90)</th>
-                <th style={{ textAlign: "right" }}>Latency (P50/P90/P99)</th>
-                <th style={{ textAlign: "right" }}>Weighted TPS</th>
-                <th style={{ textAlign: "right" }}>n(valid/total)</th>
-                <th style={{ textAlign: "right" }}>Validity</th>
-                <th style={{ textAlign: "right" }}>Thinking/Output</th>
+                <th style={{ textAlign: "left" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Model"
+                    tooltip="Model and provider are shown together in one cell."
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="TPS"
+                    tooltip="Primary throughput uses P50 when available; the asterisk marks weighted-average fallback."
+                    align="right"
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Deviation"
+                    tooltip="Observed spread from P10–P90, shown as σ≈(P90−P10)/2.56."
+                    align="right"
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Latency"
+                    tooltip="Latency at P50 / P90 / P99."
+                    align="right"
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Weighted TPS"
+                    tooltip="Weighted average throughput (Σoutput / Σduration)."
+                    align="right"
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Validity"
+                    tooltip="Valid TPS messages divided by total messages."
+                    align="right"
+                  />
+                </th>
+                <th style={{ textAlign: "right" }}>
+                  <ModelPerformanceHeaderHelp
+                    label="Thinking"
+                    tooltip="Thinking share based on reasoning tokens."
+                    align="right"
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row, index) => {
+              {sortedRows.map((row) => {
                 const primaryTps = row.tpsP50 ?? row.avgTps;
                 const isFallback = row.tpsP50 == null && row.avgTps != null;
-                const rankClass =
-                  index === 0
-                    ? "recent-pill recent-pill-success"
-                    : index === 1
-                      ? "recent-pill recent-pill-info"
-                      : index === 2
-                        ? "recent-pill recent-pill-warning"
-                        : "model-performance-rank";
 
                 return (
                   <tr key={`${row.model}-${row.provider}`}>
-                    <td className="model-performance-rank-cell">
-                      <span className={rankClass}>#{index + 1}</span>
-                    </td>
-                    <td className="repo-name" title={row.model}>
-                      {row.model}
-                    </td>
-                    <td className="model-performance-provider">
-                      {row.provider}
+                    <td
+                      className="repo-name model-performance-model"
+                      title={`${row.model} · ${row.provider}`}
+                    >
+                      {row.model} · {row.provider}
                     </td>
                     <td className="model-performance-primary">
                       <div className="model-performance-primary-wrap">
                         {isFallback ? (
-                          <span className="model-performance-fallback">
-                            avg fallback
+                          <span
+                            className="model-performance-fallback"
+                            title="P50 unavailable — showing weighted average"
+                          >
+                            *
                           </span>
                         ) : null}
                         <span className="model-performance-primary-value">
@@ -1013,8 +1070,8 @@ function ModelPerformanceSection({
                         </span>
                       </div>
                     </td>
-                    <td className="model-performance-num model-performance-band">
-                      {formatMetricBand(row.tpsP10, row.tpsP90)}
+                    <td className="model-performance-num model-performance-deviation">
+                      {formatDeviation(row.tpsP10, row.tpsP90)}
                     </td>
                     <td className="model-performance-num model-performance-latency">
                       {formatLatencySeconds(row.latencyP50Ms)} /{" "}
@@ -1028,10 +1085,6 @@ function ModelPerformanceSection({
                       className="model-performance-num"
                       title={`latency valid: ${row.validLatencyMessages.toLocaleString()}`}
                     >
-                      {row.validTpsMessages.toLocaleString()}/
-                      {row.totalMessages.toLocaleString()}
-                    </td>
-                    <td className="model-performance-num">
                       {formatPercentRatio(row.validityRatio)}
                     </td>
                     <td className="model-performance-num">
@@ -1073,7 +1126,7 @@ function ModelPerformanceSection({
                 <Tooltip
                   formatter={(value, name, item) => {
                     const numeric = Number(value);
-                    if (name === "Typical TPS (P50)") {
+                    if (name === "TPS") {
                       return [formatNullableMetric(numeric), name];
                     }
                     if (name === "Weighted TPS") {
@@ -1089,22 +1142,25 @@ function ModelPerformanceSection({
                     const provider = payload?.[0]?.payload?.provider as
                       | string
                       | undefined;
-                    const band = payload?.[0]?.payload?.band as
+                    const deviation = payload?.[0]?.payload?.deviation as
                       | string
                       | undefined;
                     const clipped = payload?.[0]?.payload?.clipped as
                       | boolean
                       | undefined;
                     const suffix = clipped ? " (cap)" : "";
-                    const metric = band ? ` / band ${band}` : "";
+                    const metric =
+                      deviation && deviation !== "—"
+                        ? ` / deviation ${deviation}`
+                        : "";
                     return provider
                       ? `${label} · ${provider}${metric}${suffix}`
                       : `${String(label)}${metric}${suffix}`;
                   }}
                 />
                 <Bar
-                  dataKey="typical"
-                  name="Typical TPS (P50)"
+                  dataKey="tps"
+                  name="TPS"
                   fill={CHART_THEME.colors.success}
                   radius={[5, 5, 0, 0]}
                   maxBarSize={20}
@@ -1122,12 +1178,6 @@ function ModelPerformanceSection({
           </div>
         </div>
       )}
-      <p className="model-performance-note">
-        Typical TPS(P50) を主指標に採用。Weighted
-        TPS(=Σoutput/Σduration)は外れ値感度が高いため診断用途。 Speed band は
-        P10-P90 の観測帯、Latency は
-        P50/P90/P99。十分なサンプルがない場合「—」。
-      </p>
     </section>
   );
 }

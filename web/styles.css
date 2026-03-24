@@ -419,6 +419,10 @@ a:hover {
   gap: 16px;
 }
 
+.dash-surface > * {
+  min-width: 0;
+}
+
 .range-bar {
   display: flex;
   gap: 6px;
@@ -960,7 +964,12 @@ a:hover {
 }
 
 .model-performance-table {
-  min-width: 1180px;
+  min-width: 960px;
+}
+
+.model-performance-table td {
+  padding: 8px 0;
+  vertical-align: top;
 }
 
 .model-performance-table tbody tr {
@@ -972,44 +981,129 @@ a:hover {
 }
 
 .model-performance-table .repo-name {
-  max-width: 220px;
-}
-
-.model-performance-meta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  max-width: 260px;
 }
 
 .model-performance-table-scroll {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 4px;
+  scrollbar-gutter: stable;
 }
 
-.model-performance-rank-cell {
-  width: 64px;
-  padding-right: 8px;
-}
-
-.model-performance-rank {
-  display: inline-block;
-  min-width: 34px;
-  text-align: center;
-  font-size: 0.76em;
-  font-weight: 700;
-  color: #6a6a70;
-}
-
-.model-performance-provider {
-  font-size: 0.8em;
-  color: #6a6a70;
+.model-performance-th-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
   white-space: nowrap;
-  padding-right: 10px;
+}
+
+.model-performance-th-content.is-right {
+  justify-content: flex-end;
+}
+
+.model-performance-th-label {
+  min-width: 0;
+}
+
+.model-performance-info-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d2d2d7;
+  border-radius: 999px;
+  background: #fff;
+  color: #6a6a70;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+
+.model-performance-info-btn:hover,
+.model-performance-info-btn.active {
+  background: #f2f7ff;
+  border-color: #0066cc;
+  color: #0066cc;
+}
+
+.model-performance-info-btn:focus-visible {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.18);
+}
+
+.model-performance-info-icon {
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.model-performance-info-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Tooltip shown on hover/focus of info button */
+.model-performance-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1d1d1f;
+  color: #f5f5f7;
+  font-size: 0.75em;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.model-performance-tooltip::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 6px;
+  border: 5px solid transparent;
+  border-bottom-color: #1d1d1f;
+}
+
+.model-performance-th-content.is-right .model-performance-tooltip {
+  left: auto;
+  right: 0;
+}
+
+.model-performance-th-content.is-right .model-performance-tooltip::after {
+  left: auto;
+  right: 6px;
+}
+
+.model-performance-info-btn:hover .model-performance-tooltip,
+.model-performance-info-btn:focus-within .model-performance-tooltip {
+  display: block;
 }
 
 .model-performance-num {
@@ -1039,16 +1133,17 @@ a:hover {
 }
 
 .model-performance-fallback {
-  font-size: 0.66em;
-  color: #8a5700;
-  background: #fff7eb;
-  border-radius: 999px;
-  padding: 1px 6px;
+  display: inline-block;
+  margin-right: 4px;
+  color: #86868b;
+  font-size: 0.72em;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  line-height: 1;
+  vertical-align: text-top;
+  letter-spacing: 0.02em;
 }
 
-.model-performance-band {
+.model-performance-deviation {
   color: #243142;
   font-weight: 600;
 }
@@ -1056,13 +1151,6 @@ a:hover {
 .model-performance-latency {
   color: #394655;
   font-size: 0.76em;
-}
-
-.model-performance-note {
-  margin-top: 12px;
-  font-size: 0.78em;
-  color: #86868b;
-  line-height: 1.45;
 }
 
 .model-performance-chart-shell {
