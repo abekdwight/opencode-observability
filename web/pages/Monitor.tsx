@@ -13,6 +13,9 @@ export function Monitor() {
   const visibleSessions = data
     ? data.activeRootSessions.filter((s) => s.title !== "OpenCode terminal")
     : [];
+  const alertEvents = data
+    ? (data.signalBadges.find((badge) => badge.key === "alerts")?.count ?? 0)
+    : 0;
 
   return (
     <section className="surface">
@@ -22,6 +25,11 @@ export function Monitor() {
             <p className="metric-label">Active Sessions</p>
             <p className="metric-value">{data.activeRootSessions.length}</p>
             <p className="metric-sub">sessions</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Alert Events</p>
+            <p className="metric-value">{alertEvents}</p>
+            <p className="metric-sub">model/token/network/limit</p>
           </article>
           <article className="metric-card">
             <p className="metric-label">Main Compactions</p>
@@ -103,11 +111,6 @@ export function Monitor() {
                   >
                     <div className="recent-title-row">
                       <span className="recent-title">{session.title}</span>
-                      <span
-                        className={`recent-pill recent-pill-${session.signalLevel}`}
-                      >
-                        {session.signalLevel}
-                      </span>
                     </div>
                     <div className="recent-meta">
                       <span className="recent-dir">{session.directory}</span>

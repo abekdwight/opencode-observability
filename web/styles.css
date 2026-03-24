@@ -249,34 +249,6 @@ a:hover {
   flex-wrap: wrap;
 }
 
-.recent-pill {
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 0.68em;
-  font-weight: 700;
-  text-transform: capitalize;
-}
-
-.recent-pill-error {
-  background: #fff0f0;
-  color: #b71c1c;
-}
-
-.recent-pill-warning {
-  background: #fff7eb;
-  color: #8a5700;
-}
-
-.recent-pill-info {
-  background: #eef6ff;
-  color: #1565c0;
-}
-
-.recent-pill-success {
-  background: #f1faf1;
-  color: #2e7d32;
-}
-
 .card-path,
 .recent-dir,
 .subagent-row p {
