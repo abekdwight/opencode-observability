@@ -13,11 +13,22 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
 type SessionStatus = "idle" | "busy" | "retry";
 
+type MonitorAlertCategory =
+  | "model"
+  | "token"
+  | "network"
+  | "retry"
+  | "compaction"
+  | "limit"
+  | "other";
+
 type SessionInfo = {
   id: string;
   title?: string;
   directory?: string;
   parentID?: string;
+  messageCount?: number;
+  toolCallCount?: number;
   time?: {
     updated?: number;
   };
@@ -29,6 +40,8 @@ type SessionState = {
   directory: string;
   parentId: string | null;
   updatedAt: string;
+  messageCount: number;
+  toolCallCount: number;
   compactionCount: number;
   todoCount: number;
   status: SessionStatus;
@@ -112,6 +125,15 @@ const AUTOSTART_TIMEOUT_MS = Math.max(
 );
 const AUTOSTART_POLL_INTERVAL_MS = 250;
 const HEALTHCHECK_TIMEOUT_MS = 800;
+const COMPACTION_ALERT_THRESHOLD = Math.max(
+  1,
+  Number(
+    envWithFallback(
+      "OPENCODE_OBSERVABILITY_COMPACTION_ALERT_THRESHOLD",
+      "OPENCODE_TELEMETRY_COMPACTION_ALERT_THRESHOLD",
+    ) || "3",
+  ),
+);
 const STARTUP_LOCK_STALE_MS = Math.max(
   1_000,
   Number(
@@ -129,6 +151,16 @@ function toIso(value?: number): string {
   return new Date(value).toISOString();
 }
 
+function asNonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  if (value < 0) {
+    return 0;
+  }
+  return Math.trunc(value);
+}
+
 function emptySession(sessionId: string): SessionState {
   return {
     id: sessionId,
@@ -136,6 +168,8 @@ function emptySession(sessionId: string): SessionState {
     directory: "(unknown)",
     parentId: null,
     updatedAt: new Date().toISOString(),
+    messageCount: 0,
+    toolCallCount: 0,
     compactionCount: 0,
     todoCount: 0,
     status: "idle",
@@ -592,6 +626,103 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
     return null;
   };
 
+  const buildSessionPayload = (session: SessionState) => ({
+    id: session.id,
+    title: session.title,
+    directory: session.directory,
+    parentId: session.parentId,
+    updatedAt: session.updatedAt,
+    messageCount: session.messageCount,
+    toolCallCount: session.toolCallCount,
+    compactionCount: session.compactionCount,
+    todoCount: session.todoCount,
+    status: session.status,
+  });
+
+  const classifySessionError = (
+    value: unknown,
+  ): {
+    category: MonitorAlertCategory;
+    message: string;
+  } => {
+    let text = "";
+    if (typeof value === "string") {
+      text = value;
+    } else if (value && typeof value === "object") {
+      try {
+        text = JSON.stringify(value);
+      } catch {
+        text = String(value);
+      }
+    }
+    const normalized = text.toLowerCase();
+
+    if (
+      /token\s*refresh|refresh token|oauth|unauthorized|authentication|expired token|\b401\b/.test(
+        normalized,
+      )
+    ) {
+      return {
+        category: "token",
+        message: text || "token refresh/authentication failure",
+      };
+    }
+    if (
+      /rate\s*limit|quota|too many requests|limit exceeded|context length|max tokens|\b429\b/.test(
+        normalized,
+      )
+    ) {
+      return {
+        category: "limit",
+        message: text || "model or provider limit reached",
+      };
+    }
+    if (
+      /network|fetch failed|socket|connection reset|econn|etimedout|enotfound|eai_again|dns/.test(
+        normalized,
+      )
+    ) {
+      return {
+        category: "network",
+        message: text || "network error while running session",
+      };
+    }
+    if (
+      /model|provider|unsupported model|no such model|model unavailable|overloaded/.test(
+        normalized,
+      )
+    ) {
+      return {
+        category: "model",
+        message: text || "model/provider execution error",
+      };
+    }
+
+    return {
+      category: "retry",
+      message: text || "session entered retry state",
+    };
+  };
+
+  const enqueueSessionAlert = (
+    session: SessionState,
+    category: MonitorAlertCategory,
+    message: string,
+    level: "warning" | "error" = "error",
+  ) => {
+    enqueuePost({
+      source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
+      event: {
+        type: "session.alert",
+        at: new Date().toISOString(),
+        category,
+        level,
+        message,
+        session: buildSessionPayload(session),
+      },
+    });
+  };
+
   const ensureSessionMetadata = async (sessionId: string) => {
     if (sessionId === fallbackSessionId) {
       return;
@@ -623,7 +754,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
       }
 
       const statusMap = response.data as SessionStatusMap;
-      const activeSessionIds = new Set<string>();
+      const busySessionIds = new Set<string>();
 
       for (const [rawSessionId, statusInfo] of Object.entries(statusMap)) {
         const sessionId = rawSessionId.trim();
@@ -631,7 +762,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
           continue;
         }
 
-        activeSessionIds.add(sessionId);
+        busySessionIds.add(sessionId);
         const session = upsertById(sessionId);
         const status = asSessionStatus(statusInfo?.type);
         if (status) {
@@ -641,15 +772,22 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         await ensureSessionMetadata(sessionId);
       }
 
-      for (const sessionId of [...sessions.keys()]) {
-        if (activeSessionIds.has(sessionId)) {
+      for (const [sessionId, session] of sessions) {
+        if (sessionId === fallbackSessionId) {
           continue;
         }
-        sessions.delete(sessionId);
-        hydratedSessionIds.delete(sessionId);
+        if (busySessionIds.has(sessionId)) {
+          continue;
+        }
+        session.status = "idle";
+        sessions.set(sessionId, session);
       }
 
-      if (activeSessionIds.size === 0) {
+      const trackedSessionIds = [...sessions.keys()].filter(
+        (sessionId) => sessionId !== fallbackSessionId,
+      );
+
+      if (trackedSessionIds.length === 0) {
         const fallbackExisted = sessions.has(fallbackSessionId);
         const fallback =
           sessions.get(fallbackSessionId) ?? emptySession(fallbackSessionId);
@@ -664,16 +802,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.upsert",
-              session: {
-                id: fallback.id,
-                title: fallback.title,
-                directory: fallback.directory,
-                parentId: fallback.parentId,
-                updatedAt: fallback.updatedAt,
-                compactionCount: fallback.compactionCount,
-                todoCount: fallback.todoCount,
-                status: fallback.status,
-              },
+              session: buildSessionPayload(fallback),
             },
           });
         }
@@ -713,6 +842,10 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
       directory: info.directory || current.directory,
       parentId: info.parentID || current.parentId,
       updatedAt: toIso(info.time?.updated),
+      messageCount:
+        asNonNegativeInteger(info.messageCount) ?? current.messageCount,
+      toolCallCount:
+        asNonNegativeInteger(info.toolCallCount) ?? current.toolCallCount,
     };
     sessions.set(info.id, next);
     hydratedSessionIds.add(info.id);
@@ -743,16 +876,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.upsert",
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-                compactionCount: session.compactionCount,
-                todoCount: session.todoCount,
-                status: session.status,
-              },
+              session: buildSessionPayload(session),
             },
           });
           return;
@@ -792,13 +916,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.status",
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-              },
+              session: buildSessionPayload(session),
               status: session.status,
             },
           });
@@ -816,13 +934,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.idle",
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-              },
+              session: buildSessionPayload(session),
             },
           });
           return;
@@ -839,15 +951,21 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.error",
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-              },
+              session: buildSessionPayload(session),
             },
           });
+          const errorStatus = (
+            event.properties as Record<string, unknown> | undefined
+          )?.status;
+          const classification = classifySessionError(
+            event.properties?.error ?? errorStatus ?? event.properties,
+          );
+          enqueueSessionAlert(
+            session,
+            classification.category,
+            classification.message.slice(0, 400),
+            "error",
+          );
           return;
         }
 
@@ -862,16 +980,18 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
             source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
             event: {
               type: "session.compacted",
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-              },
+              session: buildSessionPayload(session),
               increment: 1,
             },
           });
+          if (session.compactionCount % COMPACTION_ALERT_THRESHOLD === 0) {
+            enqueueSessionAlert(
+              session,
+              "compaction",
+              `compaction count reached ${session.compactionCount}`,
+              "warning",
+            );
+          }
           return;
         }
 
@@ -897,13 +1017,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
               type: "todo.updated",
               sessionId,
               openCount,
-              session: {
-                id: session.id,
-                title: session.title,
-                directory: session.directory,
-                parentId: session.parentId,
-                updatedAt: session.updatedAt,
-              },
+              session: buildSessionPayload(session),
             },
           });
           return;

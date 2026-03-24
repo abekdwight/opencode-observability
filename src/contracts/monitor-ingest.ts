@@ -2,6 +2,15 @@ import type { MonitorSnapshotContract } from "./monitor.js";
 
 export type MonitorSessionRuntimeStatus = "idle" | "busy" | "retry";
 
+export type MonitorAlertCategory =
+  | "model"
+  | "token"
+  | "network"
+  | "retry"
+  | "compaction"
+  | "limit"
+  | "other";
+
 export interface MonitorIngestSourceContract {
   instanceId: string;
   label?: string;
@@ -47,6 +56,15 @@ export type MonitorIngestEventContract =
   | {
       type: "session.error";
       session: MonitorIngestSessionContract;
+    }
+  | {
+      type: "session.alert";
+      session: MonitorIngestSessionContract;
+      category: MonitorAlertCategory;
+      at?: string;
+      level?: "warning" | "error";
+      message?: string;
+      increment?: number;
     }
   | {
       type: "session.compacted";
