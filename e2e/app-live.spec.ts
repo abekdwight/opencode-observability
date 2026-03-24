@@ -20,7 +20,6 @@ test("monitor route degrades safely when the observability stream fails", async 
             toolCallCount: 2,
             compactionCount: 1,
             subagentCount: 1,
-            signalLevel: "error",
           },
         ],
         compactionCounts: {
@@ -32,7 +31,6 @@ test("monitor route degrades safely when the observability stream fails", async 
           {
             key: "alerting",
             label: "Alerting sessions",
-            level: "error",
             count: 1,
           },
         ],

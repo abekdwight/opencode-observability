@@ -20,7 +20,6 @@ test("app shell persists across monitor and session routes", async ({
             toolCallCount: 2,
             compactionCount: 1,
             subagentCount: 1,
-            signalLevel: "error",
           },
         ],
         compactionCounts: {
@@ -32,22 +31,19 @@ test("app shell persists across monitor and session routes", async ({
           {
             key: "alerting",
             label: "Alerting sessions",
-            level: "error",
             count: 1,
           },
           {
             key: "compacting",
             label: "Compacting sessions",
-            level: "warning",
             count: 1,
           },
           {
             key: "subagent",
             label: "Subagent sessions",
-            level: "info",
             count: 1,
           },
-          { key: "todos", label: "Open todos", level: "warning", count: 1 },
+          { key: "todos", label: "Open todos", count: 1 },
         ],
       }),
     });

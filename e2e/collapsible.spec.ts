@@ -14,7 +14,6 @@ const MONITOR_SNAPSHOT = {
       toolCallCount: 2,
       compactionCount: 1,
       subagentCount: 1,
-      signalLevel: "error",
     },
   ],
   compactionCounts: {
@@ -26,13 +25,11 @@ const MONITOR_SNAPSHOT = {
     {
       key: "alerting",
       label: "Alerting sessions",
-      level: "error",
       count: 1,
     },
     {
       key: "compacting",
       label: "Compacting sessions",
-      level: "warning",
       count: 1,
     },
   ],

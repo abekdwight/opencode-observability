@@ -168,7 +168,6 @@ test("deep links render app shell on every React route", async ({ page }) => {
             toolCallCount: 2,
             compactionCount: 1,
             subagentCount: 1,
-            signalLevel: "error",
           },
         ],
         compactionCounts: {
@@ -180,7 +179,6 @@ test("deep links render app shell on every React route", async ({ page }) => {
           {
             key: "active",
             label: "Active sessions",
-            level: "info",
             count: 1,
           },
         ],
