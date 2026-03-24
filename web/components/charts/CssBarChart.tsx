@@ -18,12 +18,17 @@ export const CssBarChart = React.memo(function CssBarChart({
 
   return (
     <div>
-      {items.map(({ label, count }) => {
+      {items.map(({ label, count, annotation }) => {
         const pct = (count / maxCount) * 100;
         return (
-          <div className="css-bar-item" key={label}>
+          <div className="css-bar-item" key={`${label}-${annotation ?? ""}`}>
             <div className="css-bar-header">
-              <span className="css-bar-label">{label}</span>
+              <span className="css-bar-label">
+                {label}
+                {annotation ? (
+                  <span className="css-bar-annotation"> · {annotation}</span>
+                ) : null}
+              </span>
               <span className="css-bar-count">{count.toLocaleString()}</span>
             </div>
             <div

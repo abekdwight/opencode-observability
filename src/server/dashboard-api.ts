@@ -335,6 +335,7 @@ export function readDashboardSnapshot(
     activeRepos: vm.activeRepos,
     modelUsage: vm.modelUsage,
     modelPerformance: vm.modelPerformance,
+    modelPerformanceStats: vm.modelPerformanceStats,
     modelTokenConsumption: vm.modelTokenConsumption,
     toolUsage: vm.toolUsage,
     agentDistribution: vm.agentDistribution,

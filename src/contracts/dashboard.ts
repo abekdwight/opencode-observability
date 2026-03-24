@@ -122,6 +122,39 @@ export interface DashboardToolReliabilityRowContract {
 export interface DashboardBarItemContract {
   label: string;
   count: number;
+  annotation?: string;
+}
+
+export interface DashboardModelTokenConsumptionRowContract {
+  model: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  nonCacheInputTokens: number;
+  inputTotalTokens: number;
+  totalTokens: number;
+}
+
+export interface DashboardModelPerformanceStatsRowContract {
+  model: string;
+  provider: string;
+  avgTps: number | null;
+  tpsP10: number | null;
+  tpsP50: number | null;
+  tpsP90: number | null;
+  tpsP99: number | null;
+  latencyP50Ms: number | null;
+  latencyP90Ms: number | null;
+  latencyP99Ms: number | null;
+  totalMessages: number;
+  validTpsMessages: number;
+  validLatencyMessages: number;
+  validityRatio: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  reasoningShare: number | null;
 }
 
 export interface DashboardContract {
@@ -138,7 +171,8 @@ export interface DashboardContract {
   activeRepos: DashboardRepoBreakdownContract;
   modelUsage: DashboardBarItemContract[];
   modelPerformance: DashboardBarItemContract[];
-  modelTokenConsumption: DashboardBarItemContract[];
+  modelPerformanceStats: DashboardModelPerformanceStatsRowContract[];
+  modelTokenConsumption: DashboardModelTokenConsumptionRowContract[];
   toolUsage: DashboardBarItemContract[];
   agentDistribution: DashboardBarItemContract[];
   mcpUsage: DashboardMcpUsageRowContract[];

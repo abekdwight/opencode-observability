@@ -22,6 +22,7 @@ ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
           <Route path="directories" element={<Directories />} />
           <Route path="dir/:directory" element={<DirectorySessions />} />
           <Route path="search" element={<Search />} />
+          <Route path="tool-errors" element={<ToolErrors />} />
           <Route path="tool-errors/:tool" element={<ToolErrors />} />
           <Route path="*" element={<Navigate replace to="/" />} />
         </Route>

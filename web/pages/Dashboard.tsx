@@ -4,9 +4,13 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  ErrorBar,
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,7 +21,8 @@ import type {
   DashboardContract,
   DashboardLineSeriesContract,
   DashboardMcpUsageRowContract,
-  DashboardRangeContract,
+  DashboardModelPerformanceStatsRowContract,
+  DashboardModelTokenConsumptionRowContract,
   DashboardRepoBreakdownContract,
   DashboardStackBarContract,
   DashboardSubagentTrendContract,
@@ -62,10 +67,106 @@ function getTimezoneLabel(): string {
 
 const REFRESH_INTERVAL = 30_000;
 
+const MODEL_PIE_COLORS = [
+  "#0b57d0",
+  "#2e7d32",
+  "#8e24aa",
+  "#ef6c00",
+  "#c62828",
+  "#00838f",
+  "#5d4037",
+  "#5e35b1",
+  "#1e88e5",
+  "#7cb342",
+  "#f4511e",
+  "#546e7a",
+] as const;
+
+function toModelProviderLabel(model: string, provider: string): string {
+  return `${model} · ${provider}`;
+}
+
+function formatLocalDay(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function buildLastYearBounds(): {
+  startDayInclusive: string;
+  endDayInclusive: string;
+} {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+  start.setDate(start.getDate() - 364);
+  return {
+    startDayInclusive: formatLocalDay(start),
+    endDayInclusive: formatLocalDay(end),
+  };
+}
+
+function formatAxisCount(value: number | string): string {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  return numeric.toLocaleString();
+}
+
+function formatAxisTps(value: number | string): string {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  return numeric >= 100 ? numeric.toFixed(0) : numeric.toFixed(1);
+}
+
+function formatModelTickLabel(value: string, max = 16): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+function quantileNumber(values: number[], quantile: number): number {
+  if (values.length === 0) return 0;
+  if (values.length === 1) return values[0] ?? 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * quantile;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const lowerValue = sorted[lower] ?? 0;
+  const upperValue = sorted[upper] ?? lowerValue;
+  if (lower === upper) return lowerValue;
+  const weight = index - lower;
+  return lowerValue * (1 - weight) + upperValue * weight;
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatNullableMetric(value: number | null, digits = 2): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
+}
+
+function formatLatencySeconds(valueMs: number | null): string {
+  if (valueMs == null || !Number.isFinite(valueMs)) return "—";
+  const sec = valueMs / 1000;
+  return sec >= 100 ? `${sec.toFixed(0)}s` : `${sec.toFixed(1)}s`;
+}
+
+function formatPercentRatio(value: number | null, digits = 1): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function formatMetricBand(
+  low: number | null,
+  high: number | null,
+  digits = 2,
+): string {
+  if (low == null || high == null) return "—";
+  return `${low.toFixed(digits)}–${high.toFixed(digits)}`;
 }
 
 function prettifyPath(path: string): string {
@@ -123,103 +224,6 @@ function flattenStackBars(bars: DashboardStackBarContract[]): {
     return row;
   });
   return { data, keys };
-}
-
-const TOKEN_CONSUMPTION_COLORS = [
-  CHART_THEME.colors.primary,
-  CHART_THEME.colors.success,
-  CHART_THEME.colors.warning,
-  CHART_THEME.colors.error,
-  "#0288d1",
-  "#6a1b9a",
-  "#8a5700",
-  "#5e35b1",
-  CHART_THEME.colors.muted,
-] as const;
-
-function summarizeBarItems(
-  items: DashboardBarItemContract[],
-  limit = 8,
-): DashboardBarItemContract[] {
-  const sorted = [...items]
-    .filter((item) => item.count > 0)
-    .sort((a, b) => b.count - a.count);
-  if (sorted.length <= limit) return sorted;
-
-  const top = sorted.slice(0, limit);
-  const otherCount = sorted
-    .slice(limit)
-    .reduce((sum, item) => sum + item.count, 0);
-  return otherCount > 0 ? [...top, { label: "Other", count: otherCount }] : top;
-}
-
-function polarToCartesian(
-  cx: number,
-  cy: number,
-  radius: number,
-  angleInDegrees: number,
-): { x: number; y: number } {
-  const radians = ((angleInDegrees - 90) * Math.PI) / 180;
-  return {
-    x: cx + radius * Math.cos(radians),
-    y: cy + radius * Math.sin(radians),
-  };
-}
-
-function describePieSlice(
-  cx: number,
-  cy: number,
-  radius: number,
-  startAngle: number,
-  endAngle: number,
-): string {
-  const start = polarToCartesian(cx, cy, radius, endAngle);
-  const end = polarToCartesian(cx, cy, radius, startAngle);
-  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
-  return [
-    "M",
-    cx,
-    cy,
-    "L",
-    start.x,
-    start.y,
-    "A",
-    radius,
-    radius,
-    0,
-    largeArcFlag,
-    0,
-    end.x,
-    end.y,
-    "Z",
-  ].join(" ");
-}
-
-interface PieSlice {
-  label: string;
-  value: number;
-  color: string;
-  startAngle: number;
-  endAngle: number;
-}
-
-function buildPieSlices(items: DashboardBarItemContract[]): PieSlice[] {
-  const total = items.reduce((sum, item) => sum + item.count, 0);
-  if (total <= 0) return [];
-
-  let cursor = 0;
-  return items.map((item, index) => {
-    const sweep = (item.count / total) * 360;
-    const slice = {
-      label: item.label,
-      value: item.count,
-      color: TOKEN_CONSUMPTION_COLORS[index % TOKEN_CONSUMPTION_COLORS.length],
-      startAngle: cursor,
-      endAngle: cursor + sweep,
-    };
-    cursor += sweep;
-    return slice;
-  });
 }
 
 /* ── Custom Recharts Tooltip ── */
@@ -687,11 +691,14 @@ function ErrorTrendSection({
                   dataKey="label"
                   tick={{ fontSize: CHART_THEME.axis.fontSize }}
                   stroke={CHART_THEME.axis.tickColor}
+                  tickMargin={6}
                 />
                 <YAxis
                   tick={{ fontSize: CHART_THEME.axis.fontSize }}
                   stroke={CHART_THEME.axis.tickColor}
                   allowDecimals={false}
+                  tickMargin={6}
+                  tickFormatter={formatAxisCount}
                 />
                 <Tooltip content={<ChartTooltipContent />} />
                 <Legend />
@@ -746,11 +753,14 @@ function ErrorTrendSection({
                 dataKey="day"
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
               />
               <YAxis
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
                 allowDecimals={false}
+                tickMargin={6}
+                tickFormatter={formatAxisCount}
               />
               <Tooltip content={<ChartTooltipContent />} />
               <Legend />
@@ -773,242 +783,609 @@ function ErrorTrendSection({
 }
 
 function ModelPerformanceSection({
-  items,
+  rows,
 }: {
-  items: DashboardBarItemContract[];
+  rows: DashboardModelPerformanceStatsRowContract[];
 }) {
+  const [mode, setMode] = React.useState<"table" | "chart">("table");
+
+  const sortedRows = React.useMemo(() => {
+    const next = rows.filter((row) => row.validTpsMessages > 0);
+    next.sort((a, b) => {
+      const hasPrimaryA = a.tpsP50 != null ? 1 : 0;
+      const hasPrimaryB = b.tpsP50 != null ? 1 : 0;
+      if (hasPrimaryA !== hasPrimaryB) return hasPrimaryB - hasPrimaryA;
+
+      const scoreA = a.tpsP50 ?? a.avgTps ?? -1;
+      const scoreB = b.tpsP50 ?? b.avgTps ?? -1;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      if (a.validityRatio !== b.validityRatio) {
+        return b.validityRatio - a.validityRatio;
+      }
+
+      if (a.validTpsMessages !== b.validTpsMessages) {
+        return b.validTpsMessages - a.validTpsMessages;
+      }
+
+      return a.model.localeCompare(b.model);
+    });
+    return next;
+  }, [rows]);
+
+  const chartRows = React.useMemo(() => {
+    const sourceRows = sortedRows.slice(0, 10);
+    return sourceRows
+      .map((row, index) => {
+        const typical = row.tpsP50 ?? row.avgTps;
+        if (typical == null) return null;
+
+        const lowCandidate = row.tpsP10 ?? row.avgTps ?? typical;
+        const highCandidate = row.tpsP90 ?? row.avgTps ?? typical;
+        const low = Math.min(typical, lowCandidate);
+        const high = Math.max(typical, highCandidate);
+
+        return {
+          rank: index + 1,
+          label: row.model,
+          provider: row.provider,
+          typical,
+          low,
+          high,
+          weighted: row.avgTps,
+          band: formatMetricBand(row.tpsP10, row.tpsP90),
+        };
+      })
+      .filter(
+        (
+          row,
+        ): row is {
+          rank: number;
+          label: string;
+          provider: string;
+          typical: number;
+          low: number;
+          high: number;
+          weighted: number | null;
+          band: string;
+        } => row != null,
+      );
+  }, [sortedRows]);
+
+  const chartView = React.useMemo(() => {
+    if (chartRows.length === 0) {
+      return {
+        data: [] as Array<{
+          rank: number;
+          label: string;
+          provider: string;
+          typical: number;
+          weighted: number | null;
+          band: string;
+          error: [number, number];
+          clipped: boolean;
+        }>,
+        yMax: 10,
+        clippedCount: 0,
+      };
+    }
+
+    const upperBounds = chartRows.map((row) => row.high);
+    const maxTypical = Math.max(...chartRows.map((row) => row.typical), 1);
+    const robustUpper = quantileNumber(upperBounds, 0.9);
+    const yMax = Math.max(maxTypical * 1.25, robustUpper * 1.1, 10);
+
+    const data = chartRows.map((row) => {
+      const clippedUpper = Math.min(row.high, yMax);
+      return {
+        rank: row.rank,
+        label: row.label,
+        provider: row.provider,
+        typical: row.typical,
+        weighted: row.weighted,
+        band: row.band,
+        error: [
+          Math.max(0, row.typical - row.low),
+          Math.max(0, clippedUpper - row.typical),
+        ] as [number, number],
+        clipped: row.high > yMax,
+      };
+    });
+
+    const clippedCount = data.filter((row) => row.clipped).length;
+    return {
+      data,
+      yMax: Number(yMax.toFixed(2)),
+      clippedCount,
+    };
+  }, [chartRows]);
+
+  if (sortedRows.length === 0) {
+    return (
+      <section className="card">
+        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
+          Model Performance (TPS)
+        </h2>
+        <p className="no-data">No model performance data</p>
+      </section>
+    );
+  }
+
   return (
     <section className="card">
       <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
         Model Performance (TPS)
       </h2>
-      <CssBarChart items={items} barColor={CHART_THEME.colors.success} />
+      <div className="trend-header-end" style={{ marginBottom: 8 }}>
+        <div
+          className="range-bar"
+          role="tablist"
+          aria-label="Model performance view"
+        >
+          <button
+            type="button"
+            className={`range-btn${mode === "table" ? " active" : ""}`}
+            onClick={() => setMode("table")}
+            aria-pressed={mode === "table"}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            className={`range-btn${mode === "chart" ? " active" : ""}`}
+            onClick={() => setMode("chart")}
+            aria-pressed={mode === "chart"}
+          >
+            Chart
+          </button>
+        </div>
+      </div>
+      <p className="hourly-subtitle" style={{ marginBottom: 12 }}>
+        主指標は Typical TPS(P50)。降順で並べ、P10-P90帯と latency
+        分位で体感の振れ幅を併記。
+      </p>
+      <div className="model-performance-meta">
+        <span className="recent-pill recent-pill-info">
+          Sort: Typical TPS ↓
+        </span>
+        <span className="recent-pill recent-pill-warning">
+          P10-P90 は観測レンジ（CIではない）
+        </span>
+        {mode === "chart" ? (
+          <span className="recent-pill">Chart: Top 10 models</span>
+        ) : null}
+        {mode === "chart" && chartView.clippedCount > 0 ? (
+          <span className="recent-pill recent-pill-error">
+            Outlier compressed: {chartView.clippedCount}
+          </span>
+        ) : null}
+      </div>
+      {mode === "table" ? (
+        <div className="model-performance-table-scroll">
+          <table className="repo-table model-performance-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Rank</th>
+                <th style={{ textAlign: "left" }}>Model</th>
+                <th style={{ textAlign: "left" }}>Provider</th>
+                <th style={{ textAlign: "right" }}>Typical TPS (P50)</th>
+                <th style={{ textAlign: "right" }}>Speed band (P10–P90)</th>
+                <th style={{ textAlign: "right" }}>Latency (P50/P90/P99)</th>
+                <th style={{ textAlign: "right" }}>Weighted TPS</th>
+                <th style={{ textAlign: "right" }}>n(valid/total)</th>
+                <th style={{ textAlign: "right" }}>Validity</th>
+                <th style={{ textAlign: "right" }}>Thinking/Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row, index) => {
+                const primaryTps = row.tpsP50 ?? row.avgTps;
+                const isFallback = row.tpsP50 == null && row.avgTps != null;
+                const rankClass =
+                  index === 0
+                    ? "recent-pill recent-pill-success"
+                    : index === 1
+                      ? "recent-pill recent-pill-info"
+                      : index === 2
+                        ? "recent-pill recent-pill-warning"
+                        : "model-performance-rank";
+
+                return (
+                  <tr key={`${row.model}-${row.provider}`}>
+                    <td className="model-performance-rank-cell">
+                      <span className={rankClass}>#{index + 1}</span>
+                    </td>
+                    <td className="repo-name" title={row.model}>
+                      {row.model}
+                    </td>
+                    <td className="model-performance-provider">
+                      {row.provider}
+                    </td>
+                    <td className="model-performance-primary">
+                      <div className="model-performance-primary-wrap">
+                        {isFallback ? (
+                          <span className="model-performance-fallback">
+                            avg fallback
+                          </span>
+                        ) : null}
+                        <span className="model-performance-primary-value">
+                          {formatNullableMetric(primaryTps)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="model-performance-num model-performance-band">
+                      {formatMetricBand(row.tpsP10, row.tpsP90)}
+                    </td>
+                    <td className="model-performance-num model-performance-latency">
+                      {formatLatencySeconds(row.latencyP50Ms)} /{" "}
+                      {formatLatencySeconds(row.latencyP90Ms)} /{" "}
+                      {formatLatencySeconds(row.latencyP99Ms)}
+                    </td>
+                    <td className="model-performance-num">
+                      {formatNullableMetric(row.avgTps)}
+                    </td>
+                    <td
+                      className="model-performance-num"
+                      title={`latency valid: ${row.validLatencyMessages.toLocaleString()}`}
+                    >
+                      {row.validTpsMessages.toLocaleString()}/
+                      {row.totalMessages.toLocaleString()}
+                    </td>
+                    <td className="model-performance-num">
+                      {formatPercentRatio(row.validityRatio)}
+                    </td>
+                    <td className="model-performance-num">
+                      {formatPercentRatio(row.reasoningShare)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="chart-scroll">
+          <div className="model-performance-chart-shell">
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart
+                data={chartView.data}
+                margin={{ top: 10, right: 12, left: -8, bottom: 54 }}
+                barCategoryGap="16%"
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: CHART_THEME.axis.fontSize }}
+                  stroke={CHART_THEME.axis.tickColor}
+                  interval={0}
+                  angle={-16}
+                  textAnchor="end"
+                  height={58}
+                  tickFormatter={(value) => formatModelTickLabel(String(value))}
+                />
+                <YAxis
+                  tick={{ fontSize: CHART_THEME.axis.fontSize }}
+                  stroke={CHART_THEME.axis.tickColor}
+                  tickMargin={6}
+                  tickFormatter={formatAxisTps}
+                  domain={[0, chartView.yMax]}
+                />
+                <Tooltip
+                  formatter={(value, name, item) => {
+                    const numeric = Number(value);
+                    if (name === "Typical TPS (P50)") {
+                      return [formatNullableMetric(numeric), name];
+                    }
+                    if (name === "Weighted TPS") {
+                      const v =
+                        typeof item?.payload?.weighted === "number"
+                          ? item.payload.weighted
+                          : null;
+                      return [formatNullableMetric(v), name];
+                    }
+                    return [String(value), name];
+                  }}
+                  labelFormatter={(label, payload) => {
+                    const provider = payload?.[0]?.payload?.provider as
+                      | string
+                      | undefined;
+                    const band = payload?.[0]?.payload?.band as
+                      | string
+                      | undefined;
+                    const clipped = payload?.[0]?.payload?.clipped as
+                      | boolean
+                      | undefined;
+                    const suffix = clipped ? " (cap)" : "";
+                    const metric = band ? ` / band ${band}` : "";
+                    return provider
+                      ? `${label} · ${provider}${metric}${suffix}`
+                      : `${String(label)}${metric}${suffix}`;
+                  }}
+                />
+                <Bar
+                  dataKey="typical"
+                  name="Typical TPS (P50)"
+                  fill={CHART_THEME.colors.success}
+                  radius={[5, 5, 0, 0]}
+                  maxBarSize={20}
+                >
+                  <ErrorBar
+                    dataKey="error"
+                    direction="y"
+                    width={3}
+                    stroke="#4f4f54"
+                    strokeWidth={1.2}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      <p className="model-performance-note">
+        Typical TPS(P50) を主指標に採用。Weighted
+        TPS(=Σoutput/Σduration)は外れ値感度が高いため診断用途。 Speed band は
+        P10-P90 の観測帯、Latency は
+        P50/P90/P99。十分なサンプルがない場合「—」。
+      </p>
     </section>
   );
 }
 
 function ModelTokenConsumptionSection({
-  items,
+  rows,
 }: {
-  items: DashboardBarItemContract[];
+  rows: DashboardModelTokenConsumptionRowContract[];
 }) {
-  const [mode, setMode] = React.useState<"pie" | "stacked">("pie");
-  const displayItems = React.useMemo(
-    () => summarizeBarItems(items, 8),
-    [items],
-  );
-  const totalTokens = React.useMemo(
-    () => displayItems.reduce((sum, item) => sum + item.count, 0),
-    [displayItems],
-  );
-  const pieSlices = React.useMemo(
-    () => buildPieSlices(displayItems),
-    [displayItems],
+  const [includeCache, setIncludeCache] = React.useState(true);
+
+  const displayRows = React.useMemo(() => rows.slice(0, 10), [rows]);
+
+  const pieRows = React.useMemo(
+    () =>
+      displayRows.map((row, index) => {
+        const cacheInputTokens = row.cacheReadTokens + row.cacheWriteTokens;
+        return {
+          key: `${row.model}-${row.provider}`,
+          name: toModelProviderLabel(row.model, row.provider),
+          color: MODEL_PIE_COLORS[index % MODEL_PIE_COLORS.length],
+          nonCacheInput: Math.max(0, row.nonCacheInputTokens),
+          cacheInput: Math.max(0, cacheInputTokens),
+          inputWithCache: Math.max(0, row.inputTotalTokens),
+          output: Math.max(0, row.outputTokens),
+        };
+      }),
+    [displayRows],
   );
 
+  const inputSolidData = React.useMemo(
+    () =>
+      pieRows
+        .map((row) => ({
+          name: row.name,
+          value: row.nonCacheInput,
+          color: row.color,
+        }))
+        .filter((row) => row.value > 0),
+    [pieRows],
+  );
+
+  const inputDashedData = React.useMemo(
+    () =>
+      pieRows
+        .map((row) => ({
+          name: row.name,
+          value: row.cacheInput,
+          color: row.color,
+        }))
+        .filter((row) => row.value > 0),
+    [pieRows],
+  );
+
+  const inputSingleData = React.useMemo(
+    () =>
+      pieRows
+        .map((row) => ({
+          name: row.name,
+          value: includeCache ? row.inputWithCache : row.nonCacheInput,
+          color: row.color,
+        }))
+        .filter((row) => row.value > 0),
+    [includeCache, pieRows],
+  );
+
+  const outputData = React.useMemo(
+    () =>
+      pieRows
+        .map((row) => ({
+          name: row.name,
+          value: row.output,
+          color: row.color,
+        }))
+        .filter((row) => row.value > 0),
+    [pieRows],
+  );
+
+  const inputTotal = React.useMemo(
+    () => inputSingleData.reduce((sum, row) => sum + row.value, 0),
+    [inputSingleData],
+  );
+  const outputTotal = React.useMemo(
+    () => outputData.reduce((sum, row) => sum + row.value, 0),
+    [outputData],
+  );
+
+  const showData = inputSingleData.length > 0 || outputData.length > 0;
+
   return (
-    <section className="card">
-      <div className="trend-header">
-        <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
-          Model Token Consumption
-        </h2>
-        <div className="range-bar" role="tablist" aria-label="Model token view">
+    <section className="card model-token-card-single">
+      <div className="trend-header-with-toggle" style={{ marginBottom: 8 }}>
+        <div>
+          <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 6px 0" }}>
+            Model Token Consumption
+          </h2>
+          <p className="hourly-subtitle">
+            Input / Output を円グラフで比較。Input は cache 表示の ON/OFF
+            を切替可能。
+          </p>
+        </div>
+        <div className="range-bar" role="tablist" aria-label="Input cache mode">
           <button
             type="button"
-            className={`range-btn${mode === "pie" ? " active" : ""}`}
-            onClick={() => setMode("pie")}
-            aria-pressed={mode === "pie"}
+            className={`range-btn${includeCache ? " active" : ""}`}
+            onClick={() => setIncludeCache(true)}
+            aria-pressed={includeCache}
           >
-            Pie
+            Cache ON
           </button>
           <button
             type="button"
-            className={`range-btn${mode === "stacked" ? " active" : ""}`}
-            onClick={() => setMode("stacked")}
-            aria-pressed={mode === "stacked"}
+            className={`range-btn${includeCache ? "" : " active"}`}
+            onClick={() => setIncludeCache(false)}
+            aria-pressed={!includeCache}
           >
-            Stacked bar
+            Cache OFF
           </button>
         </div>
       </div>
-
-      {displayItems.length === 0 ? (
-        <p className="no-data">No data</p>
-      ) : (
-        <>
-          {mode === "pie" ? (
-            <div className="chart-scroll">
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <svg
-                  viewBox="0 0 260 220"
-                  role="img"
-                  aria-label="Model token consumption pie chart"
-                  style={{ display: "block", maxWidth: 320, width: "100%" }}
-                >
-                  <circle cx="130" cy="98" r="78" fill="#f5f5f7" />
-                  {pieSlices.length === 1 ? (
-                    <circle
-                      cx="130"
-                      cy="98"
-                      r="78"
-                      fill={pieSlices[0].color}
-                      stroke="#ffffff"
-                      strokeWidth={2}
-                    >
-                      <title>
-                        {pieSlices[0].label}: {formatTokens(pieSlices[0].value)}
-                      </title>
-                    </circle>
-                  ) : (
-                    pieSlices.map((slice) => (
-                      <path
-                        key={slice.label}
-                        d={describePieSlice(
-                          130,
-                          98,
-                          78,
-                          slice.startAngle,
-                          slice.endAngle,
-                        )}
-                        fill={slice.color}
-                        stroke="#ffffff"
-                        strokeWidth={2}
-                      >
-                        <title>
-                          {slice.label}: {formatTokens(slice.value)}
-                        </title>
-                      </path>
-                    ))
-                  )}
-                  <circle
-                    cx="130"
-                    cy="98"
-                    r="42"
-                    fill="#ffffff"
-                    stroke="#d2d2d7"
+      {showData ? (
+        <div className="model-token-pies-grid">
+          <article className="model-token-pie-card">
+            <header className="model-token-pie-header">
+              <h3>Input tokens</h3>
+              <span>{inputTotal.toLocaleString()} total</span>
+            </header>
+            <div className="model-token-pie-wrap">
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Tooltip
+                    formatter={(value) =>
+                      `${Math.round(Number(value) || 0).toLocaleString()} tokens`
+                    }
                   />
-                  <text
-                    x="130"
-                    y="92"
-                    textAnchor="middle"
-                    fontSize="18"
-                    fontWeight="700"
-                    fill="#1d1d1f"
-                  >
-                    {formatTokens(totalTokens)}
-                  </text>
-                  <text
-                    x="130"
-                    y="110"
-                    textAnchor="middle"
-                    fontSize="11"
-                    fill="#86868b"
-                  >
-                    tokens
-                  </text>
-                </svg>
-              </div>
+                  {includeCache ? (
+                    <>
+                      <Pie
+                        data={inputSolidData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={42}
+                        outerRadius={78}
+                        stroke="#ffffff"
+                        strokeWidth={1.2}
+                      >
+                        {inputSolidData.map((entry) => (
+                          <Cell
+                            key={`input-solid-${entry.name}`}
+                            fill={entry.color}
+                          />
+                        ))}
+                      </Pie>
+                      <Pie
+                        data={inputDashedData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={82}
+                        outerRadius={106}
+                        stroke="#2b2b2f"
+                        strokeWidth={1.2}
+                        strokeDasharray="4 3"
+                      >
+                        {inputDashedData.map((entry) => (
+                          <Cell
+                            key={`input-cache-${entry.name}`}
+                            fill={entry.color}
+                            fillOpacity={0.35}
+                          />
+                        ))}
+                      </Pie>
+                    </>
+                  ) : (
+                    <Pie
+                      data={inputSingleData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={46}
+                      outerRadius={106}
+                      stroke="#ffffff"
+                      strokeWidth={1.2}
+                    >
+                      {inputSingleData.map((entry) => (
+                        <Cell key={`input-${entry.name}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  )}
+                </PieChart>
+              </ResponsiveContainer>
             </div>
-          ) : (
-            <div className="chart-scroll">
-              <div
-                style={{
-                  display: "flex",
-                  height: 18,
-                  borderRadius: 999,
-                  overflow: "hidden",
-                  background: "#edf1f5",
-                }}
-              >
-                {displayItems.map((item, index) => {
-                  const widthPct =
-                    totalTokens > 0 ? (item.count / totalTokens) * 100 : 0;
-                  return (
-                    <div
-                      key={item.label}
-                      title={`${item.label}: ${formatTokens(item.count)}`}
-                      style={{
-                        width: `${widthPct}%`,
-                        minWidth: widthPct > 0 ? 2 : 0,
-                        background:
-                          TOKEN_CONSUMPTION_COLORS[
-                            index % TOKEN_CONSUMPTION_COLORS.length
-                          ],
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            <p className="model-token-pie-note">
+              {includeCache
+                ? "内側=non-cache(実線), 外側=cache(点線リング)"
+                : "cache を除外した Input 内訳"}
+            </p>
+          </article>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-              gap: 8,
-              marginTop: 12,
-            }}
-          >
-            {displayItems.map((item, index) => (
-              <div
-                key={item.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: "0.82em",
-                  color: "#1d1d1f",
-                }}
-              >
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background:
-                      TOKEN_CONSUMPTION_COLORS[
-                        index % TOKEN_CONSUMPTION_COLORS.length
-                      ],
-                    flexShrink: 0,
-                  }}
-                />
-                <span
-                  style={{
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {item.label}
-                </span>
-                <span
-                  style={{
-                    marginLeft: "auto",
-                    color: "#86868b",
-                    fontWeight: 600,
-                  }}
-                >
-                  {formatTokens(item.count)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
+          <article className="model-token-pie-card">
+            <header className="model-token-pie-header">
+              <h3>Output tokens</h3>
+              <span>{outputTotal.toLocaleString()} total</span>
+            </header>
+            <div className="model-token-pie-wrap">
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Tooltip
+                    formatter={(value) =>
+                      `${Math.round(Number(value) || 0).toLocaleString()} tokens`
+                    }
+                  />
+                  <Pie
+                    data={outputData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={46}
+                    outerRadius={106}
+                    stroke="#ffffff"
+                    strokeWidth={1.2}
+                  >
+                    {outputData.map((entry) => (
+                      <Cell key={`output-${entry.name}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="model-token-pie-note">モデル別 Output 構成</p>
+          </article>
+        </div>
+      ) : (
+        <p className="no-data">No data</p>
       )}
+      {displayRows.length > 0 ? (
+        <div className="model-token-legend-grid">
+          {pieRows.map((row) => (
+            <div key={row.key} className="model-token-legend-item">
+              <span
+                className="model-token-legend-dot"
+                style={{ background: row.color }}
+              />
+              <span className="model-token-legend-label" title={row.name}>
+                {row.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function TokenTrendSection({
   tokenTrend,
-  range,
   view,
   dayCount,
   onToggleView,
 }: {
   tokenTrend: DashboardTokenTrendContract;
-  range: DashboardRangeContract;
   view: DashboardViewContract;
   dayCount: number;
   onToggleView: (v: DashboardViewContract) => void;
@@ -1062,10 +1439,13 @@ function TokenTrendSection({
                 dataKey="label"
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
               />
               <YAxis
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
+                tickFormatter={formatAxisCount}
               />
               <Tooltip content={<ChartTooltipContent />} />
               <Legend />
@@ -1106,10 +1486,13 @@ function TokenTrendSection({
               dataKey="day"
               tick={{ fontSize: CHART_THEME.axis.fontSize }}
               stroke={CHART_THEME.axis.tickColor}
+              tickMargin={6}
             />
             <YAxis
               tick={{ fontSize: CHART_THEME.axis.fontSize }}
               stroke={CHART_THEME.axis.tickColor}
+              tickMargin={6}
+              tickFormatter={formatAxisCount}
             />
             <Tooltip content={<ChartTooltipContent />} />
             <Legend />
@@ -1132,13 +1515,11 @@ function TokenTrendSection({
 
 function SubagentTrendSection({
   subagentTrend,
-  range,
   view,
   dayCount,
   onToggleView,
 }: {
   subagentTrend: DashboardSubagentTrendContract;
-  range: DashboardRangeContract;
   view: DashboardViewContract;
   dayCount: number;
   onToggleView: (v: DashboardViewContract) => void;
@@ -1174,10 +1555,13 @@ function SubagentTrendSection({
                 dataKey="label"
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
               />
               <YAxis
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
+                tickFormatter={formatAxisCount}
               />
               <Tooltip content={<ChartTooltipContent />} />
               <Legend />
@@ -1220,11 +1604,14 @@ function SubagentTrendSection({
                 dataKey="day"
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
+                tickMargin={6}
               />
               <YAxis
                 tick={{ fontSize: CHART_THEME.axis.fontSize }}
                 stroke={CHART_THEME.axis.tickColor}
                 allowDecimals={false}
+                tickMargin={6}
+                tickFormatter={formatAxisCount}
               />
               <Tooltip content={<ChartTooltipContent />} />
               <Legend />
@@ -1389,12 +1776,12 @@ function ToolReliabilitySection({
         <h2 style={{ fontSize: "1em", fontWeight: 700, margin: 0 }}>
           Tool Reliability
         </h2>
-        <a
-          href="#tool-reliability"
+        <Link
+          to="/tool-errors"
           style={{ fontSize: "0.82em", whiteSpace: "nowrap" }}
         >
           View all tool errors &rarr;
-        </a>
+        </Link>
       </div>
       <div className="matrix-header">
         <span style={{ width: 140 }}>Tool</span>
@@ -1492,13 +1879,6 @@ export function Dashboard() {
 
   const { appliedSelection, apiUrl } = selectionController;
   const view = appliedSelection.view;
-  const range: DashboardRangeContract =
-    appliedSelection.preset === "today"
-      ? "day"
-      : appliedSelection.preset === "last30d"
-        ? "month"
-        : "week";
-
   const [data, setData] = React.useState<DashboardContract | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -1579,17 +1959,6 @@ export function Dashboard() {
     [setSearchParams],
   );
 
-  const handleRangeSelect = React.useCallback(
-    (preset: DashboardPresetId) => {
-      applyController(
-        applyDashboardDraftSelection(
-          setDashboardDraftPreset(selectionController, preset),
-        ),
-      );
-    },
-    [applyController, selectionController],
-  );
-
   const handleViewToggle = React.useCallback(
     (v: DashboardViewContract) => {
       applyController(
@@ -1623,6 +1992,8 @@ export function Dashboard() {
 
   if (!data) return null;
 
+  const activityBounds = buildLastYearBounds();
+
   return (
     <section className="dash-surface" data-testid="dashboard">
       {/* 1. Summary Metrics */}
@@ -1647,12 +2018,12 @@ export function Dashboard() {
       {/* 4. Activity Heatmap */}
       <section className="card">
         <h2 style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}>
-          Activity (selected range)
+          Activity (last 1 year)
         </h2>
         <ActivityHeatmap
           days={data.heatmapDays}
-          startDay={appliedSelection.bounds.startDayInclusive}
-          endDay={appliedSelection.bounds.endDayInclusive}
+          startDay={activityBounds.startDayInclusive}
+          endDay={activityBounds.endDayInclusive}
         />
       </section>
 
@@ -1667,7 +2038,6 @@ export function Dashboard() {
       {/* 6. Token I/O Trend */}
       <TokenTrendSection
         tokenTrend={data.tokenTrend}
-        range={range}
         view={view}
         dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
@@ -1676,7 +2046,6 @@ export function Dashboard() {
       {/* 7. Subagent Activity */}
       <SubagentTrendSection
         subagentTrend={data.subagentTrend}
-        range={range}
         view={view}
         dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
@@ -1685,10 +2054,14 @@ export function Dashboard() {
       {/* 8. Active Repositories */}
       <ActiveReposSection repos={data.activeRepos} />
 
-      {/* 9-14. Model views, usage, tools, MCP (CSS-only bars) */}
+      {/* 9. Model Performance (full width) */}
+      <ModelPerformanceSection rows={data.modelPerformanceStats ?? []} />
+
+      {/* 10. Model Token Consumption (full width) */}
+      <ModelTokenConsumptionSection rows={data.modelTokenConsumption} />
+
+      {/* 11-14. Model views, usage, tools, MCP (2-column grid) */}
       <div className="charts-grid">
-        <ModelPerformanceSection items={data.modelPerformance} />
-        <ModelTokenConsumptionSection items={data.modelTokenConsumption} />
         <section className="card">
           <h2
             style={{ fontSize: "1em", fontWeight: 700, margin: "0 0 14px 0" }}

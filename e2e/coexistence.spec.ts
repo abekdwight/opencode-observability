@@ -8,8 +8,20 @@ test("deep links render app shell on every React route", async ({ page }) => {
       body: JSON.stringify({
         kind: "dashboard.snapshot",
         generatedAt: "2024-01-11T11:00:00.000Z",
-        range: "all",
-        view: "daily",
+        selection: {
+          preset: "last30d",
+          start: "2024-01-11",
+          end: "2024-01-11",
+          view: "daily",
+          timezone: "Asia/Tokyo",
+          refreshable: false,
+          bounds: {
+            startDayInclusive: "2024-01-11",
+            endDayInclusive: "2024-01-11",
+            endDayExclusive: "2024-01-12",
+            dayCount: 1,
+          },
+        },
         summary: {
           totalSessions: 2,
           totalTokens: 327,
@@ -35,6 +47,7 @@ test("deep links render app shell on every React route", async ({ page }) => {
             points: [{ day: "2024-01-11", value: 1 }],
           },
         ],
+        errorTrendHourlyBars: [],
         tokenTrend: {
           inputRatioPercent: 55.6,
           dailySeries: [
@@ -71,6 +84,47 @@ test("deep links render app shell on every React route", async ({ page }) => {
             },
           ],
         },
+        modelPerformance: [
+          {
+            label: "gpt-4.1",
+            count: 12.5,
+            annotation: "openai",
+          },
+        ],
+        modelPerformanceStats: [
+          {
+            model: "gpt-4.1",
+            provider: "openai",
+            avgTps: 12.5,
+            tpsP10: null,
+            tpsP50: null,
+            tpsP90: null,
+            tpsP99: null,
+            latencyP50Ms: null,
+            latencyP90Ms: null,
+            latencyP99Ms: null,
+            totalMessages: 2,
+            validTpsMessages: 2,
+            validLatencyMessages: 2,
+            validityRatio: 1,
+            outputTokens: 80,
+            reasoningTokens: 20,
+            reasoningShare: 0.25,
+          },
+        ],
+        modelTokenConsumption: [
+          {
+            model: "gpt-4.1",
+            provider: "openai",
+            inputTokens: 100,
+            outputTokens: 80,
+            cacheReadTokens: 40,
+            cacheWriteTokens: 5,
+            nonCacheInputTokens: 100,
+            inputTotalTokens: 145,
+            totalTokens: 225,
+          },
+        ],
         modelUsage: [{ label: "gpt-4.1", count: 2 }],
         toolUsage: [{ label: "read", count: 3 }],
         agentDistribution: [{ label: "main", count: 2 }],
@@ -227,6 +281,7 @@ test("deep links render app shell on every React route", async ({ page }) => {
       body: JSON.stringify({
         kind: "session.detail",
         generatedAt: "2024-01-11T11:00:00.000Z",
+        durationMs: 33_000,
         session: {
           id: "ses-root-1",
           title: "Root monitor session",

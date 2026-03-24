@@ -1,8 +1,22 @@
 import { expect, type Route, test } from "@playwright/test";
 
 const DASHBOARD_FIXTURE = {
-  kind: "dashboard",
+  kind: "dashboard.snapshot",
   generatedAt: "2024-01-11T11:00:00.000Z",
+  selection: {
+    preset: "last7d",
+    start: "2024-01-05",
+    end: "2024-01-11",
+    view: "daily",
+    timezone: "Asia/Tokyo",
+    refreshable: true,
+    bounds: {
+      startDayInclusive: "2024-01-05",
+      endDayInclusive: "2024-01-11",
+      endDayExclusive: "2024-01-12",
+      dayCount: 7,
+    },
+  },
   summary: {
     totalSessions: 42,
     totalTokens: 125000,
@@ -29,6 +43,7 @@ const DASHBOARD_FIXTURE = {
     rows: [],
   },
   modelPerformance: [],
+  modelPerformanceStats: [],
   modelTokenConsumption: [],
   modelUsage: [],
   toolUsage: [],

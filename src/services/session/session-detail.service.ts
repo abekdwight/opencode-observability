@@ -71,6 +71,7 @@ export interface SessionMessageDetail {
 
 export interface SessionRouteView {
   sessionInfo: SessionRecord;
+  durationMs: number;
   createdDate: string;
   totalMessages: number;
   userMessages: number;
@@ -443,6 +444,7 @@ export function buildSessionRouteView(
 
   return {
     sessionInfo,
+    durationMs,
     createdDate,
     totalMessages,
     userMessages,

@@ -64,8 +64,8 @@ test("Directories page renders repo groups and directory links", async ({
   await expect(repoSections).toHaveCount(2);
 
   // Verify repo names appear
-  await expect(page.getByText("repo-alpha")).toBeVisible();
-  await expect(page.getByText("repo-beta")).toBeVisible();
+  await expect(repoSections.nth(0)).toContainText("repo-alpha");
+  await expect(repoSections.nth(1)).toContainText("repo-beta");
 
   // Verify directory links are present
   await expect(page.getByText("8 sessions")).toBeVisible();
@@ -121,7 +121,9 @@ test("DirectorySessions page renders session list with controls", async ({
   await expect(page.getByTestId("app-shell")).toBeVisible();
 
   // Breadcrumb
-  await expect(page.getByText("Directories")).toBeVisible();
+  await expect(
+    page.locator(".breadcrumb").getByText("Directories"),
+  ).toBeVisible();
 
   // Sort buttons
   await expect(page.getByRole("button", { name: "日付" })).toBeVisible();

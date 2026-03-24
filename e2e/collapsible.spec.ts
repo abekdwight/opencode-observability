@@ -174,10 +174,8 @@ test.describe("monitor secondary details disclosure", () => {
   });
 });
 
-test.describe("session model breakdown disclosure", () => {
-  test("model breakdown is collapsed by default and can be expanded", async ({
-    page,
-  }) => {
+test.describe("session detail overview", () => {
+  test("session detail metrics render from contract data", async ({ page }) => {
     await stubApis(page);
     await page.goto("/session/ses-root-1");
 
@@ -186,25 +184,9 @@ test.describe("session model breakdown disclosure", () => {
       page.getByRole("heading", { name: "Root monitor session" }),
     ).toBeVisible();
 
-    // Model breakdown disclosure exists but content is hidden
-    const disclosure = page.getByTestId("session-model-breakdown");
-    await expect(disclosure).toBeVisible();
-    const content = page.getByTestId("session-model-breakdown-content");
-    await expect(content).not.toBeVisible();
-
-    // Expand it
-    const toggle = page.getByTestId("session-model-breakdown-toggle");
-    await toggle.click();
-    await expect(content).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Model Token Breakdown" }),
-    ).toBeVisible();
-    // Verify model data is rendered
-    await expect(page.getByText("gpt-4.1")).toBeVisible();
-
-    // Collapse it again
-    await toggle.click();
-    await expect(content).not.toBeVisible();
+    await expect(page.getByText("所要時間")).toBeVisible();
+    await expect(page.getByText("トークン")).toBeVisible();
+    await expect(page.getByText("サブエージェント 1")).toBeVisible();
   });
 
   test("message collapse toggle stays visible and markdown tables render as tables", async ({

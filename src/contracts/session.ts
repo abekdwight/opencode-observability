@@ -81,6 +81,7 @@ export interface SessionTodoContract {
 export interface SessionDetailContract {
   kind: "session.detail";
   generatedAt: string;
+  durationMs: number;
   session: {
     id: string;
     title: string;

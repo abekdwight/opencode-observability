@@ -344,7 +344,14 @@ export function fetchDashboardMessageData(
     .prepare(`
     SELECT json_extract(m.data, '$.modelID') AS model,
            json_extract(m.data, '$.agent') AS agent,
-           COALESCE(json_extract(m.data, '$.tokens.total'), 0) AS tokens,
+           COALESCE(
+             NULLIF(json_extract(m.data, '$.tokens.total'), 0),
+             COALESCE(json_extract(m.data, '$.tokens.input'), 0)
+               + COALESCE(json_extract(m.data, '$.tokens.output'), 0)
+               + COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)
+               + COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0),
+             0
+           ) AS tokens,
            date(m.time_created/1000, 'unixepoch', 'localtime') AS day
     FROM message m
     WHERE ${rowidClause}json_extract(m.data, '$.role') = 'assistant'

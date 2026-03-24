@@ -10,7 +10,6 @@ import {
   addLocalDays,
   buildDashboardSelectionBounds,
   computeDashboardRefreshEligibility,
-  countInclusiveDays,
   parseLocalDate,
   toLocalDateString,
 } from "../../lib/dashboard-time.js";
@@ -181,6 +180,39 @@ export interface DashboardToolReliabilityRow {
 export interface DashboardBarItem {
   label: string;
   count: number;
+  annotation?: string;
+}
+
+export interface DashboardModelTokenConsumptionRow {
+  model: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  nonCacheInputTokens: number;
+  inputTotalTokens: number;
+  totalTokens: number;
+}
+
+export interface DashboardModelPerformanceStatsRow {
+  model: string;
+  provider: string;
+  avgTps: number | null;
+  tpsP10: number | null;
+  tpsP50: number | null;
+  tpsP90: number | null;
+  tpsP99: number | null;
+  latencyP50Ms: number | null;
+  latencyP90Ms: number | null;
+  latencyP99Ms: number | null;
+  totalMessages: number;
+  validTpsMessages: number;
+  validLatencyMessages: number;
+  validityRatio: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  reasoningShare: number | null;
 }
 
 export interface DashboardViewModel {
@@ -197,7 +229,8 @@ export interface DashboardViewModel {
   activeRepos: DashboardRepoBreakdownData;
   modelUsage: DashboardBarItem[];
   modelPerformance: DashboardBarItem[];
-  modelTokenConsumption: DashboardBarItem[];
+  modelPerformanceStats: DashboardModelPerformanceStatsRow[];
+  modelTokenConsumption: DashboardModelTokenConsumptionRow[];
   toolUsage: DashboardBarItem[];
   agentDistribution: DashboardBarItem[];
   mcpUsage: DashboardMcpUsageRow[];
@@ -974,6 +1007,15 @@ function buildErrorTrendHourlyBars(
   }));
 }
 
+const TPS_AVG_MIN_SAMPLES = 5;
+const TPS_P10_MIN_SAMPLES = 5;
+const TPS_P50_MIN_SAMPLES = 20;
+const TPS_P90_MIN_SAMPLES = 50;
+const TPS_P99_MIN_SAMPLES = 200;
+const LATENCY_P50_MIN_SAMPLES = 20;
+const LATENCY_P90_MIN_SAMPLES = 50;
+const LATENCY_P99_MIN_SAMPLES = 200;
+
 function buildModelPerformanceData(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
@@ -981,27 +1023,35 @@ function buildModelPerformanceData(
   const params = [window.startDayInclusive, window.endDayExclusive];
   const rows = db
     .prepare(`
-      SELECT json_extract(m.data, '$.modelID') AS model,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.output'), 0)) AS output_tokens,
-             SUM(
+      SELECT model,
+             provider,
+             SUM(output_tokens) AS output_tokens,
+             SUM(duration_ms) AS duration_ms
+      FROM (
+        SELECT json_extract(m.data, '$.modelID') AS model,
+               json_extract(m.data, '$.providerID') AS provider,
+               COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
                CASE
                  WHEN json_extract(m.data, '$.time.created') IS NOT NULL
                   AND json_extract(m.data, '$.time.completed') IS NOT NULL
                   AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
                  THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
                  ELSE 0
-               END
-             ) AS duration_ms
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.modelID') IS NOT NULL
-        AND json_extract(m.data, '$.modelID') != ''
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
-      GROUP BY model
+               END AS duration_ms
+        FROM message m
+        WHERE json_extract(m.data, '$.role') = 'assistant'
+          AND json_extract(m.data, '$.modelID') IS NOT NULL
+          AND json_extract(m.data, '$.modelID') != ''
+          AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
+          AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
+      )
+      WHERE output_tokens > 0
+        AND duration_ms > 0
+      GROUP BY model, provider
     `)
     .all(...params) as Array<{
     model: string | null;
+    provider: string | null;
     output_tokens: number;
     duration_ms: number;
   }>;
@@ -1014,11 +1064,280 @@ function buildModelPerformanceData(
       return {
         label: row.model || "(unknown)",
         count: Number(tps.toFixed(2)),
+        annotation: row.provider || undefined,
       };
     })
     .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+    .sort((a, b) => b.count - a.count);
+}
+
+function interpolateQuantile(values: number[], quantile: number): number {
+  if (values.length === 0) return 0;
+  if (values.length === 1) return values[0] ?? 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * quantile;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const lowerValue = sorted[lower] ?? 0;
+  const upperValue = sorted[upper] ?? lowerValue;
+  if (lower === upper) return lowerValue;
+  const weight = index - lower;
+  return lowerValue * (1 - weight) + upperValue * weight;
+}
+
+function quantileOrNull(
+  values: number[],
+  quantile: number,
+  minSamples: number,
+): number | null {
+  if (values.length < minSamples) return null;
+  return Number(interpolateQuantile(values, quantile).toFixed(2));
+}
+
+function buildModelPerformanceStatsData(
+  db: SqliteDatabase,
+  window: DashboardRepositoryWindow,
+): DashboardModelPerformanceStatsRow[] {
+  const params = [window.startDayInclusive, window.endDayExclusive];
+  const rows = db
+    .prepare(`
+      SELECT json_extract(m.data, '$.modelID') AS model,
+             COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
+             COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
+             COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoning_tokens,
+             CASE
+               WHEN json_extract(m.data, '$.time.created') IS NOT NULL
+                AND json_extract(m.data, '$.time.completed') IS NOT NULL
+                AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
+               THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
+               ELSE 0
+             END AS duration_ms
+      FROM message m
+      WHERE json_extract(m.data, '$.role') = 'assistant'
+        AND json_extract(m.data, '$.modelID') IS NOT NULL
+        AND json_extract(m.data, '$.modelID') != ''
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
+    `)
+    .all(...params) as Array<{
+    model: string | null;
+    provider: string | null;
+    output_tokens: number;
+    reasoning_tokens: number;
+    duration_ms: number;
+  }>;
+
+  interface Bucket {
+    model: string;
+    provider: string;
+    totalMessages: number;
+    validTpsMessages: number;
+    validLatencyMessages: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    sumTpsOutputTokens: number;
+    sumTpsDurationMs: number;
+    tpsValues: number[];
+    latencyValuesMs: number[];
+  }
+
+  const buckets = new Map<string, Bucket>();
+
+  for (const row of rows) {
+    const model = row.model || "(unknown)";
+    const provider = row.provider || "unknown";
+    const key = `${model}\t${provider}`;
+    const outputTokens = Number(row.output_tokens) || 0;
+    const reasoningTokens = Number(row.reasoning_tokens) || 0;
+    const durationMs = Number(row.duration_ms) || 0;
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        model,
+        provider,
+        totalMessages: 0,
+        validTpsMessages: 0,
+        validLatencyMessages: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        sumTpsOutputTokens: 0,
+        sumTpsDurationMs: 0,
+        tpsValues: [],
+        latencyValuesMs: [],
+      };
+      buckets.set(key, bucket);
+    }
+
+    bucket.totalMessages += 1;
+    bucket.outputTokens += outputTokens;
+    bucket.reasoningTokens += reasoningTokens;
+
+    if (durationMs > 0) {
+      bucket.validLatencyMessages += 1;
+      bucket.latencyValuesMs.push(durationMs);
+    }
+
+    if (durationMs > 0 && outputTokens > 0) {
+      bucket.validTpsMessages += 1;
+      bucket.sumTpsOutputTokens += outputTokens;
+      bucket.sumTpsDurationMs += durationMs;
+      bucket.tpsValues.push((outputTokens * 1000) / durationMs);
+    }
+  }
+
+  return Array.from(buckets.values())
+    .map((bucket) => {
+      const avgTps =
+        bucket.validTpsMessages >= TPS_AVG_MIN_SAMPLES &&
+        bucket.sumTpsDurationMs > 0
+          ? Number(
+              (
+                (bucket.sumTpsOutputTokens * 1000) /
+                bucket.sumTpsDurationMs
+              ).toFixed(2),
+            )
+          : null;
+
+      const validityRatio =
+        bucket.totalMessages > 0
+          ? Number((bucket.validTpsMessages / bucket.totalMessages).toFixed(4))
+          : 0;
+
+      const reasoningShare =
+        bucket.outputTokens > 0
+          ? Number((bucket.reasoningTokens / bucket.outputTokens).toFixed(4))
+          : null;
+
+      return {
+        model: bucket.model,
+        provider: bucket.provider,
+        avgTps,
+        tpsP10: quantileOrNull(bucket.tpsValues, 0.1, TPS_P10_MIN_SAMPLES),
+        tpsP50: quantileOrNull(bucket.tpsValues, 0.5, TPS_P50_MIN_SAMPLES),
+        tpsP90: quantileOrNull(bucket.tpsValues, 0.9, TPS_P90_MIN_SAMPLES),
+        tpsP99: quantileOrNull(bucket.tpsValues, 0.99, TPS_P99_MIN_SAMPLES),
+        latencyP50Ms: quantileOrNull(
+          bucket.latencyValuesMs,
+          0.5,
+          LATENCY_P50_MIN_SAMPLES,
+        ),
+        latencyP90Ms: quantileOrNull(
+          bucket.latencyValuesMs,
+          0.9,
+          LATENCY_P90_MIN_SAMPLES,
+        ),
+        latencyP99Ms: quantileOrNull(
+          bucket.latencyValuesMs,
+          0.99,
+          LATENCY_P99_MIN_SAMPLES,
+        ),
+        totalMessages: bucket.totalMessages,
+        validTpsMessages: bucket.validTpsMessages,
+        validLatencyMessages: bucket.validLatencyMessages,
+        validityRatio,
+        outputTokens: bucket.outputTokens,
+        reasoningTokens: bucket.reasoningTokens,
+        reasoningShare,
+      };
+    })
+    .filter((row) => row.validTpsMessages > 0)
+    .sort((a, b) => {
+      const hasPrimaryA = a.tpsP50 != null ? 1 : 0;
+      const hasPrimaryB = b.tpsP50 != null ? 1 : 0;
+      if (hasPrimaryA !== hasPrimaryB) return hasPrimaryB - hasPrimaryA;
+
+      const scoreA = a.tpsP50 ?? a.avgTps ?? -1;
+      const scoreB = b.tpsP50 ?? b.avgTps ?? -1;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      if (a.validityRatio !== b.validityRatio) {
+        return b.validityRatio - a.validityRatio;
+      }
+
+      if (a.validTpsMessages !== b.validTpsMessages) {
+        return b.validTpsMessages - a.validTpsMessages;
+      }
+      return a.model.localeCompare(b.model);
+    });
+}
+
+function buildModelTokenConsumptionData(
+  db: SqliteDatabase,
+  window: DashboardRepositoryWindow,
+): DashboardModelTokenConsumptionRow[] {
+  const params = [window.startDayInclusive, window.endDayExclusive];
+  const rows = db
+    .prepare(`
+      SELECT json_extract(m.data, '$.modelID') AS model,
+             COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.input'), 0)) AS input_tokens,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.output'), 0)) AS output_tokens,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)) AS cache_read_tokens,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0)) AS cache_write_tokens,
+             SUM(COALESCE(json_extract(m.data, '$.tokens.total'), 0)) AS total_tokens
+      FROM message m
+      WHERE json_extract(m.data, '$.role') = 'assistant'
+        AND json_extract(m.data, '$.modelID') IS NOT NULL
+        AND json_extract(m.data, '$.modelID') != ''
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
+        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
+      GROUP BY model, provider
+    `)
+    .all(...params) as Array<{
+    model: string | null;
+    provider: string | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    total_tokens: number;
+  }>;
+
+  return rows
+    .map((row) => {
+      const inputTokens = Number(row.input_tokens) || 0;
+      const outputTokens = Number(row.output_tokens) || 0;
+      const cacheReadTokens = Number(row.cache_read_tokens) || 0;
+      const cacheWriteTokens = Number(row.cache_write_tokens) || 0;
+      const inputTotalTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+      const derivedTotalTokens = inputTotalTokens + outputTokens;
+      const rawTotalTokens = Number(row.total_tokens) || 0;
+      const totalTokens = Math.max(rawTotalTokens, derivedTotalTokens);
+      return {
+        model: row.model || "(unknown)",
+        provider: row.provider || "unknown",
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+        nonCacheInputTokens: inputTokens,
+        inputTotalTokens,
+        totalTokens,
+      };
+    })
+    .filter((row) => row.totalTokens > 0)
+    .sort((a, b) => b.totalTokens - a.totalTokens)
+    .slice(0, 12);
+}
+
+function buildRecentYearHeatmapData(db: SqliteDatabase): DayCount[] {
+  const today = toLocalDateString(new Date());
+  const startDay = addLocalDays(today, -364);
+  const endDayExclusive = addLocalDays(today, 1);
+
+  return db
+    .prepare(`
+      SELECT date(time_created/1000, 'unixepoch', 'localtime') AS day,
+             COUNT(*) AS cnt
+      FROM session
+      WHERE parent_id IS NULL
+        AND date(time_created/1000, 'unixepoch', 'localtime') >= ?
+        AND date(time_created/1000, 'unixepoch', 'localtime') < ?
+      GROUP BY day
+      ORDER BY day
+    `)
+    .all(startDay, endDayExclusive) as DayCount[];
 }
 
 function renderErrorTrendSvg(errorTrendSeries: DashboardLineSeries[]): string {
@@ -1487,7 +1806,6 @@ function buildDashboardData(
 
   const errorPatterns = filterMap(state.errorPatternDays, selection);
   const modelCounts = filterMap(state.modelDays, selection);
-  const modelTokenCounts = filterMap(state.modelTokenDays, selection);
   const agentCounts = filterMap(state.agentDays, selection);
 
   let totalTokens = 0;
@@ -1500,12 +1818,7 @@ function buildDashboardData(
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([model, cnt]) => ({ model, cnt }));
-  const modelTokenConsumption: DashboardBarItem[] = Array.from(
-    modelTokenCounts.entries(),
-  )
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([label, count]) => ({ label, count }));
+  const modelTokenConsumption = buildModelTokenConsumptionData(db, window);
   const agentRows: AgentCount[] = Array.from(agentCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
@@ -1554,7 +1867,7 @@ function buildDashboardData(
       activeProjects: liveSummary.activeProjects,
     },
     recentSessions: buildRecentSessionsData(recentSessionsWithTokens),
-    heatmapDays: liveSummary.heatmapRows,
+    heatmapDays: buildRecentYearHeatmapData(db),
     errorTrendSeries: view === "hourly" ? [] : errorTrendSeries,
     errorTrendHourlyBars,
     tokenTrend: buildTokenTrendData(
@@ -1577,6 +1890,7 @@ function buildDashboardData(
       count: row.cnt,
     })),
     modelPerformance: buildModelPerformanceData(db, window),
+    modelPerformanceStats: buildModelPerformanceStatsData(db, window),
     modelTokenConsumption,
     toolUsage: toolRows.map((row) => ({
       label: row.tool ?? "(unknown)",
@@ -1709,7 +2023,14 @@ export function renderDashboardHtml(vm: DashboardViewModel): string {
   const toolMatrixHtml = renderToolMatrixHtml(vm.toolReliabilityMatrix);
   const errorPatternChart = buildBarChart(vm.errorPatterns, "#d32f2f");
   const errorTrendSvg = renderErrorTrendSvg(vm.errorTrendSeries);
-  const heatmapSvg = buildHeatmapSvg(vm.heatmapDays, vm.selection);
+  const activityEndDay = toLocalDateString(new Date());
+  const activitySelection: DashboardSelectionBoundsContract = {
+    startDayInclusive: addLocalDays(activityEndDay, -364),
+    endDayInclusive: activityEndDay,
+    endDayExclusive: addLocalDays(activityEndDay, 1),
+    dayCount: 365,
+  };
+  const heatmapSvg = buildHeatmapSvg(vm.heatmapDays, activitySelection);
 
   return `
 <!DOCTYPE html>
@@ -1791,7 +2112,7 @@ export function renderDashboardHtml(vm: DashboardViewModel): string {
   </div>
 
   <div class="card">
-    <h2>Activity</h2>
+    <h2>Activity (last 1 year)</h2>
     <div class="heatmap-scroll">
       ${heatmapSvg}
     </div>
@@ -1851,7 +2172,7 @@ export function renderDashboardHtml(vm: DashboardViewModel): string {
   <div class="card" id="tool-reliability">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
       <h2 style="margin:0;">Tool Reliability</h2>
-      <a href="#tool-reliability" style="font-size:0.82em;white-space:nowrap;">View all tool errors &rarr;</a>
+      <a href="/tool-errors" style="font-size:0.82em;white-space:nowrap;">View all tool errors &rarr;</a>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
       <span style="width:140px;">Tool</span>

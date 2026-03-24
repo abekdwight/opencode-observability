@@ -558,6 +558,7 @@ describe("server api contracts", () => {
 
     const body = (await response.json()) as {
       kind: string;
+      durationMs: number;
       session: { id: string; title: string; parentId: string | null };
       tokens: {
         total: number;
@@ -619,6 +620,7 @@ describe("server api contracts", () => {
     };
 
     expect(body.kind).toBe("session.detail");
+    expect(body.durationMs).toBeGreaterThan(0);
     expect(body.session).toMatchObject({
       id: ROOT_SESSION_ID,
       title: "Root monitor session",
@@ -751,8 +753,27 @@ describe("server api contracts", () => {
         hourlyBars: Array<unknown>;
       };
       modelPerformance: Array<{ label: string; count: number }>;
+      modelPerformanceStats: Array<{
+        model: string;
+        avgTps: number | null;
+        tpsP10: number | null;
+        tpsP50: number | null;
+        validTpsMessages: number;
+        totalMessages: number;
+        validityRatio: number;
+      }>;
       modelUsage: Array<{ label: string; count: number }>;
-      modelTokenConsumption: Array<{ label: string; count: number }>;
+      modelTokenConsumption: Array<{
+        model: string;
+        provider: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        nonCacheInputTokens: number;
+        inputTotalTokens: number;
+        totalTokens: number;
+      }>;
       toolUsage: Array<{ label: string; count: number }>;
       agentDistribution: Array<{ label: string; count: number }>;
       activeRepos: {
@@ -819,7 +840,37 @@ describe("server api contracts", () => {
     expect(body.modelPerformance.map((entry) => entry.label)).toEqual(
       expect.arrayContaining(["gpt-4.1", "claude-3.5-sonnet"]),
     );
+    expect(body.modelPerformanceStats.length).toBeGreaterThan(0);
+    expect(body.modelPerformanceStats.map((entry) => entry.model)).toEqual(
+      expect.arrayContaining(["gpt-4.1", "claude-3.5-sonnet"]),
+    );
+    expect(
+      body.modelPerformanceStats.every(
+        (entry) => entry.validityRatio >= 0 && entry.validityRatio <= 1,
+      ),
+    ).toBe(true);
+    expect(
+      body.modelPerformanceStats.every(
+        (entry) => entry.tpsP10 == null || entry.tpsP10 >= 0,
+      ),
+    ).toBe(true);
+    const sortKeys = body.modelPerformanceStats.map((entry) => ({
+      hasPrimary: entry.tpsP50 == null ? 0 : 1,
+      score: entry.tpsP50 ?? entry.avgTps ?? -1,
+    }));
+    for (let i = 1; i < sortKeys.length; i += 1) {
+      const prev = sortKeys[i - 1];
+      const cur = sortKeys[i];
+      expect(
+        prev.hasPrimary > cur.hasPrimary ||
+          (prev.hasPrimary === cur.hasPrimary && prev.score >= cur.score),
+      ).toBe(true);
+    }
     expect(body.modelTokenConsumption.length).toBeGreaterThan(0);
+    expect(body.modelTokenConsumption[0]).toMatchObject({
+      model: expect.any(String),
+      provider: expect.any(String),
+    });
     expect(body.toolUsage).toEqual(
       expect.arrayContaining([{ label: "webfetch", count: 1 }]),
     );
@@ -891,6 +942,7 @@ describe("server api contracts", () => {
       };
       modelUsage: Array<{ label: string; count: number }>;
       modelPerformance: Array<{ label: string }>;
+      modelPerformanceStats: Array<{ model: string }>;
       toolUsage: Array<{ label: string; count: number }>;
       agentDistribution: Array<{ label: string; count: number }>;
       mcpUsage: Array<{ server: string; calls: number; errors: number }>;
@@ -912,7 +964,12 @@ describe("server api contracts", () => {
     expect(body.recentSessions.map((session) => session.id)).toEqual([
       ROOT_SESSION_ID,
     ]);
-    expect(body.heatmapDays).toEqual([{ day: "2024-01-11", count: 1 }]);
+    expect(
+      body.heatmapDays.some(
+        (entry) => entry.day === "2024-01-11" && entry.count === 1,
+      ),
+    ).toBe(true);
+    expect(body.heatmapDays.length).toBeGreaterThan(0);
     expect(body.errorTrendSeries[0]?.points).toEqual([
       { day: "2024-01-11", value: 1 },
     ]);
@@ -932,6 +989,9 @@ describe("server api contracts", () => {
     expect(body.modelPerformance.map((entry) => entry.label)).not.toContain(
       "claude-3.5-sonnet",
     );
+    expect(
+      body.modelPerformanceStats.map((entry) => entry.model),
+    ).not.toContain("claude-3.5-sonnet");
     expect(body.toolUsage).not.toEqual(
       expect.arrayContaining([{ label: "webfetch", count: 1 }]),
     );
@@ -999,6 +1059,7 @@ describe("server api contracts", () => {
       };
       modelUsage: Array<{ label: string; count: number }>;
       modelPerformance: Array<{ label: string }>;
+      modelPerformanceStats: Array<{ model: string }>;
       toolUsage: Array<{ label: string; count: number }>;
       agentDistribution: Array<{ label: string; count: number }>;
       mcpUsage: Array<{ server: string }>;
@@ -1021,10 +1082,17 @@ describe("server api contracts", () => {
       ROOT_SESSION_ID,
       ALERT_SESSION_ID,
     ]);
-    expect(body.heatmapDays).toEqual([
-      { day: "2024-01-10", count: 1 },
-      { day: "2024-01-11", count: 1 },
-    ]);
+    expect(
+      body.heatmapDays.some(
+        (entry) => entry.day === "2024-01-10" && entry.count === 1,
+      ),
+    ).toBe(true);
+    expect(
+      body.heatmapDays.some(
+        (entry) => entry.day === "2024-01-11" && entry.count === 1,
+      ),
+    ).toBe(true);
+    expect(body.heatmapDays.length).toBeGreaterThanOrEqual(2);
     expect(body.errorTrendSeries[0]?.points).toHaveLength(7);
     expect(body.tokenTrend.dailySeries[0]?.points).toHaveLength(7);
     expect(body.subagentTrend.dailySeries[0]?.points).toHaveLength(7);
@@ -1037,6 +1105,9 @@ describe("server api contracts", () => {
       expect.arrayContaining([{ label: "claude-3.5-sonnet", count: 1 }]),
     );
     expect(body.modelPerformance.map((entry) => entry.label)).toContain(
+      "claude-3.5-sonnet",
+    );
+    expect(body.modelPerformanceStats.map((entry) => entry.model)).toContain(
       "claude-3.5-sonnet",
     );
     expect(body.toolUsage).toEqual(
@@ -1406,6 +1477,38 @@ describe("server api contracts", () => {
       sessionId: ROOT_SESSION_ID,
       error: "HTTP 500 upstream",
     });
+  });
+
+  test("GET /api/tool-errors returns overview payload with insights", async () => {
+    const app = createApiApp();
+    const response = await app.request("/api/tool-errors");
+
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      windowDays: number;
+      summary: {
+        totalErrors: number;
+        distinctTools: number;
+        affectedSessions: number;
+      };
+      insights: string[];
+      topTools: Array<{ tool: string; errorCount: number; totalCalls: number }>;
+      errorPatterns: Array<{ label: string; count: number }>;
+      latestErrors: Array<{ tool: string; sessionId: string }>;
+    };
+
+    expect(body.kind).toBe("tool-errors.overview");
+    expect(body.windowDays).toBe(30);
+    expect(body.summary.totalErrors).toBeGreaterThan(0);
+    expect(body.summary.distinctTools).toBeGreaterThan(0);
+    expect(body.summary.affectedSessions).toBeGreaterThan(0);
+    expect(body.insights.length).toBeGreaterThan(0);
+    expect(body.topTools.length).toBeGreaterThan(0);
+    expect(body.errorPatterns.length).toBeGreaterThan(0);
+    expect(body.latestErrors.length).toBeGreaterThan(0);
+    expect(body.latestErrors[0]?.tool).toBeTruthy();
   });
 
   test("GET /api/tool-errors/nonexistent returns safe empty payload", async () => {

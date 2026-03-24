@@ -62,6 +62,7 @@ test("app shell persists across monitor and session routes", async ({
       body: JSON.stringify({
         kind: "session.detail",
         generatedAt: "2024-01-11T11:00:00.000Z",
+        durationMs: 33_000,
         session: {
           id: "ses-root-1",
           title: "Root monitor session",

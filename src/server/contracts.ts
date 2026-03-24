@@ -298,6 +298,7 @@ export function buildSessionDetailContract(
   return {
     kind: "session.detail",
     generatedAt: new Date().toISOString(),
+    durationMs: Math.max(0, routeView.durationMs),
     session: {
       id: sessionInfo.id,
       title: sessionInfo.title,
