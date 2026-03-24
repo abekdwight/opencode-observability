@@ -26,11 +26,11 @@ describe("monitor runtime store characterization", () => {
       subagent: 0,
       total: 0,
     });
-    expect(snapshot.signalBadges).toHaveLength(4);
-    // No active sessions → "success" level for active badge, count 0
+    expect(snapshot.signalBadges.length).toBeGreaterThanOrEqual(4);
     const activeBadge = snapshot.signalBadges.find((b) => b.key === "active");
     expect(activeBadge?.count).toBe(0);
-    expect(activeBadge?.level).toBe("success");
+    const alertsBadge = snapshot.signalBadges.find((b) => b.key === "alerts");
+    expect(alertsBadge?.count).toBe(0);
   });
 
   test("ingest heartbeat + session.upsert produces active root session in snapshot", () => {
@@ -130,7 +130,6 @@ describe("monitor runtime store characterization", () => {
     const session = snapshot.activeRootSessions[0];
     expect(session.subagentCount).toBe(1);
     expect(session.compactionCount).toBe(2);
-    expect(session.signalLevel).toBe("warning"); // has compactions + todos
 
     expect(snapshot.compactionCounts).toEqual({
       main: 2,
@@ -143,18 +142,15 @@ describe("monitor runtime store characterization", () => {
 
     const subBadge = snapshot.signalBadges.find((b) => b.key === "subagent");
     expect(subBadge?.count).toBe(1);
-    expect(subBadge?.level).toBe("info");
 
     const todoBadge = snapshot.signalBadges.find((b) => b.key === "todos");
     expect(todoBadge?.count).toBe(1);
-    expect(todoBadge?.level).toBe("warning");
 
     const retryBadge = snapshot.signalBadges.find((b) => b.key === "retry");
     expect(retryBadge?.count).toBe(0);
-    expect(retryBadge?.level).toBe("success");
   });
 
-  test("session.error event sets signal level to error", () => {
+  test("session.error event increments retry signal badge", () => {
     resetMonitorRuntimeStoreForTest();
 
     const now = new Date().toISOString();
@@ -187,10 +183,124 @@ describe("monitor runtime store characterization", () => {
 
     const snapshot = buildMonitorSnapshotFromRuntime();
     expect(snapshot.activeRootSessions).toHaveLength(1);
-    expect(snapshot.activeRootSessions[0].signalLevel).toBe("error");
 
     const retryBadge = snapshot.signalBadges.find((b) => b.key === "retry");
     expect(retryBadge?.count).toBe(1);
-    expect(retryBadge?.level).toBe("error");
+  });
+
+  test("heartbeat with empty activeSessionIds keeps known session visible as idle", () => {
+    resetMonitorRuntimeStoreForTest();
+
+    const now = new Date().toISOString();
+    ingestMonitorRuntimeEvent({
+      source: {
+        instanceId: "test-instance-4",
+      },
+      heartbeat: {
+        at: now,
+        activeSessionIds: ["ses-keep-idle-1"],
+      },
+      event: {
+        type: "session.upsert",
+        session: {
+          id: "ses-keep-idle-1",
+          title: "Keep idle session",
+          directory: "/workspace/idle-persistence",
+          updatedAt: now,
+        },
+      },
+    });
+
+    ingestMonitorRuntimeEvent({
+      source: {
+        instanceId: "test-instance-4",
+      },
+      heartbeat: {
+        at: now,
+        activeSessionIds: [],
+      },
+    });
+
+    const snapshot = buildMonitorSnapshotFromRuntime();
+    expect(snapshot.activeRootSessions.map((session) => session.id)).toContain(
+      "ses-keep-idle-1",
+    );
+  });
+
+  test("session.alert events are aggregated into monitor signal badges", () => {
+    resetMonitorRuntimeStoreForTest();
+
+    const now = new Date().toISOString();
+    ingestMonitorRuntimeEvent({
+      source: {
+        instanceId: "test-instance-5",
+        label: "alerts-test",
+      },
+      heartbeat: {
+        at: now,
+        activeSessionIds: ["ses-alert-agg-1"],
+      },
+      events: [
+        {
+          type: "session.upsert",
+          session: {
+            id: "ses-alert-agg-1",
+            title: "Alert aggregate session",
+            directory: "/workspace/alerts",
+            updatedAt: now,
+          },
+        },
+        {
+          type: "session.alert",
+          category: "token",
+          message: "token refresh failed",
+          session: {
+            id: "ses-alert-agg-1",
+          },
+        },
+        {
+          type: "session.alert",
+          category: "network",
+          message: "network retry triggered",
+          session: {
+            id: "ses-alert-agg-1",
+          },
+        },
+      ],
+    });
+
+    const snapshot = buildMonitorSnapshotFromRuntime();
+    const alertsBadge = snapshot.signalBadges.find((b) => b.key === "alerts");
+    const tokenBadge = snapshot.signalBadges.find((b) => b.key === "token");
+    const networkBadge = snapshot.signalBadges.find((b) => b.key === "network");
+
+    expect(alertsBadge?.count).toBe(2);
+    expect(tokenBadge?.count).toBe(1);
+    expect(networkBadge?.count).toBe(1);
+  });
+
+  test("event-only ingest keeps source active until heartbeat arrives", () => {
+    resetMonitorRuntimeStoreForTest();
+
+    const now = new Date().toISOString();
+    ingestMonitorRuntimeEvent({
+      source: {
+        instanceId: "test-instance-6",
+      },
+      event: {
+        type: "session.upsert",
+        session: {
+          id: "ses-event-only-1",
+          title: "Event only source",
+          directory: "/workspace/event-only",
+          updatedAt: now,
+        },
+      },
+    });
+
+    const snapshot = buildMonitorSnapshotFromRuntime();
+    expect(snapshot.activeRootSessions.map((session) => session.id)).toContain(
+      "ses-event-only-1",
+    );
   });
 });

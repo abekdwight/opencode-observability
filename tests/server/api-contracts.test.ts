@@ -207,7 +207,7 @@ describe("server api contracts", () => {
 
     const body = (await response.json()) as {
       kind: string;
-      activeRootSessions: Array<{ id: string; signalLevel: string }>;
+      activeRootSessions: Array<{ id: string }>;
       compactionCounts: { main: number; subagent: number; total: number };
       signalBadges: Array<{ key: string; count: number }>;
     };
@@ -217,9 +217,6 @@ describe("server api contracts", () => {
     expect(body.activeRootSessions.map((session) => session.id)).toEqual([
       ALERT_SESSION_ID,
     ]);
-    expect(
-      body.activeRootSessions.map((session) => session.signalLevel),
-    ).toEqual(["error"]);
     expect(body.compactionCounts).toEqual({
       main: 1,
       subagent: 0,
@@ -272,7 +269,7 @@ describe("server api contracts", () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as {
-      activeRootSessions: Array<{ id: string; signalLevel: string }>;
+      activeRootSessions: Array<{ id: string }>;
       signalBadges: Array<{ key: string; count: number }>;
     };
 
@@ -282,9 +279,133 @@ describe("server api contracts", () => {
     expect(
       body.signalBadges.find((badge) => badge.key === "active")?.count,
     ).toBe(1);
+  });
+
+  test("monitor snapshot backfills message/tool counts from DB when ingest values are missing or stale", async () => {
+    const app = createApiApp();
+    const ingest = await app.request("/api/monitor/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        source: {
+          instanceId: "instance-local-2b",
+        },
+        heartbeat: {
+          at: "2024-01-11T11:05:50.000Z",
+          activeSessionIds: [ROOT_SESSION_ID],
+        },
+        event: {
+          type: "session.upsert",
+          session: {
+            id: ROOT_SESSION_ID,
+            title: "Root monitor session",
+            directory: "/workspace/repo-alpha",
+            updatedAt: "2024-01-11T11:05:50.000Z",
+            messageCount: 1,
+            toolCallCount: 1,
+          },
+        },
+      }),
+    });
+    expect(ingest.status).toBe(202);
+
+    const response = await app.request("/api/monitor/snapshot");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      activeRootSessions: Array<{
+        id: string;
+        messageCount: number;
+        toolCallCount: number;
+        subagentCount: number;
+      }>;
+    };
+    const root = body.activeRootSessions.find(
+      (session) => session.id === ROOT_SESSION_ID,
+    );
+
+    expect(root).toBeDefined();
+    expect((root?.messageCount ?? 0) > 0).toBe(true);
+    expect((root?.toolCallCount ?? 0) > 0).toBe(true);
+    expect((root?.subagentCount ?? 0) > 0).toBe(true);
+  });
+
+  test("monitor snapshot exposes alert category badges from session.alert events", async () => {
+    const app = createApiApp();
+    const ingest = await app.request("/api/monitor/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        source: {
+          instanceId: "instance-local-alerts",
+        },
+        heartbeat: {
+          at: "2024-01-11T11:05:10.000Z",
+          activeSessionIds: [ALERT_SESSION_ID],
+        },
+        events: [
+          {
+            type: "session.upsert",
+            session: {
+              id: ALERT_SESSION_ID,
+              title: "Alerting root session",
+              directory: "/workspace/repo-beta/packages/api",
+              updatedAt: "2024-01-11T11:05:15.000Z",
+            },
+          },
+          {
+            type: "session.alert",
+            category: "token",
+            message: "token refresh failed",
+            session: {
+              id: ALERT_SESSION_ID,
+            },
+          },
+          {
+            type: "session.alert",
+            category: "limit",
+            message: "rate limit exceeded",
+            session: {
+              id: ALERT_SESSION_ID,
+            },
+          },
+          {
+            type: "session.alert",
+            category: "compaction",
+            message: "compaction burst",
+            session: {
+              id: ALERT_SESSION_ID,
+            },
+          },
+        ],
+      }),
+    });
+    expect(ingest.status).toBe(202);
+
+    const response = await app.request("/api/monitor/snapshot");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      signalBadges: Array<{ key: string; count: number }>;
+    };
+
     expect(
-      body.activeRootSessions.map((session) => session.signalLevel),
-    ).toEqual(["success"]);
+      body.signalBadges.find((badge) => badge.key === "alerts")?.count,
+    ).toBe(3);
+    expect(
+      body.signalBadges.find((badge) => badge.key === "token")?.count,
+    ).toBe(1);
+    expect(
+      body.signalBadges.find((badge) => badge.key === "limit")?.count,
+    ).toBe(1);
+    expect(
+      body.signalBadges.find((badge) => badge.key === "compaction-alert")
+        ?.count,
+    ).toBe(1);
   });
 
   test("GET /api/monitor/events emits an initial snapshot event envelope", async () => {
