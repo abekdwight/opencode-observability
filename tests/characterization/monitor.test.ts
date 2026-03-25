@@ -303,4 +303,28 @@ describe("monitor runtime store characterization", () => {
       "ses-event-only-1",
     );
   });
+
+  test("heartbeat with empty activeSessionIds does not create source pseudo-sessions", () => {
+    resetMonitorRuntimeStoreForTest();
+
+    const now = new Date().toISOString();
+    ingestMonitorRuntimeEvent({
+      source: {
+        instanceId: "test-instance-empty",
+        label: "empty-source",
+      },
+      heartbeat: {
+        at: now,
+        activeSessionIds: [],
+      },
+    });
+
+    const snapshot = buildMonitorSnapshotFromRuntime();
+    expect(snapshot.activeRootSessions).toEqual([]);
+    expect(
+      snapshot.activeRootSessions.some((session) =>
+        session.id.startsWith("source:"),
+      ),
+    ).toBe(false);
+  });
 });

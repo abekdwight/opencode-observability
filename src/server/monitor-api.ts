@@ -1,12 +1,17 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { MonitorSnapshotContract } from "../contracts/monitor.js";
+import type {
+  MonitorTimelineFeedEventContract,
+  MonitorTimelineFeedHeartbeatContract,
+} from "../contracts/monitor-timeline.js";
 import { getMonitorIngestToken } from "../lib/config.js";
 import {
   buildMonitorSnapshotFromRuntime,
   ingestMonitorRuntimeEvent,
   MonitorRuntimeError,
   subscribeMonitorRuntimeUpdates,
+  subscribeMonitorTimelineEvents,
 } from "./monitor-runtime-store.js";
 
 type MonitorSnapshotEventEnvelope = {
@@ -19,6 +24,28 @@ type MonitorHeartbeatEventEnvelope = {
   type: "heartbeat";
   generatedAt: number;
 };
+
+type MonitorSseStream = {
+  aborted: boolean;
+};
+
+function createWriteQueue(stream: MonitorSseStream) {
+  let writeQueue = Promise.resolve();
+  const enqueueWrite = (write: () => Promise<void>) => {
+    writeQueue = writeQueue
+      .then(async () => {
+        if (!stream.aborted) {
+          await write();
+        }
+      })
+      .catch(() => undefined);
+  };
+
+  return {
+    enqueueWrite,
+    flush: async () => writeQueue,
+  };
+}
 
 export const MONITOR_SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -120,16 +147,7 @@ export const monitorApi = new Hono()
 
       await writeSnapshot();
 
-      let writeQueue = Promise.resolve();
-      const enqueueWrite = (write: () => Promise<void>) => {
-        writeQueue = writeQueue
-          .then(async () => {
-            if (!stream.aborted) {
-              await write();
-            }
-          })
-          .catch(() => undefined);
-      };
+      const { enqueueWrite, flush } = createWriteQueue(stream);
 
       const unsubscribe = subscribeMonitorRuntimeUpdates(() => {
         enqueueWrite(writeSnapshot);
@@ -147,6 +165,63 @@ export const monitorApi = new Hono()
         });
       });
 
-      await writeQueue;
+      await flush();
+    }),
+  )
+  .get("/timeline/events", (c) =>
+    streamSSE(c, async (stream) => {
+      let nextHeartbeatServerSeq = 0;
+
+      const writeTimeline = async (
+        envelope: MonitorTimelineFeedEventContract,
+      ) => {
+        await stream.writeSSE({
+          event: "timeline",
+          data: JSON.stringify(envelope),
+        });
+      };
+
+      const writeHeartbeat = async () => {
+        nextHeartbeatServerSeq += 1;
+        const heartbeat: MonitorTimelineFeedHeartbeatContract = {
+          type: "timeline.heartbeat",
+          serverSeq: nextHeartbeatServerSeq,
+          at: new Date().toISOString(),
+        };
+        await stream.writeSSE({
+          event: "heartbeat",
+          data: JSON.stringify(heartbeat),
+        });
+      };
+
+      const { enqueueWrite, flush } = createWriteQueue(stream);
+
+      const unsubscribe = subscribeMonitorTimelineEvents((event) => {
+        nextHeartbeatServerSeq = Math.max(
+          nextHeartbeatServerSeq,
+          event.serverSeq,
+        );
+        enqueueWrite(async () => {
+          await writeTimeline({
+            type: "timeline.event",
+            serverSeq: event.serverSeq,
+            event,
+          });
+        });
+      });
+
+      const heartbeatTimer = setInterval(() => {
+        enqueueWrite(writeHeartbeat);
+      }, MONITOR_SSE_HEARTBEAT_INTERVAL_MS);
+
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          clearInterval(heartbeatTimer);
+          unsubscribe();
+          resolve();
+        });
+      });
+
+      await flush();
     }),
   );

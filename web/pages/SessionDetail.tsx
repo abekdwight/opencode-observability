@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type {
   SessionDetailContract,
@@ -86,6 +87,129 @@ const FILTER_LABELS: Record<FilterMode, string> = {
   user: "🧑‍💻",
   assistant: "🤖",
 };
+
+const MERMAID_SELECTOR = "pre > code.language-mermaid";
+const MERMAID_MODAL_MIN_SCALE = 0.25;
+const MERMAID_MODAL_MAX_SCALE = 6;
+
+let mermaidLoader: Promise<typeof import("mermaid")["default"]> | null = null;
+let mermaidThemeCache: "default" | "dark" | null = null;
+let mermaidRenderCounter = 0;
+
+function resolveMermaidTheme(): "default" | "dark" {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+  return "default";
+}
+
+async function getMermaidClient() {
+  if (!mermaidLoader) {
+    mermaidLoader = import("mermaid").then((mod) => mod.default);
+  }
+
+  const mermaidClient = await mermaidLoader;
+  const theme = resolveMermaidTheme();
+  if (mermaidThemeCache !== theme) {
+    mermaidClient.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      suppressErrorRendering: true,
+      theme,
+    });
+    mermaidThemeCache = theme;
+  }
+
+  return mermaidClient;
+}
+
+function nextMermaidRenderId(prefix: string): string {
+  mermaidRenderCounter += 1;
+  return `${prefix}-${mermaidRenderCounter}`;
+}
+
+function decodeHtmlEntities(raw: string): string {
+  if (typeof document === "undefined") {
+    return raw;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = raw;
+  return textarea.value;
+}
+
+function normalizeMermaidSvg(container: ParentNode): string {
+  const svgEl = container.querySelector("svg");
+  if (!svgEl) return "";
+
+  const viewBox = svgEl.getAttribute("viewBox")?.trim();
+  if (viewBox) {
+    const values = viewBox
+      .split(/[,\s]+/)
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (values.length >= 4) {
+      const vbWidth = values[2];
+      const vbHeight = values[3];
+      if (vbWidth > 0 && vbHeight > 0) {
+        const widthAttr = svgEl.getAttribute("width")?.trim();
+        if (!widthAttr || widthAttr.endsWith("%")) {
+          svgEl.setAttribute("width", String(Math.round(vbWidth)));
+        }
+        if (!svgEl.getAttribute("height")) {
+          svgEl.setAttribute("height", String(Math.round(vbHeight)));
+        }
+      }
+    }
+  }
+
+  svgEl.setAttribute("role", "img");
+  svgEl.setAttribute("aria-label", "Mermaid diagram");
+  svgEl.style.display = "block";
+  svgEl.style.visibility = "visible";
+  return svgEl.outerHTML;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getMermaidSvgDimensions(container: ParentNode): {
+  width: number;
+  height: number;
+} | null {
+  const svgEl = container.querySelector("svg");
+  if (!svgEl) return null;
+
+  const parseSize = (value: string | null): number | null => {
+    if (!value) return null;
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const width = parseSize(svgEl.getAttribute("width"));
+  const height = parseSize(svgEl.getAttribute("height"));
+  if (width && height) {
+    return { width, height };
+  }
+
+  const viewBox = svgEl.getAttribute("viewBox")?.trim();
+  if (!viewBox) return null;
+  const values = viewBox
+    .split(/[\s,]+/)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (values.length < 4) return null;
+
+  const vbWidth = values[2];
+  const vbHeight = values[3];
+  if (!(vbWidth > 0) || !(vbHeight > 0)) return null;
+  return { width: vbWidth, height: vbHeight };
+}
 
 // ---------------------------------------------------------------------------
 // Copy command logic  (ported from legacy SESSION_COPY_SCRIPT)
@@ -198,13 +322,18 @@ export function SessionDetail() {
   }, [plainMode, collapseEnabled]);
 
   React.useEffect(() => {
+    if (messages.length === 0) {
+      recheckOverflows();
+      return;
+    }
+
     const rafId = requestAnimationFrame(() => {
       recheckOverflows();
     });
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [data?.messages, recheckOverflows]);
+  }, [messages, recheckOverflows]);
 
   // --- Anchor-based scroll preservation ---
   const getAnchor = React.useCallback(() => {
@@ -675,6 +804,7 @@ export function SessionDetail() {
             openDetails={openDetails}
             toggleToolDetail={toggleToolDetail}
             onToggleMessage={handleToggleMessage}
+            onMessageContentUpdated={recheckOverflows}
             registerRef={(el) => {
               if (el) messageBodyRefs.current.set(msgIdx, el);
               else messageBodyRefs.current.delete(msgIdx);
@@ -795,6 +925,7 @@ const MessageRow = React.memo(function MessageRow({
   openDetails,
   toggleToolDetail,
   onToggleMessage,
+  onMessageContentUpdated,
   registerRef,
 }: {
   msg: SessionMessageContract;
@@ -804,12 +935,138 @@ const MessageRow = React.memo(function MessageRow({
   openDetails: Set<string>;
   toggleToolDetail: (id: string) => void;
   onToggleMessage: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onMessageContentUpdated: () => void;
   registerRef: (el: HTMLDivElement | null) => void;
 }) {
   const isUser = msg.role === "user";
   const roleClass = isUser ? "message-user" : "message-assistant";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
+  const markdownHtml = React.useMemo(
+    () => renderSharedMarkdown(msg.text),
+    [msg.text],
+  );
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const onMessageContentUpdatedRef = React.useRef(onMessageContentUpdated);
+  const [zoomState, setZoomState] = React.useState<{
+    source: string;
+    trigger: HTMLElement | null;
+  } | null>(null);
+
+  React.useEffect(() => {
+    onMessageContentUpdatedRef.current = onMessageContentUpdated;
+  }, [onMessageContentUpdated]);
+
+  React.useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+
+    root.innerHTML = markdownHtml;
+    requestAnimationFrame(() => {
+      onMessageContentUpdatedRef.current();
+    });
+  }, [markdownHtml]);
+
+  React.useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    if (!msg.text.includes("```mermaid")) return;
+
+    const mermaidCodeNodes = Array.from(
+      root.querySelectorAll<HTMLElement>(MERMAID_SELECTOR),
+    );
+    if (mermaidCodeNodes.length === 0) return;
+
+    const detachHandlers: Array<() => void> = [];
+    let disposed = false;
+
+    const enhanceMermaidBlocks = async () => {
+      const mermaidClient = await getMermaidClient();
+      if (disposed) return;
+      let contentMutated = false;
+
+      for (const codeNode of mermaidCodeNodes) {
+        const pre = codeNode.closest("pre");
+        if (!pre || pre.dataset.mermaidEnhanced === "true") continue;
+
+        const source = decodeHtmlEntities(codeNode.textContent ?? "");
+        if (!source.trim()) continue;
+
+        pre.dataset.mermaidEnhanced = "true";
+
+        try {
+          const previewButton = document.createElement("button");
+          previewButton.type = "button";
+          previewButton.className = "mermaid-preview";
+          previewButton.setAttribute("aria-label", "Mermaid図を拡大表示");
+          previewButton.setAttribute("title", "クリックで拡大表示");
+
+          const previewCanvas = document.createElement("div");
+          previewCanvas.className = "mermaid-preview-canvas";
+
+          const previewHint = document.createElement("span");
+          previewHint.className = "mermaid-preview-hint";
+          previewHint.textContent = "クリックで拡大";
+
+          const { svg } = await mermaidClient.render(
+            nextMermaidRenderId(`session-mermaid-${msgIdx}`),
+            source,
+          );
+          if (disposed) return;
+
+          previewCanvas.innerHTML = svg;
+          normalizeMermaidSvg(previewCanvas);
+
+          previewButton.append(previewCanvas, previewHint);
+
+          const handleOpen = () => {
+            setZoomState({
+              source,
+              trigger: previewButton,
+            });
+          };
+          previewButton.addEventListener("click", handleOpen);
+          detachHandlers.push(() => {
+            previewButton.removeEventListener("click", handleOpen);
+          });
+
+          pre.replaceWith(previewButton);
+          contentMutated = true;
+        } catch {
+          pre.dataset.mermaidEnhanced = "false";
+          if (
+            !pre.previousElementSibling?.classList.contains(
+              "mermaid-error-note",
+            )
+          ) {
+            const errorNote = document.createElement("p");
+            errorNote.className = "mermaid-error-note";
+            errorNote.textContent =
+              "Mermaid図の描画に失敗したため、ソースを表示しています。";
+            pre.before(errorNote);
+            contentMutated = true;
+          }
+        }
+      }
+
+      if (contentMutated && !disposed) {
+        requestAnimationFrame(() => {
+          if (!disposed) {
+            onMessageContentUpdatedRef.current();
+          }
+        });
+      }
+    };
+
+    void enhanceMermaidBlocks();
+
+    return () => {
+      disposed = true;
+      for (const detach of detachHandlers) {
+        detach();
+      }
+    };
+  }, [msg.text, msgIdx]);
 
   // Meta chips (assistant only)
   const metaChips: React.ReactNode[] = [];
@@ -876,12 +1133,7 @@ const MessageRow = React.memo(function MessageRow({
         />
       ) : null}
       <div className="message-body" ref={registerRef}>
-        <div
-          className="message-content"
-          dangerouslySetInnerHTML={{
-            __html: renderSharedMarkdown(msg.text),
-          }}
-        />
+        <div className="message-content" ref={contentRef} />
         <div className="message-raw">
           <span className="raw-label">
             {roleLabel} ({dateStr})
@@ -894,8 +1146,382 @@ const MessageRow = React.memo(function MessageRow({
           続きを表示
         </button>
       </div>
+      {zoomState ? (
+        <MermaidLightbox
+          source={zoomState.source}
+          returnFocusTo={zoomState.trigger}
+          onClose={() => setZoomState(null)}
+        />
+      ) : null}
       <hr className="plain-sep" />
     </div>
+  );
+});
+
+const MermaidLightbox = React.memo(function MermaidLightbox({
+  source,
+  returnFocusTo,
+  onClose,
+}: {
+  source: string;
+  returnFocusTo: HTMLElement | null;
+  onClose: () => void;
+}) {
+  const canvasRef = React.useRef<HTMLDivElement>(null);
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const dragRef = React.useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+
+  const [zoom, setZoom] = React.useState(1);
+  const [offset, setOffset] = React.useState({ x: 24, y: 24 });
+  const [renderError, setRenderError] = React.useState<string | null>(null);
+  const [isRendering, setIsRendering] = React.useState(true);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const resetViewport = React.useCallback(() => {
+    const host = canvasRef.current;
+    const viewport = viewportRef.current;
+    if (!host || !viewport) {
+      setZoom(1);
+      setOffset({ x: 24, y: 24 });
+      return;
+    }
+
+    const dimensions = getMermaidSvgDimensions(host);
+    if (!dimensions) {
+      setZoom(1);
+      setOffset({ x: 24, y: 24 });
+      return;
+    }
+
+    const padding = 36;
+    const fitZoom = clampNumber(
+      Math.min(
+        (viewport.clientWidth - padding * 2) / dimensions.width,
+        (viewport.clientHeight - padding * 2) / dimensions.height,
+        1,
+      ),
+      MERMAID_MODAL_MIN_SCALE,
+      MERMAID_MODAL_MAX_SCALE,
+    );
+
+    const fittedWidth = dimensions.width * fitZoom;
+    const fittedHeight = dimensions.height * fitZoom;
+    setZoom(fitZoom);
+    setOffset({
+      x: Math.max((viewport.clientWidth - fittedWidth) / 2, 8),
+      y: Math.max((viewport.clientHeight - fittedHeight) / 2, 8),
+    });
+  }, []);
+
+  const onBackdropMouseDown = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.target === event.currentTarget) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
+  const onDialogKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key === "Tab") {
+        const focusableNodes = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        );
+        if (focusableNodes.length === 0) {
+          event.preventDefault();
+          return;
+        }
+
+        const first = focusableNodes[0];
+        const last = focusableNodes[focusableNodes.length - 1];
+        const active = document.activeElement;
+
+        if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key === "0") {
+        event.preventDefault();
+        resetViewport();
+      }
+    },
+    [onClose, resetViewport],
+  );
+
+  const onDialogWheelCapture = React.useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const onDialogDragStart = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+    },
+    [],
+  );
+
+  const onViewportWheel = React.useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+
+      event.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const cursorX = event.clientX - rect.left;
+      const cursorY = event.clientY - rect.top;
+      const zoomFactor = Math.exp(-event.deltaY * 0.0018);
+
+      setZoom((prevZoom) => {
+        const nextZoom = clampNumber(
+          prevZoom * zoomFactor,
+          MERMAID_MODAL_MIN_SCALE,
+          MERMAID_MODAL_MAX_SCALE,
+        );
+        if (nextZoom === prevZoom) {
+          return prevZoom;
+        }
+
+        setOffset((prevOffset) => {
+          const worldX = (cursorX - prevOffset.x) / prevZoom;
+          const worldY = (cursorY - prevOffset.y) / prevZoom;
+          return {
+            x: cursorX - worldX * nextZoom,
+            y: cursorY - worldY * nextZoom,
+          };
+        });
+
+        return nextZoom;
+      });
+    },
+    [],
+  );
+
+  const onViewportPointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+
+      const viewport = viewportRef.current;
+      viewport?.setPointerCapture(event.pointerId);
+      dragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: offset.x,
+        originY: offset.y,
+      };
+      setIsDragging(true);
+    },
+    [offset.x, offset.y],
+  );
+
+  const onViewportPointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = dragRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      setOffset({
+        x: dragState.originX + deltaX,
+        y: dragState.originY + deltaY,
+      });
+    },
+    [],
+  );
+
+  const finishDrag = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const dragState = dragRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const viewport = viewportRef.current;
+      if (viewport?.hasPointerCapture(event.pointerId)) {
+        viewport.releasePointerCapture(event.pointerId);
+      }
+
+      dragRef.current = null;
+      setIsDragging(false);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    closeButtonRef.current?.focus();
+
+    return () => {
+      returnFocusTo?.focus();
+    };
+  }, [returnFocusTo]);
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    document.body.classList.add("mermaid-lightbox-open");
+    document.documentElement.classList.add("mermaid-lightbox-open");
+
+    return () => {
+      document.body.classList.remove("mermaid-lightbox-open");
+      document.documentElement.classList.remove("mermaid-lightbox-open");
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let disposed = false;
+    setRenderError(null);
+    setIsRendering(true);
+    setIsDragging(false);
+    dragRef.current = null;
+
+    const host = canvasRef.current;
+    if (!host) {
+      setIsRendering(false);
+      return () => {
+        disposed = true;
+      };
+    }
+    host.innerHTML = "";
+
+    const renderExpandedDiagram = async () => {
+      try {
+        const mermaidClient = await getMermaidClient();
+        if (disposed) return;
+        const { svg } = await mermaidClient.render(
+          nextMermaidRenderId("session-mermaid-modal"),
+          source,
+        );
+        if (disposed) return;
+
+        host.innerHTML = svg;
+        normalizeMermaidSvg(host);
+        requestAnimationFrame(() => {
+          if (!disposed) {
+            resetViewport();
+          }
+        });
+        setIsRendering(false);
+      } catch (error) {
+        setRenderError(
+          error instanceof Error ? error.message : "diagram render failed",
+        );
+        setIsRendering(false);
+      }
+    };
+
+    void renderExpandedDiagram();
+
+    return () => {
+      disposed = true;
+    };
+  }, [resetViewport, source]);
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="mermaid-lightbox"
+      data-testid="mermaid-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Mermaid diagram preview"
+      tabIndex={-1}
+      onMouseDown={onBackdropMouseDown}
+      onKeyDown={onDialogKeyDown}
+      onWheelCapture={onDialogWheelCapture}
+      onDragStart={onDialogDragStart}
+    >
+      <div className="mermaid-lightbox-card">
+        <div className="mermaid-lightbox-toolbar">
+          <div className="mermaid-lightbox-actions">
+            <span className="mermaid-lightbox-hint">
+              ホイールで拡大縮小 / ドラッグで移動
+            </span>
+            <span className="mermaid-lightbox-zoom">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              className="mermaid-lightbox-btn"
+              onClick={resetViewport}
+            >
+              表示をリセット
+            </button>
+          </div>
+          <button
+            type="button"
+            className="mermaid-lightbox-btn close mermaid-lightbox-close"
+            ref={closeButtonRef}
+            onClick={onClose}
+          >
+            閉じる
+          </button>
+        </div>
+        <div className="mermaid-lightbox-body">
+          {renderError ? (
+            <div className="mermaid-lightbox-error">
+              <p>Mermaid図の描画に失敗したため、ソースを表示しています。</p>
+              <pre>{source}</pre>
+              <p className="mermaid-lightbox-error-detail">{renderError}</p>
+            </div>
+          ) : (
+            <div
+              className={`mermaid-lightbox-viewport${isDragging ? " dragging" : ""}`}
+              ref={viewportRef}
+              onWheel={onViewportWheel}
+              onPointerDown={onViewportPointerDown}
+              onPointerMove={onViewportPointerMove}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            >
+              {isRendering ? (
+                <p className="mermaid-lightbox-loading">Mermaid図を描画中...</p>
+              ) : null}
+              <div
+                className="mermaid-lightbox-canvas"
+                style={{
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                }}
+              >
+                <div ref={canvasRef} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 });
 

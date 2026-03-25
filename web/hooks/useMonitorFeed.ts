@@ -1,5 +1,35 @@
 import React from "react";
-import type { MonitorSnapshotContract } from "../../src/contracts/monitor.js";
+import type {
+  MonitorSessionSummary,
+  MonitorSnapshotContract,
+} from "../../src/contracts/monitor.js";
+
+export function isLegacySourceSession(
+  session: Pick<MonitorSessionSummary, "id">,
+) {
+  return session.id.startsWith("source:");
+}
+
+export function mergeRetainedMonitorSessions(
+  retained: MonitorSessionSummary[],
+  nextActive: MonitorSessionSummary[],
+): MonitorSessionSummary[] {
+  const merged = new Map<string, MonitorSessionSummary>();
+
+  for (const session of retained) {
+    if (isLegacySourceSession(session)) continue;
+    merged.set(session.id, session);
+  }
+
+  for (const session of nextActive) {
+    if (isLegacySourceSession(session)) continue;
+    merged.set(session.id, session);
+  }
+
+  return [...merged.values()].sort(
+    (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+  );
+}
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
@@ -18,6 +48,9 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 export function useMonitorFeed() {
   const [data, setData] = React.useState<MonitorSnapshotContract | null>(null);
+  const [retainedSessions, setRetainedSessions] = React.useState<
+    MonitorSessionSummary[]
+  >([]);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [liveState, setLiveState] = React.useState<"live" | "degraded">("live");
@@ -40,6 +73,9 @@ export function useMonitorFeed() {
         );
         if (!active) return;
         setData(snapshot);
+        setRetainedSessions((current) =>
+          mergeRetainedMonitorSessions(current, snapshot.activeRootSessions),
+        );
         setError(null);
       } catch (err) {
         if (!active) return;
@@ -57,8 +93,12 @@ export function useMonitorFeed() {
         const payload = JSON.parse(event.data) as {
           payload?: MonitorSnapshotContract;
         };
-        if (!active || !payload.payload) return;
-        setData(payload.payload);
+        const snapshot = payload.payload;
+        if (!active || !snapshot) return;
+        setData(snapshot);
+        setRetainedSessions((current) =>
+          mergeRetainedMonitorSessions(current, snapshot.activeRootSessions),
+        );
         setError(null);
         setLiveState("live");
       });
@@ -84,5 +124,5 @@ export function useMonitorFeed() {
     };
   }, []);
 
-  return { data, error, loading, liveState };
+  return { data, retainedSessions, error, loading, liveState };
 }

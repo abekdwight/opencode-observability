@@ -246,4 +246,177 @@ test.describe("session detail overview", () => {
     await expect(table.locator("thead th")).toHaveCount(2);
     await expect(table.locator("tbody td")).toHaveCount(2);
   });
+
+  test("mermaid fenced blocks render as diagrams and open in zoom lightbox", async ({
+    page,
+  }) => {
+    const sessionWithMermaid: SessionDetailContract = {
+      ...SESSION_DETAIL,
+      messages: [
+        {
+          role: "assistant",
+          text: [
+            "```mermaid",
+            "sequenceDiagram",
+            "  participant X as 共有端末X",
+            "  participant A as スタッフA",
+            "  participant B as スタッフB",
+            "  participant API as /api/device-infos/",
+            "  participant DB as DeviceInfo",
+            "  A->>API: token=A用, device_id=端末X",
+            "  API->>DB: AのDeviceInfoを作成",
+            "  B->>API: token=B用, device_id=端末X",
+            "  API->>DB: device_id=端末X の既存レコードを検索",
+            "  API->>DB: AのDeviceInfoを削除",
+            "  API->>DB: BのDeviceInfoを新規作成",
+            "```",
+          ].join("\n"),
+          modelId: "gpt-4.1",
+          agent: "Sisyphus",
+          outputTpsLabel: "12.0 tok/s",
+          createdAt: "2024-01-10T09:00:40.000Z",
+          toolCalls: [],
+          subagentLinks: [],
+        },
+      ],
+      todos: [],
+      summaryDiffs: null,
+    };
+
+    await stubApis(page, sessionWithMermaid);
+    await page.goto("/session/ses-root-1");
+
+    const mermaidPreview = page
+      .getByTestId("message-0")
+      .locator(".message-content .mermaid-preview");
+    await expect(mermaidPreview).toBeVisible();
+    await expect(mermaidPreview.locator("svg")).toBeVisible();
+
+    const inlineCanvas = mermaidPreview.locator(".mermaid-preview-canvas");
+    await expect(inlineCanvas).toBeVisible();
+    const inlineOverflowPx = await inlineCanvas.evaluate(
+      (el) => el.scrollWidth - el.clientWidth,
+    );
+    expect(inlineOverflowPx).toBeLessThanOrEqual(2);
+
+    const inlineCanvasBox = await inlineCanvas.boundingBox();
+    const inlineSvgBox = await mermaidPreview.locator("svg").boundingBox();
+    expect(inlineCanvasBox).not.toBeNull();
+    expect(inlineSvgBox).not.toBeNull();
+    if (inlineCanvasBox && inlineSvgBox) {
+      expect(inlineSvgBox.width).toBeLessThanOrEqual(inlineCanvasBox.width + 1);
+    }
+
+    // Trigger a parent re-render and verify diagram does not revert to text.
+    await page.getByTestId("btn-tools").click();
+    await expect(mermaidPreview).toBeVisible();
+    await expect(mermaidPreview.locator("svg")).toBeVisible();
+    await expect(
+      page
+        .getByTestId("message-0")
+        .locator(".message-content code.language-mermaid"),
+    ).toHaveCount(0);
+
+    await mermaidPreview.click();
+
+    const lightbox = page.getByTestId("mermaid-lightbox");
+    await expect(lightbox).toBeVisible();
+    await expect(lightbox.locator(".mermaid-lightbox-title")).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          document.body.classList.contains("mermaid-lightbox-open"),
+        ),
+      )
+      .toBe(true);
+
+    const actionsBox = await lightbox
+      .locator(".mermaid-lightbox-actions")
+      .boundingBox();
+    const closeButton = lightbox.getByRole("button", { name: "閉じる" });
+    const closeBox = await closeButton.boundingBox();
+    expect(closeBox).not.toBeNull();
+    expect(actionsBox).not.toBeNull();
+    if (actionsBox && closeBox) {
+      expect(closeBox.x).toBeGreaterThan(actionsBox.x + actionsBox.width - 4);
+    }
+
+    const viewportSize = page.viewportSize();
+    const cardBox = await lightbox
+      .locator(".mermaid-lightbox-card")
+      .boundingBox();
+    expect(cardBox?.width ?? 0).toBeGreaterThan(
+      (viewportSize?.width ?? 0) * 0.85,
+    );
+    expect(cardBox?.height ?? 0).toBeGreaterThan(
+      (viewportSize?.height ?? 0) * 0.82,
+    );
+
+    await expect(
+      lightbox.locator(".mermaid-lightbox-canvas svg"),
+    ).toHaveAttribute("id", /session-mermaid/);
+    const modalSvg = lightbox.locator(".mermaid-lightbox-canvas svg");
+    await expect(modalSvg).toBeVisible();
+    const box = await modalSvg.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(180);
+    expect(box?.height ?? 0).toBeGreaterThan(100);
+    await expect(closeButton).toBeFocused();
+
+    const zoomText = lightbox.locator(".mermaid-lightbox-zoom");
+    const initialZoomLabel = (await zoomText.textContent())?.trim() ?? "";
+    expect(initialZoomLabel.endsWith("%")).toBe(true);
+
+    const viewport = lightbox.locator(".mermaid-lightbox-viewport");
+    const scrollBeforeWheel = await page.evaluate(() => window.scrollY);
+    await viewport.hover();
+    await page.mouse.wheel(0, 480);
+    await expect
+      .poll(async () => (await zoomText.textContent())?.trim() ?? "")
+      .not.toBe(initialZoomLabel);
+    const scrollAfterWheel = await page.evaluate(() => window.scrollY);
+    expect(scrollAfterWheel).toBe(scrollBeforeWheel);
+
+    const canvas = lightbox.locator(".mermaid-lightbox-canvas");
+    const transformBeforeDrag = await canvas.evaluate(
+      (el) => (el as HTMLElement).style.transform,
+    );
+    const viewportBox = await viewport.boundingBox();
+    expect(viewportBox).not.toBeNull();
+    if (viewportBox) {
+      await page.mouse.move(
+        viewportBox.x + viewportBox.width * 0.5,
+        viewportBox.y + viewportBox.height * 0.5,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        viewportBox.x + viewportBox.width * 0.5 + 120,
+        viewportBox.y + viewportBox.height * 0.5 + 70,
+      );
+      await page.mouse.up();
+    }
+
+    await expect
+      .poll(
+        async () =>
+          await canvas.evaluate((el) => (el as HTMLElement).style.transform),
+      )
+      .not.toBe(transformBeforeDrag);
+
+    await page.keyboard.press("Escape");
+    await expect(lightbox).not.toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          document.body.classList.contains("mermaid-lightbox-open"),
+        ),
+      )
+      .toBe(false);
+    await expect(mermaidPreview).toBeVisible();
+
+    await mermaidPreview.click();
+    await expect(lightbox).toBeVisible();
+
+    await page.mouse.click(5, 5);
+    await expect(lightbox).not.toBeVisible();
+  });
 });

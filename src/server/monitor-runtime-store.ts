@@ -10,8 +10,10 @@ import type {
   MonitorIngestSessionContract,
   MonitorSessionRuntimeStatus,
 } from "../contracts/monitor-ingest.js";
+import type { MonitorTimelineEventContract } from "../contracts/monitor-timeline.js";
 import { getMonitorHeartbeatTtlMs } from "../lib/config.js";
 import { getDb } from "../lib/db.js";
+import { normalizeMonitorTimelineEvent } from "./monitor-timeline-normalizer.js";
 
 interface RuntimeSourceState {
   instanceId: string;
@@ -145,6 +147,10 @@ class MonitorRuntimeStore {
   private sources = new Map<string, RuntimeSourceState>();
   private sessions = new Map<string, RuntimeSessionState>();
   private listeners = new Set<() => void>();
+  private timelineListeners = new Set<
+    (event: MonitorTimelineEventContract) => void
+  >();
+  private nextServerSeq = 0;
 
   public ingest(payload: unknown): MonitorIngestResponseContract {
     const nowMs = Date.now();
@@ -175,6 +181,10 @@ class MonitorRuntimeStore {
 
     for (const event of events) {
       this.applyEvent(sourceId, event, nowMs);
+      const timelineEvent = this.normalizeTimelineEvent(sourceId, event, nowMs);
+      if (timelineEvent) {
+        this.emitTimelineEvent(timelineEvent);
+      }
       acceptedEvents += 1;
     }
 
@@ -386,10 +396,21 @@ class MonitorRuntimeStore {
     };
   }
 
+  public subscribeTimeline(
+    listener: (event: MonitorTimelineEventContract) => void,
+  ): () => void {
+    this.timelineListeners.add(listener);
+    return () => {
+      this.timelineListeners.delete(listener);
+    };
+  }
+
   public reset(): void {
     this.sources.clear();
     this.sessions.clear();
     this.listeners.clear();
+    this.timelineListeners.clear();
+    this.nextServerSeq = 0;
   }
 
   private touchSource(
@@ -744,9 +765,151 @@ class MonitorRuntimeStore {
     }
   }
 
+  private resolveTimelineRootSessionId(
+    sourceId: string,
+    sessionId: string,
+    parentId?: string | null,
+  ): string {
+    const sessionKey = buildSessionKey(sourceId, sessionId);
+    if (this.sessions.has(sessionKey)) {
+      return (
+        this.sessions.get(this.resolveRootKey(sessionKey, this.sessions))?.id ??
+        sessionId
+      );
+    }
+
+    const normalizedParentId = asNonEmptyString(parentId);
+    if (!normalizedParentId) {
+      return sessionId;
+    }
+
+    const parentKey = buildSessionKey(sourceId, normalizedParentId);
+    if (this.sessions.has(parentKey)) {
+      return (
+        this.sessions.get(this.resolveRootKey(parentKey, this.sessions))?.id ??
+        normalizedParentId
+      );
+    }
+
+    return normalizedParentId;
+  }
+
+  private normalizeTimelineEvent(
+    sourceId: string,
+    event: MonitorIngestEventContract,
+    nowMs: number,
+  ): MonitorTimelineEventContract | null {
+    if (event.type === "heartbeat" || event.type === "session.deleted") {
+      return null;
+    }
+
+    const receivedAt = new Date(nowMs).toISOString();
+
+    if (event.type === "todo.updated") {
+      const sessionId =
+        asNonEmptyString(event.sessionId) ??
+        asNonEmptyString(event.session?.id);
+      if (!sessionId) {
+        return null;
+      }
+      const session = this.sessions.get(buildSessionKey(sourceId, sessionId));
+      const rootSessionId = this.resolveTimelineRootSessionId(
+        sourceId,
+        sessionId,
+        session?.parentId ?? event.session?.parentId,
+      );
+      return normalizeMonitorTimelineEvent({
+        sourceId,
+        rootSessionId,
+        sessionId,
+        serverSeq: this.allocateServerSeq(),
+        at: this.resolveTimelineAt(event, receivedAt),
+        receivedAt,
+        event,
+        todoCount: session?.todoCount ?? 0,
+      });
+    }
+
+    const sessionId = asNonEmptyString(event.session.id);
+    if (!sessionId) {
+      return null;
+    }
+
+    const session = this.sessions.get(buildSessionKey(sourceId, sessionId));
+    const rootSessionId = this.resolveTimelineRootSessionId(
+      sourceId,
+      sessionId,
+      session?.parentId ?? event.session.parentId,
+    );
+
+    return normalizeMonitorTimelineEvent({
+      sourceId,
+      rootSessionId,
+      sessionId,
+      serverSeq: this.allocateServerSeq(),
+      at: this.resolveTimelineAt(event, receivedAt),
+      receivedAt,
+      event,
+      status:
+        event.type === "session.status"
+          ? (session?.status ?? asRuntimeStatus(event.status) ?? "idle")
+          : event.type === "session.idle"
+            ? "idle"
+            : event.type === "session.error"
+              ? "retry"
+              : session?.status,
+      compactionCount:
+        event.type === "session.compacted"
+          ? (session?.compactionCount ?? 0)
+          : undefined,
+      childSessionId:
+        event.type === "session.created" && session?.parentId
+          ? session.id
+          : undefined,
+      isSubagentStarted:
+        event.type === "session.created" &&
+        Boolean(asNonEmptyString(session?.parentId ?? event.session.parentId)),
+    });
+  }
+
+  private resolveTimelineAt(
+    event: Exclude<
+      MonitorIngestEventContract,
+      { type: "heartbeat" | "session.deleted" }
+    >,
+    fallbackIso: string,
+  ): string {
+    if (event.type === "session.alert") {
+      return new Date(
+        asTimestampMs(event.at, Date.parse(fallbackIso)),
+      ).toISOString();
+    }
+
+    if (event.type === "todo.updated") {
+      return new Date(
+        asTimestampMs(event.session?.updatedAt, Date.parse(fallbackIso)),
+      ).toISOString();
+    }
+
+    return new Date(
+      asTimestampMs(event.session.updatedAt, Date.parse(fallbackIso)),
+    ).toISOString();
+  }
+
+  private allocateServerSeq(): number {
+    this.nextServerSeq += 1;
+    return this.nextServerSeq;
+  }
+
   private emit(): void {
     for (const listener of this.listeners) {
       listener();
+    }
+  }
+
+  private emitTimelineEvent(event: MonitorTimelineEventContract): void {
+    for (const listener of this.timelineListeners) {
+      listener(event);
     }
   }
 
@@ -785,6 +948,22 @@ export function subscribeMonitorRuntimeUpdates(
   listener: () => void,
 ): () => void {
   return runtimeStore.subscribe(listener);
+}
+
+export function subscribeMonitorTimelineEvents(
+  listener: (event: MonitorTimelineEventContract) => void,
+): () => void {
+  return runtimeStore.subscribeTimeline(listener);
+}
+
+export function getMonitorRuntimeSubscriberSnapshotForTests(): {
+  updates: number;
+  timeline: number;
+} {
+  return {
+    updates: runtimeStore["listeners"].size,
+    timeline: runtimeStore["timelineListeners"].size,
+  };
 }
 
 export function resetMonitorRuntimeStoreForTest(): void {

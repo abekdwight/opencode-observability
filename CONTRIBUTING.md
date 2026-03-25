@@ -36,6 +36,7 @@ npm run fixtures:build
 - `/assets/*` は static middleware が所有します
 - それ以外の route は React Router app shell が所有します
 - 新規 browser-facing data は contract を先に定義し、route から raw DB shape を返しません
+- `/api/monitor/events` (スナップショット SSE) と `/api/monitor/timeline/events` (タイムライン SSE) は独立したエンドポイントです。タイムラインは初期スナップショットを持たず、ライブ専用です。ページリロードでインメモリキャッシュはリセットされます。
 
 ## Safety Rules
 

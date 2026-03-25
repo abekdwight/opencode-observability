@@ -384,6 +384,178 @@ a:hover {
   border-bottom-right-radius: 12px;
 }
 
+/* ── Monitor: Timeline inline SVG chart ── */
+
+.timeline-chart-wrap {
+  margin-top: 8px;
+  width: 100%;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px solid #ececef;
+  padding: 6px 8px 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.timeline-chart-svg {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+
+.timeline-preview-pending {
+  margin: 0;
+  padding: 6px 4px 8px;
+  font-size: 0.72em;
+  color: #86868b;
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+/* ── Monitor: Timeline UX guardrail states ── */
+
+.timeline-preview-reconnecting {
+  color: #8a5700;
+  background: #fffbf0;
+  border-radius: 4px;
+  padding: 6px 8px 8px;
+}
+
+.timeline-preview-disconnected {
+  color: #b71c1c;
+  background: #fff5f5;
+  border-radius: 4px;
+  padding: 6px 8px 8px;
+}
+
+/* ── Monitor: Timeline feed-state overlay badge (shown over chart when cached data exists) ── */
+
+.timeline-feed-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  font-size: 0.65em;
+  font-weight: 500;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.timeline-feed-badge--reconnecting {
+  color: #8a5700;
+  background: rgba(255, 251, 240, 0.92);
+}
+
+.timeline-feed-badge--disconnected {
+  color: #b71c1c;
+  background: rgba(255, 245, 245, 0.92);
+}
+
+.monitor-section-meta-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.monitor-timeline-note {
+  margin: 0;
+  font-size: 0.7em;
+  color: #86868b;
+}
+
+.timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 12px 0 4px;
+}
+
+.timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74em;
+  color: #6e6e73;
+}
+
+.timeline-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.timeline-legend-swatch--activity {
+  background: #a1a1a6;
+}
+
+.timeline-legend-swatch--subagent {
+  background: #3b82f6;
+}
+
+.timeline-legend-swatch--pressure {
+  background: #f59e0b;
+}
+
+.timeline-legend-swatch--failure {
+  background: #ef4444;
+}
+
+.timeline-card-status-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timeline-incident-note {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.76em;
+  color: #4a4a4f;
+}
+
+.timeline-incident-note strong {
+  font-size: 0.92em;
+}
+
+.timeline-incident-note--quiet {
+  color: #86868b;
+}
+
+.timeline-incident-note--pressure strong {
+  color: #8a5700;
+}
+
+.timeline-incident-note--failure strong {
+  color: #b71c1c;
+}
+
+.timeline-trimmed-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff7eb;
+  color: #8a5700;
+  font-size: 0.7em;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .monitor-section-meta-block {
+    align-items: flex-start;
+  }
+}
+
 /* ── Dashboard ── */
 
 .dash-surface {
@@ -1878,6 +2050,58 @@ details[open] > .todo-summary::before {
   padding: 0;
 }
 
+.message-content .mermaid-preview {
+  width: 100%;
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f7 100%);
+  padding: 12px;
+  text-align: left;
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.message-content .mermaid-preview:hover {
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.12);
+}
+
+.message-content .mermaid-preview-canvas {
+  overflow: hidden;
+  border: 1px solid #e5e5ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.message-content .mermaid-preview-canvas svg {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
+.message-content .mermaid-preview-hint {
+  display: block;
+  margin-top: 8px;
+  color: #6e6e73;
+  font-size: 0.76em;
+  letter-spacing: 0.02em;
+}
+
+.message-content .mermaid-error-note {
+  margin: 8px 0 6px;
+  color: #b42318;
+  font-size: 0.83em;
+  font-weight: 500;
+}
+
 .message-content table {
   border-collapse: collapse;
   width: 100%;
@@ -1981,6 +2205,214 @@ body.plain-mode .message:last-child .plain-sep {
 /* Nav highlight */
 .message.nav-highlight .message-header .message-role {
   box-shadow: 0 0 0 2px #0066cc;
+}
+
+.mermaid-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3vh 4vw;
+  background: rgba(8, 11, 20, 0.58);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+html.mermaid-lightbox-open,
+body.mermaid-lightbox-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.mermaid-lightbox-card {
+  width: min(92vw, 1680px);
+  height: min(90vh, 980px);
+  max-height: min(90vh, 980px);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #d2d2d7;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mermaid-lightbox-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e5ea;
+  background: #fafafc;
+}
+
+.mermaid-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.mermaid-lightbox-close {
+  margin-left: auto;
+}
+
+.mermaid-lightbox-hint {
+  color: #6e6e73;
+  font-size: 0.78em;
+  font-weight: 500;
+}
+
+.mermaid-lightbox-btn {
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1d1d1f;
+  font-size: 0.82em;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
+}
+
+.mermaid-lightbox-btn:hover {
+  border-color: #0066cc;
+  color: #0066cc;
+}
+
+.mermaid-lightbox-btn.close {
+  background: #0066cc;
+  color: #ffffff;
+  border-color: #0066cc;
+}
+
+.mermaid-lightbox-btn.close:hover {
+  background: #0057b8;
+  color: #ffffff;
+}
+
+.mermaid-lightbox-zoom {
+  min-width: 56px;
+  text-align: center;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.78em;
+  color: #6e6e73;
+}
+
+.mermaid-lightbox-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.mermaid-lightbox-viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background: #f5f5f7;
+  min-height: 280px;
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+}
+
+.mermaid-lightbox-viewport.dragging {
+  cursor: grabbing;
+}
+
+.mermaid-lightbox-loading {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+  color: #6e6e73;
+  font-size: 0.82em;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e5e5ea;
+  border-radius: 8px;
+  padding: 4px 8px;
+  z-index: 2;
+}
+
+.mermaid-lightbox-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  transition: transform 0.08s ease-out;
+  will-change: transform;
+  width: max-content;
+}
+
+.mermaid-lightbox-canvas > div {
+  display: inline-block;
+  background: #ffffff;
+  border: 1px solid #e5e5ea;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.mermaid-lightbox-canvas svg {
+  display: block;
+  max-width: none;
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+
+.mermaid-lightbox-error {
+  padding: 16px;
+  width: 100%;
+}
+
+.mermaid-lightbox-error p {
+  margin: 0 0 10px;
+  color: #b42318;
+  font-weight: 600;
+}
+
+.mermaid-lightbox-error pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff5f5;
+  border: 1px solid #f3c9c9;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.mermaid-lightbox-error-detail {
+  margin-top: 10px;
+  font-size: 0.78em;
+  color: #6e6e73;
+}
+
+@media (max-width: 720px) {
+  .mermaid-lightbox {
+    padding: 10px;
+  }
+
+  .mermaid-lightbox-card {
+    width: 96vw;
+    height: 92vh;
+    max-height: 92vh;
+  }
+
+  .mermaid-lightbox-toolbar {
+    align-items: center;
+  }
+
+  .mermaid-lightbox-actions {
+    width: auto;
+  }
 }
 
 /* Control bar */

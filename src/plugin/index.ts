@@ -108,7 +108,6 @@ const SOURCE_LABEL =
     "OPENCODE_OBSERVABILITY_SOURCE_LABEL",
     "OPENCODE_TELEMETRY_SOURCE_LABEL",
   ) || "opencode-observability";
-const FALLBACK_SESSION_TITLE = "OpenCode terminal";
 const AUTOSTART_ENABLED =
   envWithFallback(
     "OPENCODE_OBSERVABILITY_AUTOSTART",
@@ -537,7 +536,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
 
   const sessions = new Map<string, SessionState>();
   const hydratedSessionIds = new Set<string>();
-  const fallbackSessionId = `source:${INSTANCE_ID}`;
   let requestQueue = Promise.resolve();
 
   const postLogWarn = async (message: string, error: unknown) => {
@@ -724,9 +722,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
   };
 
   const ensureSessionMetadata = async (sessionId: string) => {
-    if (sessionId === fallbackSessionId) {
-      return;
-    }
     if (hydratedSessionIds.has(sessionId)) {
       return;
     }
@@ -758,7 +753,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
 
       for (const [rawSessionId, statusInfo] of Object.entries(statusMap)) {
         const sessionId = rawSessionId.trim();
-        if (!sessionId || sessionId === fallbackSessionId) {
+        if (!sessionId) {
           continue;
         }
 
@@ -773,41 +768,11 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
       }
 
       for (const [sessionId, session] of sessions) {
-        if (sessionId === fallbackSessionId) {
-          continue;
-        }
         if (busySessionIds.has(sessionId)) {
           continue;
         }
         session.status = "idle";
         sessions.set(sessionId, session);
-      }
-
-      const trackedSessionIds = [...sessions.keys()].filter(
-        (sessionId) => sessionId !== fallbackSessionId,
-      );
-
-      if (trackedSessionIds.length === 0) {
-        const fallbackExisted = sessions.has(fallbackSessionId);
-        const fallback =
-          sessions.get(fallbackSessionId) ?? emptySession(fallbackSessionId);
-        fallback.title = FALLBACK_SESSION_TITLE;
-        fallback.directory = directory || fallback.directory;
-        fallback.parentId = null;
-        fallback.status = "idle";
-        fallback.updatedAt = new Date().toISOString();
-        sessions.set(fallbackSessionId, fallback);
-        if (!fallbackExisted) {
-          enqueuePost({
-            source: { instanceId: INSTANCE_ID, label: SOURCE_LABEL },
-            event: {
-              type: "session.upsert",
-              session: buildSessionPayload(fallback),
-            },
-          });
-        }
-      } else if (sessions.has(fallbackSessionId)) {
-        sessions.delete(fallbackSessionId);
       }
     } catch (error) {
       await postLogWarn("failed to read runtime session status", error);
@@ -869,7 +834,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
       switch (event?.type) {
         case "session.created":
         case "session.updated": {
-          sessions.delete(fallbackSessionId);
           const session = upsertFromInfo(event.properties?.info);
           if (!session) return;
           enqueuePost({
@@ -901,7 +865,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
           const sessionId: string | undefined = event.properties?.sessionID;
           const rawStatus: string | undefined = event.properties?.status?.type;
           if (!sessionId) return;
-          sessions.delete(fallbackSessionId);
           const session = upsertById(sessionId);
           if (
             rawStatus === "busy" ||
@@ -926,7 +889,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         case "session.idle": {
           const sessionId: string | undefined = event.properties?.sessionID;
           if (!sessionId) return;
-          sessions.delete(fallbackSessionId);
           const session = upsertById(sessionId);
           session.status = "idle";
           sessions.set(sessionId, session);
@@ -943,7 +905,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         case "session.error": {
           const sessionId: string | undefined = event.properties?.sessionID;
           if (!sessionId) return;
-          sessions.delete(fallbackSessionId);
           const session = upsertById(sessionId);
           session.status = "retry";
           sessions.set(sessionId, session);
@@ -972,7 +933,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         case "session.compacted": {
           const sessionId: string | undefined = event.properties?.sessionID;
           if (!sessionId) return;
-          sessions.delete(fallbackSessionId);
           const session = upsertById(sessionId);
           session.compactionCount += 1;
           sessions.set(sessionId, session);
@@ -998,7 +958,6 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         case "todo.updated": {
           const sessionId: string | undefined = event.properties?.sessionID;
           if (!sessionId) return;
-          sessions.delete(fallbackSessionId);
           const todos: Array<{ status?: string }> = Array.isArray(
             event.properties?.todos,
           )
