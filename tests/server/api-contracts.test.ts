@@ -320,6 +320,7 @@ describe("server api contracts", () => {
         messageCount: number;
         toolCallCount: number;
         subagentCount: number;
+        inputRatioPercent: number;
       }>;
     };
     const root = body.activeRootSessions.find(
@@ -330,6 +331,7 @@ describe("server api contracts", () => {
     expect((root?.messageCount ?? 0) > 0).toBe(true);
     expect((root?.toolCallCount ?? 0) > 0).toBe(true);
     expect((root?.subagentCount ?? 0) > 0).toBe(true);
+    expect((root?.inputRatioPercent ?? 0) > 0).toBe(true);
   });
 
   test("monitor snapshot exposes alert category badges from session.alert events", async () => {
@@ -1395,31 +1397,14 @@ describe("server api contracts", () => {
       const body = readDashboardSnapshot(db, { range: "all", view: "daily" });
 
       expect(body.summary.totalSessions).toBe(3);
-      expect(buildSpy).toHaveBeenCalledTimes(90);
-      expect(
-        buildSpy.mock.calls.some(([, windowArg]) => {
-          const window = windowArg as {
-            startDayInclusive: string;
-            endDayExclusive: string;
-          };
-          return (
-            window.startDayInclusive === "2023-10-14" &&
-            window.endDayExclusive === "2023-10-15"
-          );
+      expect(buildSpy).toHaveBeenCalledTimes(1);
+      expect(buildSpy).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({
+          startDayInclusive: "2023-10-14",
+          endDayExclusive: "2024-01-12",
         }),
-      ).toBe(true);
-      expect(
-        buildSpy.mock.calls.some(([, windowArg]) => {
-          const window = windowArg as {
-            startDayInclusive: string;
-            endDayExclusive: string;
-          };
-          return (
-            window.startDayInclusive === "2024-01-11" &&
-            window.endDayExclusive === "2024-01-12"
-          );
-        }),
-      ).toBe(true);
+      );
       const snapshot = getDashboardApiCacheSnapshotForTests();
       expect(snapshot.rawKeys).toHaveLength(90);
       expect(snapshot.rawKeys[0]).toBe("2023-10-14");
@@ -1451,7 +1436,14 @@ describe("server api contracts", () => {
 
       expect(weekBody.summary.totalSessions).toBe(2);
       expect(allBody.summary.totalSessions).toBe(3);
-      expect(buildSpy).toHaveBeenCalledTimes(90);
+      expect(buildSpy).toHaveBeenCalledTimes(84);
+      expect(buildSpy).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({
+          startDayInclusive: "2024-01-05",
+          endDayExclusive: "2024-01-12",
+        }),
+      );
       const weekDayBuilds = buildSpy.mock.calls.filter(([, windowArg]) => {
         const window = windowArg as {
           startDayInclusive: string;
@@ -1462,7 +1454,7 @@ describe("server api contracts", () => {
           window.endDayExclusive === "2024-01-06"
         );
       });
-      expect(weekDayBuilds).toHaveLength(1);
+      expect(weekDayBuilds).toHaveLength(0);
 
       const snapshot = getDashboardApiCacheSnapshotForTests();
       expect(snapshot.rawKeys).toHaveLength(90);

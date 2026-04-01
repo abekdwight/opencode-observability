@@ -1,6 +1,7 @@
 import type {
   MonitorSessionSummary,
   MonitorSnapshotContract,
+  MonitorTokenUsageRow,
 } from "../contracts/monitor.js";
 import type {
   MonitorAlertCategory,
@@ -108,6 +109,15 @@ function placeholders(size: number): string {
   return Array.from({ length: size }, () => "?").join(",");
 }
 
+function computeInputRatioPercent(
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const denominator = inputTokens + outputTokens;
+  if (denominator <= 0) return 0;
+  return (inputTokens / denominator) * 100;
+}
+
 function buildSessionKey(sourceId: string, sessionId: string): string {
   return `${sourceId}::${sessionId}`;
 }
@@ -150,6 +160,17 @@ class MonitorRuntimeStore {
   private timelineListeners = new Set<
     (event: MonitorTimelineEventContract) => void
   >();
+  private tokenStatsBySessionId = new Map<
+    string,
+    {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+      totalTokens: number;
+    }
+  >();
+  private tokenUsageRowsBySessionId = new Map<string, MonitorTokenUsageRow[]>();
   private nextServerSeq = 0;
 
   public ingest(payload: unknown): MonitorIngestResponseContract {
@@ -263,17 +284,35 @@ class MonitorRuntimeStore {
 
     const activeRootSessions: MonitorSessionSummary[] = Array.from(
       roots.values(),
-      (aggregate) => ({
-        id: aggregate.session.id,
-        title: aggregate.session.title,
-        directory: aggregate.session.directory,
-        createdAt: new Date(aggregate.session.createdAtMs).toISOString(),
-        updatedAt: new Date(aggregate.session.updatedAtMs).toISOString(),
-        messageCount: aggregate.session.messageCount,
-        toolCallCount: aggregate.session.toolCallCount,
-        compactionCount: aggregate.session.compactionCount,
-        subagentCount: aggregate.subagentCount,
-      }),
+      (aggregate) => {
+        const tokenStats = this.tokenStatsBySessionId.get(aggregate.session.id);
+        const tokenUsage = this.buildRootTokenUsageRows(
+          aggregate.session.key,
+          activeSessions,
+          rootBySessionKey,
+        );
+        return {
+          id: aggregate.session.id,
+          title: aggregate.session.title,
+          directory: aggregate.session.directory,
+          createdAt: new Date(aggregate.session.createdAtMs).toISOString(),
+          updatedAt: new Date(aggregate.session.updatedAtMs).toISOString(),
+          messageCount: aggregate.session.messageCount,
+          toolCallCount: aggregate.session.toolCallCount,
+          compactionCount: aggregate.session.compactionCount,
+          subagentCount: aggregate.subagentCount,
+          totalTokens: tokenStats?.totalTokens ?? 0,
+          inputTokens: tokenStats?.inputTokens ?? 0,
+          outputTokens: tokenStats?.outputTokens ?? 0,
+          inputRatioPercent: computeInputRatioPercent(
+            tokenStats?.inputTokens ?? 0,
+            tokenStats?.outputTokens ?? 0,
+          ),
+          cacheReadTokens: tokenStats?.cacheReadTokens ?? 0,
+          cacheWriteTokens: tokenStats?.cacheWriteTokens ?? 0,
+          tokenUsage,
+        };
+      },
     ).sort(
       (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
     );
@@ -410,7 +449,47 @@ class MonitorRuntimeStore {
     this.sessions.clear();
     this.listeners.clear();
     this.timelineListeners.clear();
+    this.tokenStatsBySessionId.clear();
+    this.tokenUsageRowsBySessionId.clear();
     this.nextServerSeq = 0;
+  }
+
+  private buildRootTokenUsageRows(
+    rootSessionKey: string,
+    activeSessions: Map<string, RuntimeSessionState>,
+    rootBySessionKey: Map<string, string>,
+  ): MonitorTokenUsageRow[] {
+    const merged = new Map<string, MonitorTokenUsageRow>();
+
+    for (const [sessionKey, session] of activeSessions) {
+      if (rootBySessionKey.get(sessionKey) !== rootSessionKey) {
+        continue;
+      }
+      const scope = sessionKey === rootSessionKey ? "main" : "subagent";
+      const rows = this.tokenUsageRowsBySessionId.get(session.id) ?? [];
+      for (const row of rows) {
+        const key = [scope, row.agent, row.providerId, row.modelId].join("::");
+        const current = merged.get(key);
+        if (current) {
+          current.messageCount += row.messageCount;
+          current.inputTokens += row.inputTokens;
+          current.outputTokens += row.outputTokens;
+          current.cacheReadTokens += row.cacheReadTokens;
+          current.cacheWriteTokens += row.cacheWriteTokens;
+          current.totalTokens += row.totalTokens;
+          current.inputRatioPercent = computeInputRatioPercent(
+            current.inputTokens,
+            current.outputTokens,
+          );
+        } else {
+          merged.set(key, { ...row, scope });
+        }
+      }
+    }
+
+    return Array.from(merged.values()).sort(
+      (left, right) => right.totalTokens - left.totalTokens,
+    );
   }
 
   private touchSource(
@@ -480,6 +559,56 @@ class MonitorRuntimeStore {
           `SELECT parent_id AS parentId, COUNT(*) AS cnt FROM session WHERE parent_id IN (${idPlaceholders}) GROUP BY parent_id`,
         )
         .all(...sessionIds) as Array<{ parentId: string | null; cnt: number }>;
+      const tokenRows = db
+        .prepare(
+          `SELECT
+            session_id AS sessionId,
+            COALESCE(SUM(json_extract(data, '$.tokens.input')), 0) AS inputTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS outputTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cacheReadTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cacheWriteTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS totalTokens
+          FROM message
+          WHERE session_id IN (${idPlaceholders}) AND json_extract(data, '$.role') = 'assistant'
+          GROUP BY session_id`,
+        )
+        .all(...sessionIds) as Array<{
+        sessionId: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        totalTokens: number;
+      }>;
+      const tokenUsageRows = db
+        .prepare(
+          `SELECT
+            session_id AS sessionId,
+            COALESCE(json_extract(data, '$.agent'), 'unknown') AS agent,
+            COALESCE(json_extract(data, '$.modelID'), 'unknown') AS modelId,
+            COALESCE(json_extract(data, '$.providerID'), 'unknown') AS providerId,
+            COUNT(*) AS messageCount,
+            COALESCE(SUM(json_extract(data, '$.tokens.input')), 0) AS inputTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS outputTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cacheReadTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cacheWriteTokens,
+            COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS totalTokens
+          FROM message
+          WHERE session_id IN (${idPlaceholders}) AND json_extract(data, '$.role') = 'assistant'
+          GROUP BY session_id, agent, modelId, providerId`,
+        )
+        .all(...sessionIds) as Array<{
+        sessionId: string;
+        agent: string;
+        modelId: string;
+        providerId: string;
+        messageCount: number;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        totalTokens: number;
+      }>;
 
       const messageCountBySessionId = new Map<string, number>(
         messageRows.map((row) => [
@@ -499,6 +628,61 @@ class MonitorRuntimeStore {
           asNonEmptyString(row.parentId),
         ]),
       );
+      const tokenStatsBySessionId = new Map<
+        string,
+        {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheWriteTokens: number;
+          totalTokens: number;
+        }
+      >(
+        tokenRows.map((row) => [
+          row.sessionId,
+          {
+            inputTokens: asNonNegativeInteger(row.inputTokens) ?? 0,
+            outputTokens: asNonNegativeInteger(row.outputTokens) ?? 0,
+            cacheReadTokens: asNonNegativeInteger(row.cacheReadTokens) ?? 0,
+            cacheWriteTokens: asNonNegativeInteger(row.cacheWriteTokens) ?? 0,
+            totalTokens: asNonNegativeInteger(row.totalTokens) ?? 0,
+          },
+        ]),
+      );
+      const tokenUsageRowsBySessionId = new Map<
+        string,
+        MonitorTokenUsageRow[]
+      >();
+      for (const row of tokenUsageRows) {
+        const current = tokenUsageRowsBySessionId.get(row.sessionId) ?? [];
+        current.push({
+          scope: "main",
+          agent:
+            typeof row.agent === "string" && row.agent.trim().length > 0
+              ? row.agent
+              : "unknown",
+          modelId:
+            typeof row.modelId === "string" && row.modelId.trim().length > 0
+              ? row.modelId
+              : "unknown",
+          providerId:
+            typeof row.providerId === "string" &&
+            row.providerId.trim().length > 0
+              ? row.providerId
+              : "unknown",
+          messageCount: asNonNegativeInteger(row.messageCount) ?? 0,
+          inputTokens: asNonNegativeInteger(row.inputTokens) ?? 0,
+          outputTokens: asNonNegativeInteger(row.outputTokens) ?? 0,
+          cacheReadTokens: asNonNegativeInteger(row.cacheReadTokens) ?? 0,
+          cacheWriteTokens: asNonNegativeInteger(row.cacheWriteTokens) ?? 0,
+          totalTokens: asNonNegativeInteger(row.totalTokens) ?? 0,
+          inputRatioPercent: computeInputRatioPercent(
+            asNonNegativeInteger(row.inputTokens) ?? 0,
+            asNonNegativeInteger(row.outputTokens) ?? 0,
+          ),
+        });
+        tokenUsageRowsBySessionId.set(row.sessionId, current);
+      }
 
       for (const session of activeSessions.values()) {
         const dbMessageCount = messageCountBySessionId.get(session.id);
@@ -524,7 +708,12 @@ class MonitorRuntimeStore {
           asNonNegativeInteger(row.cnt) ?? 0,
         );
       }
+
+      this.tokenStatsBySessionId = tokenStatsBySessionId;
+      this.tokenUsageRowsBySessionId = tokenUsageRowsBySessionId;
     } catch {
+      this.tokenStatsBySessionId.clear();
+      this.tokenUsageRowsBySessionId.clear();
       return subagentCountsByParent;
     } finally {
       if (db) {

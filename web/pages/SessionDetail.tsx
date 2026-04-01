@@ -740,6 +740,113 @@ export function SessionDetail() {
         </div>
       </div>
 
+      {/* Model Breakdown */}
+      {data.modelBreakdown.length > 0 ? (
+        <details
+          className="card"
+          data-testid="model-breakdown-accordion"
+          style={{ marginTop: 16 }}
+        >
+          <summary className="todo-summary">
+            モデル別トークン内訳{" "}
+            <span className="todo-count">
+              {data.modelBreakdown.length} models
+            </span>
+          </summary>
+          <div
+            className="model-breakdown-table-wrap"
+            style={{ overflowX: "auto", marginTop: 12 }}
+          >
+            <table
+              className="model-breakdown-table"
+              style={{
+                width: "100%",
+                fontSize: "0.85em",
+                borderCollapse: "collapse",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: "1px solid var(--border-color, #e5e5e5)",
+                  }}
+                >
+                  <th style={{ textAlign: "left", padding: "8px 12px" }}>
+                    モデル
+                  </th>
+                  <th style={{ textAlign: "left", padding: "8px 12px" }}>
+                    Provider
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Messages
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Input
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Output
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Cache Read
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Cache Write
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Total
+                  </th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>
+                    Cost
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.modelBreakdown.map((model) => (
+                  <tr
+                    key={`${model.modelId}-${model.providerId}`}
+                    style={{
+                      borderBottom: "1px solid var(--border-color, #f0f0f0)",
+                    }}
+                  >
+                    <td style={{ padding: "8px 12px" }}>{model.modelId}</td>
+                    <td style={{ padding: "8px 12px" }}>{model.providerId}</td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {model.messageCount}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {formatTokens(model.inputTokens)}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {formatTokens(model.outputTokens)}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {formatTokens(model.cacheReadTokens)}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {formatTokens(model.cacheWriteTokens)}
+                    </td>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "8px 12px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {formatTokens(model.totalTokens)}
+                    </td>
+                    <td style={{ textAlign: "right", padding: "8px 12px" }}>
+                      {model.totalCost > 0
+                        ? `$${model.totalCost.toFixed(4)}`
+                        : "$0.00"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+
       {/* Todos accordion */}
       {todos.length > 0 ? (
         <details className="card todo-accordion" data-testid="todos-accordion">

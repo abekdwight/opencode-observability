@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { getWritableDb } from "../../src/lib/db.js";
+import * as dashboardRepository from "../../src/repositories/dashboard/dashboard-repository.js";
 import {
   getDashboardApiCacheSnapshotForTests,
   invalidateDashboardApiCache,
@@ -70,8 +71,20 @@ describe("dashboard bounded cache", () => {
         expect(narrower.summary.totalSessions).toBe(2);
         expect(wider.summary.totalSessions).toBe(3);
 
-        // 2024-01-05..2024-01-11 (7 days) + missing 2024-01-04 (1 day)
-        expect(buildSpy).toHaveBeenCalledTimes(8);
+        // Cold load is built in one bounded pass, then only the missing day is built.
+        expect(buildSpy).toHaveBeenCalledTimes(2);
+        expect(buildSpy).toHaveBeenCalledWith(
+          db,
+          expect.objectContaining(narrowerWindow),
+        );
+        expect(buildSpy).toHaveBeenCalledWith(
+          db,
+          expect.objectContaining({
+            startDayInclusive: "2024-01-04",
+            endDayExclusive: "2024-01-05",
+          }),
+        );
+
         const rebuiltForJan5 = buildSpy.mock.calls.filter(([, windowArg]) => {
           const window = windowArg as {
             startDayInclusive: string;
@@ -82,7 +95,7 @@ describe("dashboard bounded cache", () => {
             window.endDayExclusive === "2024-01-06"
           );
         });
-        expect(rebuiltForJan5).toHaveLength(1);
+        expect(rebuiltForJan5).toHaveLength(0);
 
         expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
           "2024-01-04",
@@ -188,5 +201,64 @@ describe("dashboard bounded cache", () => {
         "2024-01-05:2024-01-11:daily",
       ]);
     });
+  });
+
+  test("clears stale cache when stamp changed but changed-day diff is empty", () => {
+    const buildSpy = vi.spyOn(
+      dashboardService,
+      "buildDashboardAggregateStateForWindow",
+    );
+    const cacheStampSpy = vi.spyOn(
+      dashboardRepository,
+      "readDashboardCacheStamp",
+    );
+    const changedDaysSpy = vi.spyOn(
+      dashboardRepository,
+      "readDashboardChangedDaysSince",
+    );
+
+    const baseStamp = {
+      partRowId: 100,
+      messageRowId: 200,
+      sessionRowId: 300,
+      rootSessionCount: 3,
+      maxPartUpdatedAt: 1000,
+      maxMessageUpdatedAt: 2000,
+      maxSessionUpdatedAt: 3000,
+    };
+
+    try {
+      cacheStampSpy
+        .mockImplementationOnce(() => baseStamp)
+        .mockImplementation(() => ({ ...baseStamp, partRowId: 101 }));
+      changedDaysSpy.mockReturnValue([]);
+
+      withWritableDb((db) => {
+        const window = {
+          startDayInclusive: "2024-01-04",
+          endDayExclusive: "2024-01-05",
+        };
+
+        readDashboardSnapshot(db, {
+          range: "week",
+          view: "daily",
+          window,
+        });
+        readDashboardSnapshot(db, {
+          range: "week",
+          view: "daily",
+          window,
+        });
+
+        expect(buildSpy).toHaveBeenCalledTimes(2);
+        expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
+          "2024-01-04",
+        ]);
+      });
+    } finally {
+      buildSpy.mockRestore();
+      cacheStampSpy.mockRestore();
+      changedDaysSpy.mockRestore();
+    }
   });
 });

@@ -31,6 +31,15 @@ function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function computeInputRatioPercent(
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const denominator = inputTokens + outputTokens;
+  if (denominator <= 0) return 0;
+  return (inputTokens / denominator) * 100;
+}
+
 function toIsoFromUnknown(value: string | number): string {
   if (typeof value === "number" && Number.isFinite(value)) {
     return toIso(value);
@@ -115,6 +124,28 @@ function buildRootSessionSummary(
   const compactionCount = countCompactionMessages(db, row.id);
   const subagentCount = countSubagentSessions(db, row.id);
 
+  // Get token stats for this session
+  const tokenStats = db
+    .prepare(`
+      SELECT
+        COALESCE(SUM(json_extract(data, '$.tokens.input')), 0) AS input_tokens,
+        COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS output_tokens,
+        COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cache_read_tokens,
+        COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cache_write_tokens,
+        COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS total_tokens,
+        COALESCE(SUM(json_extract(data, '$.cost')), 0) AS total_cost
+      FROM message
+      WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant'
+    `)
+    .get(row.id) as {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    total_tokens: number;
+    total_cost: number;
+  };
+
   return {
     id: row.id,
     title: row.title,
@@ -125,6 +156,16 @@ function buildRootSessionSummary(
     toolCallCount,
     compactionCount,
     subagentCount,
+    totalTokens: asNumber(tokenStats.total_tokens),
+    inputTokens: asNumber(tokenStats.input_tokens),
+    outputTokens: asNumber(tokenStats.output_tokens),
+    inputRatioPercent: computeInputRatioPercent(
+      asNumber(tokenStats.input_tokens),
+      asNumber(tokenStats.output_tokens),
+    ),
+    cacheReadTokens: asNumber(tokenStats.cache_read_tokens),
+    cacheWriteTokens: asNumber(tokenStats.cache_write_tokens),
+    tokenUsage: [],
   };
 }
 

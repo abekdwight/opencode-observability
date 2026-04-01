@@ -19,6 +19,13 @@ function makeSession(
     toolCallCount: 0,
     compactionCount: 0,
     subagentCount: 0,
+    totalTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    inputRatioPercent: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    tokenUsage: [],
     ...overrides,
   };
 }

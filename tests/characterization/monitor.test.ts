@@ -73,6 +73,8 @@ describe("monitor runtime store characterization", () => {
     expect(session.toolCallCount).toBe(3);
     expect(session.compactionCount).toBe(0);
     expect(session.subagentCount).toBe(0);
+    expect(session.inputRatioPercent).toBe(0);
+    expect(session.tokenUsage).toEqual([]);
   });
 
   test("snapshot includes subagent count and signal badges after subagent + todo events", () => {

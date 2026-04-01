@@ -2212,9 +2212,9 @@ body.plain-mode .message:last-child .plain-sep {
   inset: 0;
   z-index: 220;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3vh 4vw;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
   background: rgba(8, 11, 20, 0.58);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
@@ -2227,13 +2227,12 @@ body.mermaid-lightbox-open {
 }
 
 .mermaid-lightbox-card {
-  width: min(92vw, 1680px);
-  height: min(90vh, 980px);
-  max-height: min(90vh, 980px);
+  width: 100%;
+  height: 100%;
   background: #ffffff;
-  border-radius: 14px;
-  border: 1px solid #d2d2d7;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2397,13 +2396,12 @@ body.mermaid-lightbox-open {
 
 @media (max-width: 720px) {
   .mermaid-lightbox {
-    padding: 10px;
+    padding: 0;
   }
 
   .mermaid-lightbox-card {
-    width: 96vw;
-    height: 92vh;
-    max-height: 92vh;
+    width: 100%;
+    height: 100%;
   }
 
   .mermaid-lightbox-toolbar {

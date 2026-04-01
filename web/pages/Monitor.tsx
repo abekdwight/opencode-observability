@@ -14,7 +14,7 @@ import {
   type TimelineOperatorLane,
   useMonitorTimelineFeed,
 } from "../hooks/useMonitorTimelineFeed";
-import { formatTimestamp } from "../lib/format";
+import { formatTimestamp, formatTokens } from "../lib/format";
 
 // ---------------------------------------------------------------------------
 // SVG chart constants — reference-dashboard chart-lane style
@@ -71,6 +71,60 @@ const V_GRID = [
   { offsetMs: 180_000, label: "3m" },
   { offsetMs: 240_000, label: "4m" },
 ];
+
+type MonitorTokenView = "model" | "agent-model";
+
+interface TokenUsageDisplayRow {
+  scope: "main" | "subagent";
+  agent: string;
+  modelId: string;
+  providerId: string;
+  messageCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  inputRatioPercent: number;
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`;
+}
+
+function buildTokenUsageDisplayRows(
+  rows: TokenUsageDisplayRow[],
+  view: MonitorTokenView,
+): TokenUsageDisplayRow[] {
+  if (view === "agent-model") {
+    return [...rows].sort(
+      (left, right) => right.totalTokens - left.totalTokens,
+    );
+  }
+
+  const grouped = new Map<string, TokenUsageDisplayRow>();
+  for (const row of rows) {
+    const key = [row.scope, row.providerId, row.modelId].join("::");
+    const current = grouped.get(key);
+    if (current) {
+      current.messageCount += row.messageCount;
+      current.inputTokens += row.inputTokens;
+      current.outputTokens += row.outputTokens;
+      current.cacheReadTokens += row.cacheReadTokens;
+      current.cacheWriteTokens += row.cacheWriteTokens;
+      current.totalTokens += row.totalTokens;
+      const denominator = current.inputTokens + current.outputTokens;
+      current.inputRatioPercent =
+        denominator > 0 ? (current.inputTokens / denominator) * 100 : 0;
+    } else {
+      grouped.set(key, { ...row, agent: "all" });
+    }
+  }
+
+  return Array.from(grouped.values()).sort(
+    (left, right) => right.totalTokens - left.totalTokens,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // InlineTimeSeriesChart — reference-dashboard-style SVG chart lane
@@ -325,6 +379,7 @@ export function Monitor() {
   const { data, retainedSessions, error, loading, liveState } =
     useMonitorFeed();
   const timeline = useMonitorTimelineFeed({ sourceKey: "monitor" });
+  const [tokenView, setTokenView] = React.useState<MonitorTokenView>("model");
 
   // Tick counter to slide the chart window forward in real-time
   const [nowMs, setNowMs] = React.useState(() => Date.now());
@@ -358,7 +413,6 @@ export function Monitor() {
           cache: timeline.cache,
           lastHeartbeatAt: timeline.lastHeartbeatAt,
           liveOnlyNotice: timeline.liveOnlyNotice,
-          evictedSessionIds: timeline.evictedSessionIds,
         },
         session.id,
       );
@@ -392,7 +446,6 @@ export function Monitor() {
         latestActionableEvent,
         latestActionableLane,
         latestActionableAge,
-        hasTrimmedEvents: timeline.evictedSessionIds.has(session.id),
         priority,
       };
     })
@@ -504,7 +557,6 @@ export function Monitor() {
                     latestActionableEvent,
                     latestActionableLane,
                     latestActionableAge,
-                    hasTrimmedEvents,
                   }) => {
                     return (
                       <div className="recent-item" key={session.id}>
@@ -544,11 +596,6 @@ export function Monitor() {
                               No intervention signals in the last 5 minutes
                             </p>
                           )}
-                          {hasTrimmedEvents ? (
-                            <span className="timeline-trimmed-badge">
-                              Older events trimmed
-                            </span>
-                          ) : null}
                         </div>
                         <dl className="stats compact-stats">
                           <div>
@@ -567,7 +614,215 @@ export function Monitor() {
                             <dt>Subagents</dt>
                             <dd>{session.subagentCount}</dd>
                           </div>
+                          <div>
+                            <dt>Input ratio</dt>
+                            <dd>{formatPercent(session.inputRatioPercent)}</dd>
+                          </div>
                         </dl>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                            flexWrap: "wrap",
+                            margin: "10px 0 8px",
+                          }}
+                        >
+                          <div>
+                            <strong style={{ fontSize: "0.9em" }}>
+                              Model usage
+                            </strong>
+                            <span
+                              style={{
+                                marginLeft: 8,
+                                color: "#6e6e73",
+                                fontSize: "0.82em",
+                              }}
+                            >
+                              main / subagent split
+                            </span>
+                          </div>
+                          <div
+                            className="view-toggle-bar"
+                            role="tablist"
+                            aria-label="Monitor token usage view"
+                          >
+                            <button
+                              type="button"
+                              className={`view-toggle-btn${tokenView === "model" ? " active" : ""}`}
+                              onClick={() => setTokenView("model")}
+                            >
+                              Model
+                            </button>
+                            <button
+                              type="button"
+                              className={`view-toggle-btn${tokenView === "agent-model" ? " active" : ""}`}
+                              onClick={() => setTokenView("agent-model")}
+                            >
+                              Agent × Model
+                            </button>
+                          </div>
+                        </div>
+                        {(["main", "subagent"] as const).map((scope) => {
+                          const rows = buildTokenUsageDisplayRows(
+                            session.tokenUsage,
+                            tokenView,
+                          ).filter((row) => row.scope === scope);
+                          if (rows.length === 0) {
+                            return null;
+                          }
+
+                          return (
+                            <div key={scope} style={{ marginBottom: 10 }}>
+                              <div
+                                style={{
+                                  fontSize: "0.82em",
+                                  fontWeight: 600,
+                                  color: "#6e6e73",
+                                  marginBottom: 6,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                }}
+                              >
+                                {scope === "main" ? "Main" : "Subagent"}
+                              </div>
+                              <div style={{ overflowX: "auto" }}>
+                                <table
+                                  style={{
+                                    width: "100%",
+                                    fontSize: "0.82em",
+                                    borderCollapse: "collapse",
+                                  }}
+                                >
+                                  <thead>
+                                    <tr>
+                                      <th
+                                        style={{
+                                          textAlign: "left",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        {tokenView === "model"
+                                          ? "Model"
+                                          : "Agent × Model"}
+                                      </th>
+                                      <th
+                                        style={{
+                                          textAlign: "right",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        Input
+                                      </th>
+                                      <th
+                                        style={{
+                                          textAlign: "right",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        Output
+                                      </th>
+                                      <th
+                                        style={{
+                                          textAlign: "right",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        Cache R
+                                      </th>
+                                      <th
+                                        style={{
+                                          textAlign: "right",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        Cache W
+                                      </th>
+                                      <th
+                                        style={{
+                                          textAlign: "right",
+                                          padding: "6px 8px",
+                                        }}
+                                      >
+                                        Input ratio
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {rows.map((row) => (
+                                      <tr
+                                        key={[
+                                          scope,
+                                          row.agent,
+                                          row.providerId,
+                                          row.modelId,
+                                        ].join("::")}
+                                      >
+                                        <td
+                                          style={{
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                          }}
+                                        >
+                                          {tokenView === "model"
+                                            ? `${row.providerId}/${row.modelId}`
+                                            : `${row.agent} × ${row.providerId}/${row.modelId}`}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: "right",
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                          }}
+                                        >
+                                          {formatTokens(row.inputTokens)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: "right",
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                          }}
+                                        >
+                                          {formatTokens(row.outputTokens)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: "right",
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                          }}
+                                        >
+                                          {formatTokens(row.cacheReadTokens)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: "right",
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                          }}
+                                        >
+                                          {formatTokens(row.cacheWriteTokens)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            textAlign: "right",
+                                            padding: "6px 8px",
+                                            borderTop: "1px solid #f0f0f0",
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          {formatPercent(row.inputRatioPercent)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })}
                         <InlineTimeSeriesChart
                           buckets={buckets}
                           maxTotal={maxTotal}

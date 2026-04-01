@@ -113,7 +113,23 @@ function readMaxRowId(
 }
 
 function buildWindowClause(column: string): string {
-  return `date(${column}/1000, 'unixepoch', 'localtime') >= ? AND date(${column}/1000, 'unixepoch', 'localtime') < ?`;
+  return `${column} >= ? AND ${column} < ?`;
+}
+
+function toLocalDayStartMs(day: string): number {
+  const [year, month, date] = day.split("-").map(Number);
+  const parsed = new Date(year, (month || 1) - 1, date || 1);
+  parsed.setHours(0, 0, 0, 0);
+  return parsed.getTime();
+}
+
+function buildWindowMsParams(
+  window: DashboardRepositoryWindow,
+): [number, number] {
+  return [
+    toLocalDayStartMs(window.startDayInclusive),
+    toLocalDayStartMs(window.endDayExclusive),
+  ];
 }
 
 function readMaxUpdatedAt(
@@ -279,47 +295,69 @@ export function fetchDashboardPartData(
   sinceRowId?: number,
 ): DashboardPartData {
   const rowidClause = sinceRowId == null ? "" : "rowid > ? AND ";
+  const [windowStartMs, windowEndMs] = buildWindowMsParams(window);
   const params =
     sinceRowId == null
-      ? [window.startDayInclusive, window.endDayExclusive]
-      : [sinceRowId, window.startDayInclusive, window.endDayExclusive];
+      ? [windowStartMs, windowEndMs]
+      : [sinceRowId, windowStartMs, windowEndMs];
 
-  const rows = db
+  const baseRows = db
     .prepare(`
     SELECT json_extract(p.data, '$.tool') AS tool,
            json_extract(p.data, '$.state.status') AS status,
-           date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
-           COUNT(*) AS cnt
-    FROM part p
-    WHERE ${rowidClause}json_extract(p.data, '$.type') = 'tool'
-      AND ${buildWindowClause("p.time_created")}
-    GROUP BY tool, status, day
-  `)
-    .all(...params) as DashboardPartRow[];
-
-  const errorRows = db
-    .prepare(`
-    SELECT json_extract(p.data, '$.state.error') AS error,
+           json_extract(p.data, '$.state.error') AS error,
            date(p.time_created/1000, 'unixepoch', 'localtime') AS day
     FROM part p
     WHERE ${rowidClause}json_extract(p.data, '$.type') = 'tool'
       AND ${buildWindowClause("p.time_created")}
-      AND json_extract(p.data, '$.state.status') = 'error'
   `)
-    .all(...params) as DashboardErrorRow[];
+    .all(...params) as Array<{
+    tool: string | null;
+    status: string | null;
+    error: string | null;
+    day: string;
+  }>;
 
-  const toolErrorRows = db
-    .prepare(`
-    SELECT json_extract(p.data, '$.tool') AS tool,
-           date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
-           COUNT(*) AS cnt
-    FROM part p
-    WHERE ${rowidClause}json_extract(p.data, '$.type') = 'tool'
-      AND ${buildWindowClause("p.time_created")}
-      AND json_extract(p.data, '$.state.status') = 'error'
-    GROUP BY tool, day
-  `)
-    .all(...params) as DashboardToolErrorRow[];
+  const rowCounts = new Map<string, DashboardPartRow>();
+  const toolErrorCounts = new Map<string, DashboardToolErrorRow>();
+  const errorRows: DashboardErrorRow[] = [];
+
+  for (const row of baseRows) {
+    const rowKey = `${row.tool ?? ""}\t${row.status ?? ""}\t${row.day}`;
+    const existing = rowCounts.get(rowKey);
+    if (existing) {
+      existing.cnt += 1;
+    } else {
+      rowCounts.set(rowKey, {
+        tool: row.tool,
+        status: row.status,
+        day: row.day,
+        cnt: 1,
+      });
+    }
+
+    if (row.status === "error") {
+      errorRows.push({
+        error: row.error ?? "",
+        day: row.day,
+      });
+
+      const toolErrorKey = `${row.tool ?? ""}\t${row.day}`;
+      const existingToolError = toolErrorCounts.get(toolErrorKey);
+      if (existingToolError) {
+        existingToolError.cnt += 1;
+      } else {
+        toolErrorCounts.set(toolErrorKey, {
+          tool: row.tool,
+          day: row.day,
+          cnt: 1,
+        });
+      }
+    }
+  }
+
+  const rows = Array.from(rowCounts.values());
+  const toolErrorRows = Array.from(toolErrorCounts.values());
 
   return {
     rows,
@@ -335,10 +373,11 @@ export function fetchDashboardMessageData(
   sinceRowId?: number,
 ): DashboardMessageData {
   const rowidClause = sinceRowId == null ? "" : "rowid > ? AND ";
+  const [windowStartMs, windowEndMs] = buildWindowMsParams(window);
   const params =
     sinceRowId == null
-      ? [window.startDayInclusive, window.endDayExclusive]
-      : [sinceRowId, window.startDayInclusive, window.endDayExclusive];
+      ? [windowStartMs, windowEndMs]
+      : [sinceRowId, windowStartMs, windowEndMs];
 
   const rows = db
     .prepare(`
@@ -400,10 +439,11 @@ export function fetchDashboardRepoData(
   sinceRowId?: number,
 ): DashboardRepoData {
   const rowidClause = sinceRowId == null ? "" : "s.rowid > ? AND ";
+  const [windowStartMs, windowEndMs] = buildWindowMsParams(window);
   const params =
     sinceRowId == null
-      ? [window.startDayInclusive, window.endDayExclusive]
-      : [sinceRowId, window.startDayInclusive, window.endDayExclusive];
+      ? [windowStartMs, windowEndMs]
+      : [sinceRowId, windowStartMs, windowEndMs];
 
   const rows = db
     .prepare(`
@@ -425,9 +465,7 @@ export function fetchDashboardRepoData(
         .prepare(
           `SELECT COUNT(*) AS cnt FROM session WHERE parent_id IS NULL AND ${buildWindowClause("time_created")}`,
         )
-        .get(window.startDayInclusive, window.endDayExclusive) as
-        | { cnt: number }
-        | undefined
+        .get(windowStartMs, windowEndMs) as { cnt: number } | undefined
     )?.cnt ?? 0;
 
   return {
@@ -441,6 +479,8 @@ export function fetchDashboardLiveSummary(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
 ): DashboardLiveSummary {
+  const [windowStartMs, windowEndMs] = buildWindowMsParams(window);
+
   const heatmapRows = db
     .prepare(`
     SELECT date(time_created/1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
@@ -450,12 +490,12 @@ export function fetchDashboardLiveSummary(
     GROUP BY day
     ORDER BY day
   `)
-    .all(window.startDayInclusive, window.endDayExclusive) as {
+    .all(windowStartMs, windowEndMs) as {
     day: string;
     cnt: number;
   }[];
 
-  const params = [window.startDayInclusive, window.endDayExclusive];
+  const params = [windowStartMs, windowEndMs];
   const totalSessions =
     (
       db

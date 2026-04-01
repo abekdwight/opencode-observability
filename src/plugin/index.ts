@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import type { Part } from "@opencode-ai/sdk";
 
 type SessionStatus = "idle" | "busy" | "retry";
 
@@ -67,6 +68,17 @@ type EnsureServerResult = {
   reason: string;
 };
 
+type BrowserOpenResult = {
+  ok: boolean;
+  reason: string;
+};
+
+type CommandExecuteBeforeOutput = {
+  parts: Part[];
+  noReply?: boolean;
+  cancelled?: boolean;
+};
+
 type ToastVariant = "info" | "success" | "warning" | "error";
 
 const PLUGIN_INSTANCE_KEY = Symbol.for("opencode-observability.instance");
@@ -112,6 +124,25 @@ const AUTOSTART_ENABLED =
   envWithFallback(
     "OPENCODE_OBSERVABILITY_AUTOSTART",
     "OPENCODE_TELEMETRY_AUTOSTART",
+  ) !== "0";
+const COMMANDS_ENABLED =
+  envWithFallback(
+    "OPENCODE_OBSERVABILITY_COMMANDS_ENABLED",
+    "OPENCODE_TELEMETRY_COMMANDS_ENABLED",
+  ) !== "0";
+const MONITOR_COMMAND_NAME = (() => {
+  const value =
+    envWithFallback(
+      "OPENCODE_OBSERVABILITY_MONITOR_COMMAND",
+      "OPENCODE_TELEMETRY_MONITOR_COMMAND",
+    ) || "monitor";
+  const normalized = value.trim().replace(/^\//u, "");
+  return normalized.length > 0 ? normalized : "monitor";
+})();
+const MONITOR_COMMAND_AUTO_OPEN =
+  envWithFallback(
+    "OPENCODE_OBSERVABILITY_MONITOR_OPEN_ON_COMMAND",
+    "OPENCODE_TELEMETRY_MONITOR_OPEN_ON_COMMAND",
   ) !== "0";
 const AUTOSTART_TIMEOUT_MS = Math.max(
   1_000,
@@ -287,6 +318,138 @@ function resolveScriptRuntimeCommand(): string | null {
 
 function monitorAppUrl(target: ServerTarget): string {
   return new URL("/monitor", target.ingestUrl).toString();
+}
+
+function monitorSessionUrl(target: ServerTarget, sessionId: string): string {
+  return new URL(
+    `/session/${encodeURIComponent(sessionId)}`,
+    target.ingestUrl,
+  ).toString();
+}
+
+function normalizeCommandName(command: string): string {
+  return command.trim().toLowerCase();
+}
+
+function isMonitorCommand(command: string): boolean {
+  const normalized = normalizeCommandName(command);
+  const monitor = normalizeCommandName(MONITOR_COMMAND_NAME);
+
+  return (
+    normalized === monitor ||
+    normalized === `/${monitor}` ||
+    normalized === `!${monitor}`
+  );
+}
+
+function setCommandOutputMessage(
+  output: { parts: Part[] },
+  sessionID: string,
+  text: string,
+): void {
+  for (const part of output.parts) {
+    if (part.type === "text") {
+      part.text = text;
+      part.synthetic = true;
+      return;
+    }
+  }
+
+  const now = Date.now();
+  const firstPart = output.parts[0];
+  const messageID =
+    firstPart?.messageID ?? `plugin-monitor-command-message-${now}`;
+
+  output.parts = [
+    {
+      id: `plugin-monitor-command-part-${now}`,
+      type: "text",
+      sessionID,
+      messageID,
+      text,
+      synthetic: true,
+      time: {
+        start: now,
+        end: now,
+      },
+    },
+  ];
+}
+
+function markCommandHandledWithoutReply(output: { parts: Part[] }): void {
+  const extended = output as CommandExecuteBeforeOutput;
+  extended.noReply = true;
+  extended.cancelled = true;
+}
+
+function createHandledCommandAbortError(): Error {
+  const error = new Error(
+    "monitor command was handled by opencode-observability plugin",
+  );
+  error.name = "OpencodeObservabilityCommandHandled";
+  return error;
+}
+
+function isHandledCommandAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "OpencodeObservabilityCommandHandled"
+  );
+}
+
+function spawnDetached(
+  command: string,
+  args: string[],
+): Promise<BrowserOpenResult> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+
+    child.once("error", (error) => {
+      resolve({
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    child.once("spawn", () => {
+      child.unref();
+      resolve({ ok: true, reason: "spawned" });
+    });
+  });
+}
+
+async function openUrlInBrowser(url: string): Promise<BrowserOpenResult> {
+  const candidates =
+    process.platform === "darwin"
+      ? [{ command: "open", args: [url] }]
+      : process.platform === "win32"
+        ? [
+            {
+              command: "rundll32.exe",
+              args: ["url.dll,FileProtocolHandler", url],
+            },
+          ]
+        : [
+            { command: "xdg-open", args: [url] },
+            { command: "gio", args: ["open", url] },
+          ];
+
+  let lastReason = "no-opener-command";
+  for (const candidate of candidates) {
+    const result = await spawnDetached(candidate.command, candidate.args);
+    if (result.ok) {
+      return result;
+    }
+    lastReason = `${candidate.command}: ${result.reason}`;
+  }
+
+  return {
+    ok: false,
+    reason: lastReason,
+  };
 }
 
 async function showToast(
@@ -830,6 +993,113 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
   }, HEARTBEAT_INTERVAL_MS);
 
   return {
+    config: async (input) => {
+      if (!COMMANDS_ENABLED) {
+        return;
+      }
+
+      input.command ??= {};
+      if (input.command[MONITOR_COMMAND_NAME]) {
+        return;
+      }
+
+      input.command[MONITOR_COMMAND_NAME] = {
+        description: "Open current session in OpenCode observability monitor",
+        template: `<command-instruction>
+This command is handled by the opencode-observability plugin before model execution.
+If this text reaches the model, do not call any tools.
+Reply with the monitor URL shown by the user message.
+</command-instruction>`,
+      };
+    },
+    "command.execute.before": async (input, output) => {
+      if (!COMMANDS_ENABLED || !isMonitorCommand(input.command)) {
+        return;
+      }
+
+      try {
+        const ensured = await ensureServerReadyPromise;
+        const target = ensured.target ?? parseServerTarget(INGEST_URL);
+
+        if (!target) {
+          const message =
+            "Monitor URL is unavailable because INGEST_URL is invalid.";
+          setCommandOutputMessage(output, input.sessionID, message);
+          markCommandHandledWithoutReply(output);
+          await showToast(client, {
+            title: "OpenCode Observability",
+            message,
+            variant: "warning",
+            duration: 5000,
+          });
+          throw createHandledCommandAbortError();
+        }
+
+        const sessionUrl = monitorSessionUrl(target, input.sessionID);
+        const messageLines = [`Monitor URL: ${sessionUrl}`];
+
+        if (!ensured.healthy && target.isLocal) {
+          messageLines.push(
+            `Monitor server is not healthy (${ensured.reason}).`,
+          );
+        }
+
+        let browserOpenResult: BrowserOpenResult | null = null;
+        if (MONITOR_COMMAND_AUTO_OPEN && target.isLocal) {
+          browserOpenResult = await openUrlInBrowser(sessionUrl);
+          if (browserOpenResult.ok) {
+            messageLines.push("Opened in your default browser.");
+          } else {
+            messageLines.push(
+              `Automatic browser launch failed (${browserOpenResult.reason}).`,
+            );
+          }
+        } else if (!target.isLocal) {
+          messageLines.push(
+            "Automatic browser launch skipped for non-local monitor host.",
+          );
+        } else {
+          messageLines.push(
+            "Automatic browser launch is disabled by configuration.",
+          );
+        }
+
+        messageLines.push(
+          "This command was handled by opencode-observability before model execution.",
+        );
+
+        const responseText = messageLines.join("\n");
+        setCommandOutputMessage(output, input.sessionID, responseText);
+        markCommandHandledWithoutReply(output);
+
+        await showToast(client, {
+          title: "OpenCode Observability",
+          message: browserOpenResult?.ok
+            ? `opened ${sessionUrl}`
+            : `monitor URL: ${sessionUrl}`,
+          variant: browserOpenResult
+            ? browserOpenResult.ok
+              ? "success"
+              : "warning"
+            : "info",
+          duration: 4500,
+        });
+
+        throw createHandledCommandAbortError();
+      } catch (error) {
+        if (isHandledCommandAbortError(error)) {
+          throw error;
+        }
+        await postLogWarn("failed to handle monitor command", error);
+        setCommandOutputMessage(
+          output,
+          input.sessionID,
+          "Monitor command handling failed in plugin. See plugin logs.",
+        );
+        markCommandHandledWithoutReply(output);
+        throw createHandledCommandAbortError();
+      }
+    },
     event: async ({ event }) => {
       switch (event?.type) {
         case "session.created":

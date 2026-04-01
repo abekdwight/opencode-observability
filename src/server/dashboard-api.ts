@@ -196,9 +196,13 @@ function reconcileDashboardApiCache(db: import("better-sqlite3").Database) {
     return;
   }
 
-  invalidateDayBucketsAndViews(
-    readDashboardChangedDaysSince(db, previousStamp),
-  );
+  const changedDays = readDashboardChangedDaysSince(db, previousStamp);
+  if (changedDays.length === 0) {
+    clearDashboardApiCache();
+    return;
+  }
+
+  invalidateDayBucketsAndViews(changedDays);
 }
 
 function buildLegacySelection(
@@ -226,6 +230,132 @@ function buildLegacySelection(
   };
 }
 
+function extractLastSegment(value: string): string {
+  const lastTab = value.lastIndexOf("\t");
+  return lastTab >= 0 ? value.slice(lastTab + 1) : value;
+}
+
+function extractFirstSegment(value: string): string {
+  const firstTab = value.indexOf("\t");
+  return firstTab >= 0 ? value.slice(0, firstTab) : value;
+}
+
+function extractMiddleSegmentBeforeLast(value: string): string {
+  const lastTab = value.lastIndexOf("\t");
+  if (lastTab < 0) {
+    return "";
+  }
+  const beforeLastTab = value.lastIndexOf("\t", lastTab - 1);
+  if (beforeLastTab < 0) {
+    return "";
+  }
+  return value.slice(beforeLastTab + 1, lastTab);
+}
+
+function filterKeyedMapByDay(
+  source: Map<string, number>,
+  extractDay: (value: string) => string,
+  day: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, value] of source) {
+    if (extractDay(key) === day) {
+      out.set(key, value);
+    }
+  }
+  return out;
+}
+
+function filterExactDayMap(
+  source: Map<string, number>,
+  day: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, value] of source) {
+    if (key === day) {
+      out.set(key, value);
+    }
+  }
+  return out;
+}
+
+function sumKeyedMapByDay(
+  source: Map<string, number>,
+  extractDay: (value: string) => string,
+  day: string,
+): number {
+  let total = 0;
+  for (const [key, value] of source) {
+    if (extractDay(key) === day) {
+      total += value;
+    }
+  }
+  return total;
+}
+
+function buildDayAggregateStateFromWindowState(
+  source: DashboardAggregateState,
+  day: string,
+): DashboardAggregateState {
+  return {
+    toolDayBuckets: filterKeyedMapByDay(
+      source.toolDayBuckets,
+      extractLastSegment,
+      day,
+    ),
+    errorPatternDays: filterKeyedMapByDay(
+      source.errorPatternDays,
+      extractLastSegment,
+      day,
+    ),
+    toolErrorDetails: filterKeyedMapByDay(
+      source.toolErrorDetails,
+      extractLastSegment,
+      day,
+    ),
+    mcpServerBuckets: filterKeyedMapByDay(
+      source.mcpServerBuckets,
+      extractLastSegment,
+      day,
+    ),
+    lastPartRowid: source.lastPartRowid,
+    modelDays: filterKeyedMapByDay(source.modelDays, extractLastSegment, day),
+    modelTokenDays: filterKeyedMapByDay(
+      source.modelTokenDays,
+      extractLastSegment,
+      day,
+    ),
+    agentDays: filterKeyedMapByDay(source.agentDays, extractLastSegment, day),
+    tokenDays: filterExactDayMap(source.tokenDays, day),
+    tokenInputDays: filterExactDayMap(source.tokenInputDays, day),
+    tokenOutputDays: filterExactDayMap(source.tokenOutputDays, day),
+    tokenInputHours: filterKeyedMapByDay(
+      source.tokenInputHours,
+      extractFirstSegment,
+      day,
+    ),
+    tokenOutputHours: filterKeyedMapByDay(
+      source.tokenOutputHours,
+      extractFirstSegment,
+      day,
+    ),
+    subagentDays: filterKeyedMapByDay(
+      source.subagentDays,
+      extractLastSegment,
+      day,
+    ),
+    subagentHours: filterKeyedMapByDay(
+      source.subagentHours,
+      extractMiddleSegmentBeforeLast,
+      day,
+    ),
+    lastMessageRowid: source.lastMessageRowid,
+    sessionCount: sumKeyedMapByDay(source.repoDays, extractLastSegment, day),
+    repoDays: filterKeyedMapByDay(source.repoDays, extractLastSegment, day),
+    lastSessionRowid: source.lastSessionRowid,
+  };
+}
+
 function resolveWindowStateFromDayBuckets(
   db: import("better-sqlite3").Database,
   window: DashboardRepositoryWindow,
@@ -233,10 +363,31 @@ function resolveWindowStateFromDayBuckets(
   refreshable: boolean,
   now = new Date(),
 ): DashboardAggregateState {
+  const daysInWindow = listDaysInWindow(window);
+  const missingDays = daysInWindow.filter(
+    (day) => !dashboardApiCache.dayBuckets.has(day),
+  );
+
+  // On cold start, avoid N-day fanout queries by building once for the
+  // whole window. This keeps first dashboard render latency bounded.
+  if (daysInWindow.length > 1 && missingDays.length === daysInWindow.length) {
+    const windowState = buildDashboardAggregateStateForWindow(db, window);
+    for (const day of daysInWindow) {
+      const dayWindow = buildSingleDayWindow(day);
+      dashboardApiCache.dayBuckets.set(day, {
+        day,
+        window: dayWindow,
+        state: buildDayAggregateStateFromWindowState(windowState, day),
+        refreshedAt: nowMs,
+      });
+    }
+    return windowState;
+  }
+
   const states: DashboardAggregateState[] = [];
   const today = toLocalDateString(now);
 
-  for (const day of listDaysInWindow(window)) {
+  for (const day of daysInWindow) {
     const dayWindow = buildSingleDayWindow(day);
     const cached = dashboardApiCache.dayBuckets.get(day);
 

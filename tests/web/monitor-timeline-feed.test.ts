@@ -179,7 +179,6 @@ describe("timelineFeedReducer — initial state", () => {
     expect(state.cache.size).toBe(0);
     expect(state.lastHeartbeatAt).toBeNull();
     expect(state.liveOnlyNotice).toBe(true);
-    expect(state.evictedSessionIds.size).toBe(0);
   });
 });
 
@@ -345,7 +344,6 @@ describe("timelineFeedReducer — EVENT", () => {
     expect(events).toHaveLength(TIMELINE_CACHE_MAX_PER_SESSION);
     // Oldest should be evicted (first serverSeq present = 11)
     expect(events?.[0]?.serverSeq).toBe(11);
-    expect(state.evictedSessionIds.has("R")).toBe(true);
   });
 
   test("events for different sessions do not interfere with each other's caps", () => {
@@ -362,21 +360,6 @@ describe("timelineFeedReducer — EVENT", () => {
 
     expect(state.cache.get("A")).toHaveLength(TIMELINE_CACHE_MAX_PER_SESSION);
     expect(state.cache.get("B")).toHaveLength(1);
-    expect(state.evictedSessionIds.size).toBe(0);
-  });
-
-  test("reaching the cap without eviction does not mark the session as overflowed", () => {
-    resetCounters();
-    let state = createInitialTimelineFeedState();
-    for (let i = 1; i <= TIMELINE_CACHE_MAX_PER_SESSION; i++) {
-      state = timelineFeedReducer(state, {
-        type: "EVENT",
-        event: makeEvent({ rootSessionId: "R", serverSeq: i }),
-      });
-    }
-
-    expect(state.cache.get("R")).toHaveLength(TIMELINE_CACHE_MAX_PER_SESSION);
-    expect(state.evictedSessionIds.has("R")).toBe(false);
   });
 });
 
@@ -394,7 +377,6 @@ describe("timelineFeedReducer — RESET", () => {
 
     const reset = timelineFeedReducer(state, { type: "RESET" });
     expect(reset.cache.size).toBe(0);
-    expect(reset.evictedSessionIds.size).toBe(0);
   });
 
   test("RESET sets feedState back to loading", () => {

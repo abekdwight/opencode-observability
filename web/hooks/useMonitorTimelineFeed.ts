@@ -70,8 +70,6 @@ export interface TimelineFeedReducerState {
    * "live events only — history not available" notice.
    */
   liveOnlyNotice: boolean;
-  /** Root sessions that have actually evicted older cached events. */
-  evictedSessionIds: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +125,6 @@ export function createInitialTimelineFeedState(): TimelineFeedReducerState {
     cache: new Map(),
     lastHeartbeatAt: null,
     liveOnlyNotice: true,
-    evictedSessionIds: new Set(),
   };
 }
 
@@ -176,15 +173,10 @@ export function timelineFeedReducer(
 
       const nextCache = new Map(state.cache);
       nextCache.set(event.rootSessionId, nextSession);
-      const didEvict = prevSession.length >= TIMELINE_CACHE_MAX_PER_SESSION;
-      const nextEvictedSessionIds = didEvict
-        ? new Set(state.evictedSessionIds).add(event.rootSessionId)
-        : state.evictedSessionIds;
       return {
         ...state,
         feedState: "live",
         cache: nextCache,
-        evictedSessionIds: nextEvictedSessionIds,
       };
     }
 
@@ -385,8 +377,6 @@ export interface UseMonitorTimelineFeedResult {
    * Use this to show an informational notice in the UI.
    */
   liveOnlyNotice: boolean;
-  /** Root sessions that have actually evicted older cached events. */
-  evictedSessionIds: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +499,5 @@ export function useMonitorTimelineFeed(
     cache: state.cache,
     lastHeartbeatAt: state.lastHeartbeatAt,
     liveOnlyNotice: state.liveOnlyNotice,
-    evictedSessionIds: state.evictedSessionIds,
   };
 }
