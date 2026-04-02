@@ -232,6 +232,54 @@ function buildCopyCommand(sessionId: string, directory: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// SkillDetailContent — renders skill input/output with markdown for output
+// ---------------------------------------------------------------------------
+function SkillDetailContent({
+  fullInput,
+  fullOutput,
+  error,
+}: {
+  fullInput: string;
+  fullOutput: string;
+  error: string;
+}) {
+  const outputHtml = React.useMemo(
+    () => (fullOutput ? renderSharedMarkdown(fullOutput) : ""),
+    [fullOutput],
+  );
+  const outputRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (outputRef.current && outputHtml) {
+      outputRef.current.innerHTML = outputHtml;
+    }
+  }, [outputHtml]);
+
+  return (
+    <div className="tool-detail open" style={{ marginTop: 4 }}>
+      {fullInput ? (
+        <div className="tool-detail-section">
+          <div className="tool-detail-label">Input</div>
+          <pre>{fullInput}</pre>
+        </div>
+      ) : null}
+      {fullOutput ? (
+        <div className="tool-detail-section">
+          <div className="tool-detail-label">Output</div>
+          <div ref={outputRef} className="skill-output" />
+        </div>
+      ) : null}
+      {error ? (
+        <div className="tool-detail-section">
+          <div className="tool-detail-label">Error</div>
+          <pre className="tool-detail-error">{error}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SessionDetail component
 // ---------------------------------------------------------------------------
 export function SessionDetail() {
@@ -577,6 +625,41 @@ export function SessionDetail() {
   const todos = data.todos ?? [];
   const doneCount = todos.filter((t) => t.status === "completed").length;
 
+  // --- Loaded skills (unique skill names from tool calls with full data) ---
+  interface SkillInvocation {
+    name: string;
+    tool: string;
+    durationMs: number;
+    status: SessionToolCallContract["status"];
+    fullInput: string;
+    fullOutput: string;
+    error: string;
+  }
+  const skillInvocations: SkillInvocation[] = [];
+  const loadedSkillNames: string[] = [];
+  {
+    const seen = new Set<string>();
+    for (const msg of data.messages) {
+      for (const tc of msg.toolCalls) {
+        if ((tc.tool === "skill" || tc.tool === "skill_mcp") && tc.input) {
+          if (!seen.has(tc.input)) {
+            seen.add(tc.input);
+            loadedSkillNames.push(tc.input);
+          }
+          skillInvocations.push({
+            name: tc.input,
+            tool: tc.tool,
+            durationMs: tc.durationMs,
+            status: tc.status,
+            fullInput: tc.fullInput,
+            fullOutput: tc.fullOutput,
+            error: tc.error,
+          });
+        }
+      }
+    }
+  }
+
   return (
     <section className="session-detail-page" data-testid="session-detail">
       {/* Breadcrumb */}
@@ -843,6 +926,78 @@ export function SessionDetail() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </details>
+      ) : null}
+
+      {/* Loaded Skills */}
+      {loadedSkillNames.length > 0 ? (
+        <details
+          className="card loaded-skills-accordion"
+          data-testid="loaded-skills-accordion"
+          style={{ marginTop: 16 }}
+        >
+          <summary className="todo-summary">
+            読み込みスキル{" "}
+            <span className="todo-count">{loadedSkillNames.length} skills</span>
+          </summary>
+          <div className="loaded-skills-list" style={{ marginTop: 12 }}>
+            {loadedSkillNames.map((skillName) => {
+              const invocations = skillInvocations.filter(
+                (s) => s.name === skillName,
+              );
+              const lastInvocation = invocations[invocations.length - 1];
+              const hasDetail =
+                lastInvocation?.fullInput || lastInvocation?.fullOutput;
+              const detailId = `skill-detail-${skillName}`;
+              const isSkillOpen = openDetails.has(detailId);
+              const durStr =
+                lastInvocation.durationMs > 0
+                  ? lastInvocation.durationMs < 1000
+                    ? `${lastInvocation.durationMs}ms`
+                    : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
+                  : "";
+
+              return (
+                <div key={skillName} style={{ marginBottom: 4 }}>
+                  {hasDetail ? (
+                    <button
+                      type="button"
+                      className={`tool-line clickable`}
+                      onClick={() => toggleToolDetail(detailId)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ⚙️ <span className="tool-name">skill {skillName}</span>
+                      {durStr ? (
+                        <span className="tool-dur">{durStr}</span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <span className="tool-line">
+                      ⚙️ <span className="tool-name">skill {skillName}</span>
+                      {durStr ? (
+                        <span className="tool-dur">{durStr}</span>
+                      ) : null}
+                    </span>
+                  )}
+                  {hasDetail && isSkillOpen ? (
+                    <SkillDetailContent
+                      fullInput={lastInvocation.fullInput}
+                      fullOutput={lastInvocation.fullOutput}
+                      error={lastInvocation.error}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </details>
       ) : null}
@@ -1669,6 +1824,9 @@ const ToolTimeline = React.memo(function ToolTimeline({
               : `${(tc.durationMs / 1000).toFixed(1)}s`
             : "";
 
+        // For skill/skill_mcp tools, show "skill {name}" to make it clear it's a skill load
+        const isSkillTool = tc.tool === "skill" || tc.tool === "skill_mcp";
+
         return (
           <React.Fragment
             key={[
@@ -1685,8 +1843,11 @@ const ToolTimeline = React.memo(function ToolTimeline({
                 className={`tool-line status-${tc.status} clickable`}
                 onClick={() => toggleToolDetail(detailId)}
               >
-                {icon} <span className="tool-name">{tc.tool}</span>
-                {tc.input ? (
+                {icon}{" "}
+                <span className="tool-name">
+                  {isSkillTool && tc.input ? `skill ${tc.input}` : tc.tool}
+                </span>
+                {!isSkillTool && tc.input ? (
                   <span className="tool-input">{tc.input}</span>
                 ) : null}
                 {durStr ? <span className="tool-dur">{durStr}</span> : null}
@@ -1696,8 +1857,11 @@ const ToolTimeline = React.memo(function ToolTimeline({
               </button>
             ) : (
               <span className={`tool-line status-${tc.status}`}>
-                {icon} <span className="tool-name">{tc.tool}</span>
-                {tc.input ? (
+                {icon}{" "}
+                <span className="tool-name">
+                  {isSkillTool && tc.input ? `skill ${tc.input}` : tc.tool}
+                </span>
+                {!isSkillTool && tc.input ? (
                   <span className="tool-input">{tc.input}</span>
                 ) : null}
                 {durStr ? <span className="tool-dur">{durStr}</span> : null}

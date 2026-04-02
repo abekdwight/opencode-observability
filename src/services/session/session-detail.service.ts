@@ -270,6 +270,13 @@ function summarizeToolInput(
   if (typeof input.prompt === "string") return input.prompt.substring(0, 50);
   if (typeof input.description === "string")
     return input.description.substring(0, 50);
+  // skill tool: show skill name
+  if (typeof input.name === "string") return input.name;
+  // skill_mcp tool: show mcp_name:tool_name
+  if (typeof input.mcp_name === "string") {
+    const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
+    return toolName ? `${input.mcp_name}:${toolName}` : input.mcp_name;
+  }
   return "";
 }
 
