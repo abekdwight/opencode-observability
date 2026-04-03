@@ -13,7 +13,7 @@ export interface SessionTopBarProps {
 }
 
 /**
- * Breadcrumb + compact header + action buttons at the top of the session detail page.
+ * Compact sub-header below the main app header showing session title + actions.
  */
 export const SessionTopBar = React.memo(function SessionTopBar({
   session,
@@ -23,8 +23,6 @@ export const SessionTopBar = React.memo(function SessionTopBar({
   sidebarOpen,
   onToggleSidebar,
 }: SessionTopBarProps) {
-  const prettyDir = session.directory;
-
   const copyBtnClass = [
     styles.sessionCopyBtn,
     copyState === "copied" ? styles.sessionCopyBtnCopied : "",
@@ -39,21 +37,6 @@ export const SessionTopBar = React.memo(function SessionTopBar({
 
   return (
     <div className={styles.sessionTopbar}>
-      <nav className={styles.breadcrumb} aria-label="Breadcrumb">
-        <Link to="/" className={styles.breadcrumbLink}>
-          Home
-        </Link>
-        <span className={styles.breadcrumbSep}>/</span>
-        <Link
-          to={`/dir/${encodeURIComponent(session.directory)}`}
-          className={styles.breadcrumbLink}
-        >
-          {prettyDir}
-        </Link>
-        <span className={styles.breadcrumbSep}>/</span>
-        <span>Session</span>
-      </nav>
-
       <div className={styles.sessionHeaderCompact}>
         <div className={styles.headerCompactLeft}>
           {session.parentId ? (

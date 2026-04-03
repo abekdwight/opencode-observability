@@ -30,74 +30,118 @@ a:hover {
 }
 
 .app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* --- Modern header bar --- */
+
+.app-header-bar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-subtle);
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-shrink: 0;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  font-size: 0.88em;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.app-brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  flex-shrink: 0;
+}
+
+.app-brand:hover {
+  text-decoration: none;
+}
+
+/* Segmented nav control */
+
+.app-seg-nav {
+  display: flex;
+  background: var(--color-bg-page);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.app-seg-nav a {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.app-seg-nav a:hover {
+  color: var(--color-text-primary);
+  background: rgba(0, 0, 0, 0.04);
+  text-decoration: none;
+}
+
+.app-seg-nav a.active {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* Right slot for page actions */
+
+.app-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Main content area --- */
+
+.app-main {
+  flex: 1;
   max-width: 960px;
+  width: 100%;
   margin: 0 auto;
   padding: 14px;
 }
 
-/* Break out of app-shell constraint for session IDE layout */
-.app-shell:has(.session-detail-page) {
+/* Break out of constraint for session IDE layout */
+.app-shell:has(.session-detail-page) .app-main {
   max-width: none;
-  padding: var(--space-sm) 0 0 0;
+  padding: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.app-shell:has(.session-detail-page) {
   height: 100vh;
   overflow: hidden;
-}
-
-.app-shell:has(.session-detail-page) .app-header {
-  padding: 0 var(--space-lg);
-  margin-bottom: 0;
-}
-
-.app-shell:has(.session-detail-page) .app-main {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-header {
-  margin-bottom: var(--space-md);
-}
-
-.app-header h1 {
-  font-size: 1.3em;
-  font-weight: 700;
-  margin: 0 0 var(--space-xs);
-  padding-bottom: var(--space-sm);
-  border-bottom: 2px solid var(--color-text-primary);
-}
-
-.app-nav {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.nav-link {
-  padding: 5px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-default);
-  background: var(--color-bg-surface);
-  font-size: 0.82em;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  text-decoration: none;
-  transition: all var(--transition-fast);
-}
-
-.nav-link:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  text-decoration: none;
-}
-
-.nav-link.active {
-  background: var(--color-accent);
-  color: var(--color-text-inverse);
-  border-color: var(--color-accent);
 }
 
 .surface {
