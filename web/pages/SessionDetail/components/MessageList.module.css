@@ -1,0 +1,22 @@
+/* MessageList — virtual scrolling container for messages */
+
+.chatContainer {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: auto;
+  overscroll-behavior: contain;
+}
+
+.chatEmpty {
+  padding: 40px var(--space-xl);
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.chat {
+  padding: var(--space-sm) var(--space-2xl) var(--space-xl);
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}

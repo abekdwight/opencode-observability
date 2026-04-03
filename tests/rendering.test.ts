@@ -9,8 +9,9 @@ describe("safe rendering", () => {
 
     expect(html).toContain("<h1>Header</h1>");
     expect(html).toContain("<strong>bold</strong>");
-    expect(html).toContain("&lt;script&gt;alert");
+    // Script tags are stripped entirely by sanitizer
     expect(html).not.toContain("<script>");
+    expect(html).not.toContain("alert('xss')");
   });
 
   test("escapes hostile diff content", () => {

@@ -10,7 +10,7 @@ function escapeHtml(s: string): string {
 
 export function renderSafeMarkdown(markdown: string): string {
   return sanitizeMarkedHtml(
-    marked.parse(escapeHtml(markdown), { gfm: true }) as string,
+    marked.parse(markdown, { gfm: true }) as string,
   );
 }
 
@@ -19,8 +19,23 @@ export function renderSafeDiff(diffText: string): string {
 }
 
 function sanitizeMarkedHtml(html: string): string {
-  return html
-    .replace(/\b(href|src)="\s*javascript:[^"]*"/gi, '$1="#"')
-    .replace(/\b(href|src)="\s*vbscript:[^"]*"/gi, '$1="#"')
-    .replace(/\b(href|src)="\s*data:text\/html[^"]*"/gi, '$1="#"');
+  return (
+    html
+      // Remove dangerous tags and their content
+      .replace(
+        /<(script|iframe|object|embed|form|style|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+        "",
+      )
+      // Remove self-closing/void dangerous tags
+      .replace(
+        /<(script|iframe|object|embed|form|style|link|meta|base)\b[^>]*\/?>/gi,
+        "",
+      )
+      // Remove event handler attributes
+      .replace(/\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, "")
+      // Neutralize dangerous URL schemes
+      .replace(/\b(href|src)="\s*javascript:[^"]*"/gi, '$1="#"')
+      .replace(/\b(href|src)="\s*vbscript:[^"]*"/gi, '$1="#"')
+      .replace(/\b(href|src)="\s*data:text\/html[^"]*"/gi, '$1="#"')
+  );
 }

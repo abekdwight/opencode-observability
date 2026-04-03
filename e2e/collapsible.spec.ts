@@ -181,9 +181,10 @@ test.describe("session detail overview", () => {
       page.getByRole("heading", { name: "Root monitor session" }),
     ).toBeVisible();
 
-    await expect(page.getByText("所要時間")).toBeVisible();
-    await expect(page.getByText("トークン")).toBeVisible();
-    await expect(page.getByText("サブエージェント 1")).toBeVisible();
+    const sidebar = page.getByTestId("session-sidebar");
+    await expect(sidebar.getByText("Duration", { exact: true })).toBeVisible();
+    await expect(sidebar.getByText("Tokens", { exact: true })).toBeVisible();
+    await expect(sidebar.getByText(/Subagents\s+1/)).toBeVisible();
   });
 
   test("message collapse toggle stays visible and markdown tables render as tables", async ({

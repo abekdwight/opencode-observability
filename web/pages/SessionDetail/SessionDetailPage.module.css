@@ -1,0 +1,29 @@
+/* SessionDetailPage — full-height IDE layout */
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ideLayout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+}
+
+.sidebarCollapsed {
+  /* no layout shift — sidebar hides itself via transform */
+}

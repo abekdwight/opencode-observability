@@ -9,6 +9,7 @@ import { Monitor } from "./pages/Monitor";
 import { Search } from "./pages/Search";
 import { SessionDetail } from "./pages/SessionDetail";
 import { ToolErrors } from "./pages/ToolErrors";
+import "./tokens.css";
 import "./styles.css";
 
 ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
