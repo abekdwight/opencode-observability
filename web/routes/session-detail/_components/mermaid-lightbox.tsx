@@ -1,5 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
+import { cn } from "../../../lib/cn";
 import {
   getMermaidClient,
   nextMermaidRenderId,
@@ -11,7 +12,6 @@ import {
   MERMAID_MODAL_MIN_SCALE,
   MERMAID_MODAL_MAX_SCALE,
 } from "../_lib/constants";
-import styles from "./mermaid-lightbox.module.css";
 
 export interface MermaidLightboxProps {
   source: string;
@@ -312,13 +312,23 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
     return null;
   }
 
-  const viewportClass = isDragging
-    ? `${styles.mermaidLightboxViewport} ${styles.mermaidLightboxViewportDragging} mermaid-lightbox-viewport dragging`
-    : `${styles.mermaidLightboxViewport} mermaid-lightbox-viewport`;
+  const btnBase = cn(
+    "border border-[var(--color-border-default)] rounded-[var(--radius-md)]",
+    "bg-[var(--color-bg-surface)] text-[var(--color-text-primary)]",
+    "text-[0.82em] font-semibold px-[var(--space-sm)] py-[var(--space-sm)]",
+    "cursor-pointer",
+    "transition-[border-color,color,background] duration-[var(--transition-fast)]",
+    "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
+  );
 
   return createPortal(
     <div
-      className={`${styles.mermaidLightbox} mermaid-lightbox`}
+      className={cn(
+        "fixed inset-0 z-[var(--z-lightbox)]",
+        "flex items-stretch justify-stretch p-0",
+        "bg-[rgba(8,11,20,0.58)] backdrop-blur-[5px]",
+        "mermaid-lightbox",
+      )}
       data-testid="mermaid-lightbox"
       role="dialog"
       aria-modal="true"
@@ -329,18 +339,33 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
       onWheelCapture={onDialogWheelCapture}
       onDragStart={onDialogDragStart}
     >
-      <div className={`${styles.mermaidLightboxCard} mermaid-lightbox-card`}>
-        <div className={`${styles.mermaidLightboxToolbar} mermaid-lightbox-toolbar`}>
-          <div className={`${styles.mermaidLightboxActions} mermaid-lightbox-actions`}>
-            <span className={`${styles.mermaidLightboxHint} mermaid-lightbox-hint`}>
+      <div
+        className={cn(
+          "w-full h-full bg-[var(--color-bg-surface)]",
+          "rounded-none border-none shadow-none",
+          "overflow-hidden flex flex-col",
+          "mermaid-lightbox-card",
+        )}
+      >
+        <div
+          className={cn(
+            "flex justify-between items-center gap-[var(--space-md)]",
+            "px-[var(--space-lg)] py-[var(--space-md)]",
+            "border-b border-[var(--color-border-subtle)]",
+            "bg-[var(--color-bg-muted)]",
+            "mermaid-lightbox-toolbar",
+          )}
+        >
+          <div className="flex items-center gap-[var(--space-sm)] flex-wrap justify-start mermaid-lightbox-actions">
+            <span className="text-[var(--color-text-secondary)] text-[0.78em] font-medium mermaid-lightbox-hint">
               {"\u30DB\u30A4\u30FC\u30EB\u3067\u62E1\u5927\u7E2E\u5C0F / \u30C9\u30E9\u30C3\u30B0\u3067\u79FB\u52D5"}
             </span>
-            <span className={`${styles.mermaidLightboxZoom} mermaid-lightbox-zoom`}>
+            <span className="min-w-14 text-center font-[var(--font-mono)] text-[0.78em] text-[var(--color-text-secondary)] mermaid-lightbox-zoom">
               {Math.round(zoom * 100)}%
             </span>
             <button
               type="button"
-              className={`${styles.mermaidLightboxBtn} mermaid-lightbox-btn`}
+              className={cn(btnBase, "mermaid-lightbox-btn")}
               onClick={resetViewport}
             >
               {"\u8868\u793A\u3092\u30EA\u30BB\u30C3\u30C8"}
@@ -348,25 +373,48 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
           </div>
           <button
             type="button"
-            className={`${styles.mermaidLightboxBtn} ${styles.mermaidLightboxBtnClose} ${styles.mermaidLightboxClose} mermaid-lightbox-btn close`}
+            className={cn(
+              btnBase,
+              "ml-auto",
+              "bg-[var(--color-accent)] !text-[var(--color-text-inverse)] !border-[var(--color-accent)]",
+              "hover:!bg-[var(--color-accent-hover)] hover:!text-[var(--color-text-inverse)]",
+              "mermaid-lightbox-btn close",
+            )}
             ref={closeButtonRef}
             onClick={onClose}
           >
             {"\u9589\u3058\u308B"}
           </button>
         </div>
-        <div className={`${styles.mermaidLightboxBody} mermaid-lightbox-body`}>
+        <div className="flex-1 min-h-0 flex mermaid-lightbox-body">
           {renderError ? (
-            <div className={`${styles.mermaidLightboxError} mermaid-lightbox-error`}>
-              <p className={styles.mermaidLightboxErrorText}>
+            <div className="p-[var(--space-lg)] w-full mermaid-lightbox-error">
+              <p className="m-0 mb-[var(--space-sm)] text-[var(--color-error-text)] font-semibold">
                 Mermaid{"\u56F3\u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u305F\u305F\u3081\u3001\u30BD\u30FC\u30B9\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002"}
               </p>
-              <pre className={styles.mermaidLightboxErrorPre}>{source}</pre>
-              <p className={`${styles.mermaidLightboxErrorDetail} mermaid-lightbox-error-detail`}>{renderError}</p>
+              <pre
+                className={cn(
+                  "m-0 whitespace-pre-wrap break-words",
+                  "bg-[var(--color-error-bg)] border border-[var(--color-error-border)]",
+                  "rounded-[var(--radius-md)] p-[var(--space-md)]",
+                )}
+              >
+                {source}
+              </pre>
+              <p className="mt-[var(--space-sm)] text-[0.78em] text-[var(--color-text-secondary)] mermaid-lightbox-error-detail">
+                {renderError}
+              </p>
             </div>
           ) : (
             <div
-              className={viewportClass}
+              className={cn(
+                "flex-1 overflow-hidden relative",
+                "bg-[var(--color-bg-page)] min-h-[280px]",
+                "select-none touch-none",
+                isDragging ? "cursor-grabbing" : "cursor-grab",
+                "mermaid-lightbox-viewport",
+                isDragging && "dragging",
+              )}
               ref={viewportRef}
               onWheel={onViewportWheel}
               onPointerDown={onViewportPointerDown}
@@ -375,17 +423,35 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
               onPointerCancel={finishDrag}
             >
               {isRendering ? (
-                <p className={`${styles.mermaidLightboxLoading} mermaid-lightbox-loading`}>
+                <p
+                  className={cn(
+                    "absolute top-3 left-3 m-0",
+                    "text-[var(--color-text-secondary)] text-[0.82em] font-medium",
+                    "bg-[var(--color-bg-surface-translucent)]",
+                    "border border-[var(--color-border-subtle)]",
+                    "rounded-[var(--radius-md)] px-[var(--space-sm)] py-[var(--space-xs)]",
+                    "z-[2]",
+                    "mermaid-lightbox-loading",
+                  )}
+                >
                   Mermaid{"\u56F3\u3092\u63CF\u753B\u4E2D..."}
                 </p>
               ) : null}
               <div
-                className={`${styles.mermaidLightboxCanvas} mermaid-lightbox-canvas`}
+                className="absolute top-0 left-0 origin-top-left transition-transform duration-[80ms] ease-out will-change-transform w-max mermaid-lightbox-canvas"
                 style={{
                   transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
                 }}
               >
-                <div className={styles.mermaidLightboxCanvasInner} ref={canvasRef} />
+                <div
+                  className={cn(
+                    "inline-block bg-[var(--color-bg-surface)]",
+                    "border border-[var(--color-border-subtle)]",
+                    "rounded-[var(--radius-lg)] p-[var(--space-lg)]",
+                    "[&_svg]:block [&_svg]:max-w-none [&_svg]:w-auto [&_svg]:h-auto [&_svg]:pointer-events-none",
+                  )}
+                  ref={canvasRef}
+                />
               </div>
             </div>
           )}

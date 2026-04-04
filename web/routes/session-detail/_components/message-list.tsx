@@ -3,7 +3,6 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import type { FilterMode } from "../_lib/constants";
 import { MessageRow } from "./message-row";
-import styles from "./message-list.module.css";
 
 export interface MessageListProps {
   messages: SessionMessageContract[];
@@ -54,8 +53,8 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <div className={styles.chatContainer}>
-        <p className={styles.chatEmpty}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain">
+        <p className="py-10 px-[var(--space-xl)] text-center text-[var(--color-text-secondary)]">
           {"\u30E1\u30C3\u30BB\u30FC\u30B8\u306F\u3042\u308A\u307E\u305B\u3093"}
         </p>
       </div>
@@ -64,8 +63,8 @@ export function MessageList({
 
   if (filteredMessages.length === 0) {
     return (
-      <div className={styles.chatContainer}>
-        <p className={styles.chatEmpty}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain">
+        <p className="py-10 px-[var(--space-xl)] text-center text-[var(--color-text-secondary)]">
           {"\u8868\u793A\u3059\u308B\u30E1\u30C3\u30BB\u30FC\u30B8\u304C\u3042\u308A\u307E\u305B\u3093"}
         </p>
       </div>
@@ -75,13 +74,13 @@ export function MessageList({
   return (
     <Virtuoso
       ref={listRef}
-      className={styles.chatContainer}
+      className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain"
       data={filteredMessages}
       initialTopMostItemIndex={filteredMessages.length - 1}
       overscan={200}
       rangeChanged={onRangeChanged}
       itemContent={(_index, item) => (
-        <div className={styles.chat}>
+        <div className="py-[var(--space-sm)] px-[var(--space-2xl)] pb-[var(--space-xl)] max-w-[960px] mx-auto w-full">
           <MessageRow
             key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
             msg={item.msg}

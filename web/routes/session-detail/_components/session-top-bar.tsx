@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import type { SessionDetailContract } from "../../../../src/contracts/session.js";
-import styles from "./session-top-bar.module.css";
+import { cn } from "../../../lib/cn";
 
 export interface SessionTopBarProps {
   session: SessionDetailContract["session"];
@@ -11,6 +11,15 @@ export interface SessionTopBarProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
 }
+
+const copyBtnBase = cn(
+  "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
+  "rounded-full px-[var(--space-sm)] py-[var(--space-sm)]",
+  "text-[0.8em] text-[var(--color-text-primary)]",
+  "inline-flex items-center gap-[var(--space-sm)]",
+  "cursor-pointer transition-all duration-[var(--transition-medium)]",
+  "hover:bg-[var(--color-accent-bg)]",
+);
 
 /**
  * Compact sub-header below the main app header showing session title + actions.
@@ -23,34 +32,30 @@ export const SessionTopBar = React.memo(function SessionTopBar({
   sidebarOpen,
   onToggleSidebar,
 }: SessionTopBarProps) {
-  const copyBtnClass = [
-    styles.sessionCopyBtn,
-    copyState === "copied" ? styles.sessionCopyBtnCopied : "",
-    copyState === "error" ? styles.sessionCopyBtnError : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const sidebarToggleClass = sidebarOpen
-    ? `${styles.sidebarToggleBtn} ${styles.sidebarToggleBtnActive}`
-    : styles.sidebarToggleBtn;
+  const copyBtnClass = cn(
+    copyBtnBase,
+    copyState === "copied" && "bg-[var(--color-agent-chip-bg)] border-[#4caf50] text-[var(--color-agent-chip-text)]",
+    copyState === "error" && "bg-[var(--color-error-bg)] border-[var(--color-error-border)] text-[var(--color-error)]",
+  );
 
   return (
-    <div className={styles.sessionTopbar}>
-      <div className={styles.sessionHeaderCompact}>
-        <div className={styles.headerCompactLeft}>
+    <div className="h-9 flex items-center px-[var(--space-lg)] border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] shrink-0">
+      <div className="flex items-center justify-between gap-[var(--space-md)] w-full min-h-0">
+        <div className="flex items-center gap-[var(--space-sm)] min-w-0 flex-1">
           {session.parentId ? (
             <Link
               to={`/session/${encodeURIComponent(session.parentId)}`}
-              className={styles.headerParentLink}
+              className="text-[0.75em] whitespace-nowrap text-[var(--color-text-secondary)]"
             >
               {"\u21B3"} parent
             </Link>
           ) : null}
-          <h1 className={styles.sessionTitle}>{session.title}</h1>
+          <h1 className="text-[0.88em] font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis m-0">
+            {session.title}
+          </h1>
         </div>
 
-        <div className={styles.sessionHeaderActions}>
+        <div className="flex gap-[var(--space-sm)] items-center shrink-0">
           <button
             type="button"
             className={copyBtnClass}
@@ -60,7 +65,7 @@ export const SessionTopBar = React.memo(function SessionTopBar({
             data-testid="copy-command-btn"
           >
             {copyState === "copied" ? (
-              <span className={styles.sessionCopyIconCheck} aria-hidden="true">
+              <span className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0" aria-hidden="true">
                 <svg
                   width="14"
                   height="14"
@@ -70,6 +75,7 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                   strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  className="block w-full h-full"
                   role="img"
                   aria-hidden="true"
                 >
@@ -78,7 +84,7 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                 </svg>
               </span>
             ) : (
-              <span className={styles.sessionCopyIconCopy} aria-hidden="true">
+              <span className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0" aria-hidden="true">
                 <svg
                   width="14"
                   height="14"
@@ -88,6 +94,7 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                   strokeWidth="1.8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  className="block w-full h-full"
                   role="img"
                   aria-hidden="true"
                 >
@@ -97,12 +104,14 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                 </svg>
               </span>
             )}
-            <span className={styles.sessionCopyId}>{session.id}</span>
+            <span className="text-[0.8em] font-[var(--font-mono)] whitespace-nowrap">
+              {session.id}
+            </span>
           </button>
 
           <button
             type="button"
-            className={`${styles.sessionCopyBtn} ${styles.btnDelete}`}
+            className={cn(copyBtnBase, "hover:border-[var(--color-delete-hover)] hover:text-[var(--color-delete-hover)]")}
             onClick={onDelete}
             title={"\u30BB\u30C3\u30B7\u30E7\u30F3\u3092\u524A\u9664"}
             data-testid="delete-btn"
@@ -130,7 +139,16 @@ export const SessionTopBar = React.memo(function SessionTopBar({
 
           <button
             type="button"
-            className={sidebarToggleClass}
+            className={cn(
+              "px-[var(--space-lg)] py-[var(--space-sm)]",
+              "rounded-[var(--radius-md)]",
+              "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
+              "text-[var(--color-text-primary)] text-[0.82em] font-medium",
+              "cursor-pointer transition-all duration-[var(--transition-fast)]",
+              "flex items-center gap-1.5",
+              "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
+              sidebarOpen && "bg-[var(--color-accent)] !text-[var(--color-text-inverse)] !border-[var(--color-accent)]",
+            )}
             onClick={onToggleSidebar}
             title={
               sidebarOpen
@@ -146,6 +164,7 @@ export const SessionTopBar = React.memo(function SessionTopBar({
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
+              className="block"
               role="img"
               aria-hidden="true"
             >

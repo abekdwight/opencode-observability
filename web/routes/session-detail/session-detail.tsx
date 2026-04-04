@@ -11,10 +11,9 @@ import { SessionTopBar } from "./_components/session-top-bar";
 import { useOpenDetails } from "./_hooks/use-open-details";
 import { useSessionPreferences } from "./_hooks/use-session-preferences";
 import { buildCopyCommand } from "./_lib/copy-command";
-import css from "./session-detail.module.css";
 
 // ---------------------------------------------------------------------------
-// useVirtuosoNavigation — navigation adapted for Virtuoso scrolling
+// useVirtuosoNavigation -- navigation adapted for Virtuoso scrolling
 // ---------------------------------------------------------------------------
 function useVirtuosoNavigation(
   listRef: React.RefObject<VirtuosoHandle | null>,
@@ -132,7 +131,7 @@ function useSessionShortcuts(actions: {
 }
 
 // ---------------------------------------------------------------------------
-// SessionDetailPage — page-level orchestrator
+// SessionDetailPage -- page-level orchestrator
 // ---------------------------------------------------------------------------
 export function SessionDetailPage(): React.ReactElement | null {
   const { sessionId = "" } = useParams();
@@ -289,12 +288,11 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   if (!data) return null;
 
-  const ideLayoutClass = sidebarOpen
-    ? css.ideLayout
-    : `${css.ideLayout} ${css.sidebarCollapsed}`;
-
   return (
-    <section className={css.page} data-testid="session-detail">
+    <section
+      className="session-detail-page flex-1 flex flex-col overflow-hidden p-0"
+      data-testid="session-detail"
+    >
       <SessionTopBar
         session={data.session}
         copyState={copyState}
@@ -304,8 +302,8 @@ export function SessionDetailPage(): React.ReactElement | null {
         onToggleSidebar={toggleSidebar}
       />
 
-      <div className={ideLayoutClass}>
-        <div className={css.main}>
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 w-full">
           <MessageList
             messages={data.messages}
             filterMode={filterMode}
