@@ -346,6 +346,44 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           <div className={styles.sidebarDir}>{prettyDir}</div>
         </div>
 
+        {/* Todos */}
+        {todos.length > 0 ? (
+          <details
+            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+            data-testid="todos-accordion"
+          >
+            <summary className={styles.sidebarAccordionSummary}>
+              Todos{" "}
+              <span className={styles.sidebarBadge}>
+                {doneCount}/{todos.length}
+              </span>
+            </summary>
+            <div className={styles.sidebarAccordionBody}>
+              {todos.map((t) => {
+                const icon =
+                  t.status === "completed"
+                    ? "\u2705"
+                    : t.status === "in_progress"
+                      ? "\u{1F504}"
+                      : t.status === "cancelled"
+                        ? "\u274C"
+                        : "\u2B1C";
+                const dim =
+                  t.status === "completed" || t.status === "cancelled";
+                return (
+                  <div
+                    key={`${t.content}-${t.status}-${t.priority}`}
+                    className={styles.todoItem}
+                    style={dim ? { opacity: 0.6 } : undefined}
+                  >
+                    {icon} <span>{t.content}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+        ) : null}
+
         {/* Model Breakdown */}
         {data.modelBreakdown.length > 0 ? (
           <details
@@ -456,44 +494,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               })}
             </div>
           </details>
-
-        {/* Todos */}
-        {todos.length > 0 ? (
-          <details
-            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
-            data-testid="todos-accordion"
-          >
-            <summary className={styles.sidebarAccordionSummary}>
-              Todos{" "}
-              <span className={styles.sidebarBadge}>
-                {doneCount}/{todos.length}
-              </span>
-            </summary>
-            <div className={styles.sidebarAccordionBody}>
-              {todos.map((t) => {
-                const icon =
-                  t.status === "completed"
-                    ? "\u2705"
-                    : t.status === "in_progress"
-                      ? "\u{1F504}"
-                      : t.status === "cancelled"
-                        ? "\u274C"
-                        : "\u2B1C";
-                const dim =
-                  t.status === "completed" || t.status === "cancelled";
-                return (
-                  <div
-                    key={`${t.content}-${t.status}-${t.priority}`}
-                    className={styles.todoItem}
-                    style={dim ? { opacity: 0.6 } : undefined}
-                  >
-                    {icon} <span>{t.content}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
-        ) : null}
 
         {/* Diffs */}
         {data.summaryDiffs ? (
