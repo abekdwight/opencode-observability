@@ -21,11 +21,18 @@ function useVirtuosoNavigation(
 ): { navIndex: number; jump: (dir: number) => void } {
   const [navIndex, setNavIndex] = React.useState(-1);
 
+  // Sync initial index to last message when data loads
+  React.useEffect(() => {
+    if (visibleCount > 0 && navIndex < 0) {
+      setNavIndex(visibleCount - 1);
+    }
+  }, [visibleCount, navIndex]);
+
   const jump = React.useCallback(
     (dir: number) => {
       if (visibleCount === 0) return;
       setNavIndex((prev) => {
-        const cur = prev < 0 ? 0 : prev;
+        const cur = prev < 0 ? visibleCount - 1 : prev;
         const next = Math.max(0, Math.min(visibleCount - 1, cur + dir));
         listRef.current?.scrollToIndex({
           index: next,
