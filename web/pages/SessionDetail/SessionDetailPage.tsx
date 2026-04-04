@@ -60,6 +60,50 @@ function useVirtuosoNavigation(
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard shortcuts for session detail (Ctrl/Cmd + key)
+// ---------------------------------------------------------------------------
+function useSessionShortcuts(actions: {
+  toggleCollapse: () => void;
+  cycleFilter: () => void;
+  togglePlain: () => void;
+  toggleTools: () => void;
+  toggleSidebar: () => void;
+}) {
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Only fire with Ctrl (Windows/Linux) or Cmd (Mac)
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      switch (e.key.toLowerCase()) {
+        case "e": // Expand/collapse
+          e.preventDefault();
+          actions.toggleCollapse();
+          break;
+        case "u": // User/Assistant filter
+          e.preventDefault();
+          actions.cycleFilter();
+          break;
+        case "m": // Markdown/plain toggle
+          e.preventDefault();
+          actions.togglePlain();
+          break;
+        case ".": // Tool visibility
+          e.preventDefault();
+          actions.toggleTools();
+          break;
+        case "b": // Sidebar toggle
+          e.preventDefault();
+          actions.toggleSidebar();
+          break;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [actions]);
+}
+
+// ---------------------------------------------------------------------------
 // SessionDetailPage — page-level orchestrator
 // ---------------------------------------------------------------------------
 export function SessionDetailPage(): React.ReactElement {
@@ -120,6 +164,20 @@ export function SessionDetailPage(): React.ReactElement {
   const { navIndex, jump: jumpMessage } = useVirtuosoNavigation(
     listRef,
     visibleCount,
+  );
+
+  // Keyboard shortcuts
+  useSessionShortcuts(
+    React.useMemo(
+      () => ({
+        toggleCollapse,
+        cycleFilter,
+        togglePlain,
+        toggleTools,
+        toggleSidebar,
+      }),
+      [toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar],
+    ),
   );
 
   // Body class for plain mode
