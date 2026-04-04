@@ -6,6 +6,7 @@ import type {
 } from "../../../src/contracts/directories";
 import { SessionCopyButton } from "../../components/session-copy-button";
 import { useJson } from "../../hooks/use-json";
+import { cn } from "../../lib/cn";
 import {
   formatDurationShort,
   formatTimestampShort,
@@ -55,23 +56,27 @@ export function DirectorySessions() {
   const prettyDir = data?.directory ?? directory ?? "";
 
   return (
-    <section className="surface">
-      <div className="breadcrumb">
-        <Link to="/">Home</Link>
-        <span className="sep">/</span>
-        <Link to="/directories">Directories</Link>
-        <span className="sep">/</span>
+    <section className="grid gap-2.5">
+      <nav className="mb-4 text-[0.85em] text-[var(--color-text-secondary)]">
+        <Link to="/" className="text-[var(--color-accent)]">
+          Home
+        </Link>
+        <span className="mx-1.5">/</span>
+        <Link to="/directories" className="text-[var(--color-accent)]">
+          Directories
+        </Link>
+        <span className="mx-1.5">/</span>
         <span>{prettyDir}</span>
-      </div>
+      </nav>
 
-      <section className="card">
-        <div className="section-header">
-          <h2>Sessions</h2>
+      <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <h2 className="m-0 text-[1.15em] font-bold">Sessions</h2>
         </div>
 
-        <div className="dir-controls">
+        <div className="mb-3 flex flex-wrap items-center gap-2.5">
           <input
-            className="dir-filter-input"
+            className="w-full rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] sm:w-auto sm:flex-1"
             type="text"
             placeholder="Filter by title..."
             value={localFilter}
@@ -82,7 +87,11 @@ export function DirectorySessions() {
               <button
                 key={s}
                 type="button"
-                className={`dir-sort-btn${sort === s ? " active" : ""}`}
+                className={cn(
+                  "rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors",
+                  sort === s &&
+                    "border-transparent bg-[var(--color-accent)] text-white",
+                )}
                 onClick={() => handleSort(s)}
               >
                 {SORT_LABELS[s]}
@@ -92,23 +101,31 @@ export function DirectorySessions() {
         </div>
 
         {loading ? (
-          <p className="state" data-testid="route-loading">
+          <p
+            className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+            data-testid="route-loading"
+          >
             Loading sessions...
           </p>
         ) : null}
 
         {error ? (
-          <p className="state state-error" data-testid="route-error">
+          <p
+            className="rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+            data-testid="route-error"
+          >
             Failed to load sessions: {error}
           </p>
         ) : null}
 
         {data && data.sessions.length === 0 ? (
-          <p className="empty-copy">セッションはありません</p>
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            セッションはありません
+          </p>
         ) : null}
 
         {data ? (
-          <ul className="dir-session-list">
+          <ul className="m-0 list-none p-0">
             {data.sessions.map((s) => {
               const fileStr =
                 s.summary.files > 0
@@ -116,12 +133,12 @@ export function DirectorySessions() {
                   : "";
 
               return (
-                <li key={s.id} className="dir-session-row">
-                  <div className="dir-session-card">
-                    <div className="dir-session-title-row">
+                <li key={s.id} className="my-2.5">
+                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4 transition-all hover:border-[var(--color-accent)] hover:shadow-[0_2px_8px_rgba(0,102,204,0.08)]">
+                    <div className="flex items-center justify-between gap-2">
                       <Link
                         to={`/session/${encodeURIComponent(s.id)}`}
-                        className="dir-session-title"
+                        className="text-[1.05em] font-semibold text-[var(--color-accent)] hover:underline"
                       >
                         {s.title}
                       </Link>
@@ -132,24 +149,28 @@ export function DirectorySessions() {
                     </div>
                     <Link
                       to={`/session/${encodeURIComponent(s.id)}`}
-                      className="dir-session-meta-link"
+                      className="block text-inherit no-underline hover:no-underline"
                     >
-                      <div className="dir-session-meta">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[0.82em] text-[var(--color-text-secondary)]">
                         <span>{formatTimestampShort(s.createdAt)}</span>
-                        <span className="meta-pill">
+                        <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
                           {formatDurationShort(s.durationMs)}
                         </span>
-                        <span className="meta-pill">{s.messageCount} msgs</span>
-                        <span className="meta-pill tokens">
+                        <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
+                          {s.messageCount} msgs
+                        </span>
+                        <span className="rounded-md bg-[#fff3e0] px-2 py-0.5 font-medium text-[#e65100]">
                           {formatTokens(s.totalTokens)} tokens
                         </span>
                         {s.subagentCount > 0 ? (
-                          <span className="meta-pill sub">
+                          <span className="rounded-md bg-[#e8f5e9] px-2 py-0.5 font-medium text-[#2e7d32]">
                             {s.subagentCount} subagents
                           </span>
                         ) : null}
                         {fileStr ? (
-                          <span className="meta-pill files">{fileStr}</span>
+                          <span className="rounded-md bg-[#e8f5e9] px-2 py-0.5 font-medium text-[#2e7d32]">
+                            {fileStr}
+                          </span>
                         ) : null}
                       </div>
                     </Link>

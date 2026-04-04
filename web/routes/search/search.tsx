@@ -5,6 +5,7 @@ import type {
   SearchResultContract,
 } from "../../../src/contracts/search";
 import { SessionCopyButton } from "../../components/session-copy-button";
+import { Button } from "../../components/ui/button";
 import { useJson } from "../../hooks/use-json";
 import { formatDateFull, formatTokens } from "../../lib/format";
 
@@ -64,14 +65,14 @@ export function Search() {
   const showResults = q.length > 0;
 
   return (
-    <section className="surface">
-      <section className="card">
-        <div className="section-header">
-          <h2>Search Sessions</h2>
+    <section className="grid gap-2.5">
+      <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <h2 className="m-0 text-[1.15em] font-bold">Search Sessions</h2>
         </div>
-        <form className="search-form" onSubmit={handleSubmit}>
+        <form className="flex gap-2" onSubmit={handleSubmit}>
           <input
-            className="search-input"
+            className="w-full flex-1 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]"
             type="text"
             name="q"
             placeholder="Search titles and chat history"
@@ -80,31 +81,37 @@ export function Search() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
           />
-          <button className="search-btn" type="submit">
+          <Button type="submit" size="lg">
             Search
-          </button>
+          </Button>
         </form>
-        <p className="search-hint">
+        <p className="mt-2 text-[0.9em] text-[var(--color-text-secondary)]">
           Matches titles and user/agent chat text. Separate words with spaces
           for AND.
         </p>
       </section>
 
       {loading && showResults ? (
-        <p className="state" data-testid="route-loading">
+        <p
+          className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Searching...
         </p>
       ) : null}
 
       {error && showResults ? (
-        <p className="state state-error" data-testid="route-error">
+        <p
+          className="rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+          data-testid="route-error"
+        >
           Search failed: {error}
         </p>
       ) : null}
 
       {data && showResults ? (
         <>
-          <p className="search-result-count">
+          <p className="text-[0.9em] text-[var(--color-text-secondary)]">
             {data.results.length === 0 ? (
               "No results found."
             ) : (
@@ -117,7 +124,7 @@ export function Search() {
           </p>
 
           {data.results.length === 0 ? (
-            <div className="search-no-results">
+            <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-6 text-center text-sm text-[var(--color-text-secondary)]">
               No sessions matched &ldquo;{data.query}&rdquo;.
             </div>
           ) : (
@@ -146,29 +153,44 @@ function SearchResultCard({
   const highlightedTitle = highlightText(result.title || "(no title)", terms);
 
   return (
-    <div className="search-result-card" data-testid="search-result">
-      <div className="search-result-title-row">
-        <Link className="search-result-title-link" to={sessionHref}>
-          <div className="search-result-title">{highlightedTitle}</div>
+    <div
+      className="flex flex-col rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4 transition-all hover:border-[var(--color-accent)] hover:shadow-[0_2px_8px_rgba(0,102,204,0.08)]"
+      data-testid="search-result"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <Link
+          className="flex-1 text-inherit no-underline hover:no-underline"
+          to={sessionHref}
+        >
+          <div className="text-[1.05em] font-semibold text-[var(--color-text-primary)] hover:underline [&_mark]:rounded-sm [&_mark]:bg-[#fff176] [&_mark]:px-0.5 [&_mark]:text-inherit">
+            {highlightedTitle}
+          </div>
         </Link>
-        <div className="search-result-actions">
+        <div className="flex shrink-0">
           <SessionCopyButton
             sessionId={result.id}
             directory={result.directory}
           />
         </div>
       </div>
-      <Link className="search-result-main" to={sessionHref}>
-        <div className="search-result-dir">{result.directory}</div>
+      <Link
+        className="block text-inherit no-underline hover:no-underline"
+        to={sessionHref}
+      >
+        <div className="mt-1 text-[0.8em] text-[var(--color-text-secondary)]">
+          {result.directory}
+        </div>
         {result.snippet ? (
-          <div className="search-snippet">
+          <div className="mt-1.5 text-[0.88em] leading-relaxed text-[var(--color-text-primary)] [&_mark]:rounded-sm [&_mark]:bg-[#fff176] [&_mark]:px-0.5 [&_mark]:text-inherit">
             &hellip;{highlightText(result.snippet, terms)}&hellip;
           </div>
         ) : null}
-        <div className="search-result-meta">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[0.82em] text-[var(--color-text-secondary)]">
           <span>{formatDateFull(result.createdAt)}</span>
-          <span className="meta-pill">{result.messageCount} msgs</span>
-          <span className="meta-pill">
+          <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
+            {result.messageCount} msgs
+          </span>
+          <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
             {formatTokens(result.totalTokens)} tokens
           </span>
         </div>
