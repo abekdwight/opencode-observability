@@ -1,7 +1,14 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { MONITOR_TIMELINE_SELECTORS } from "../../../src/contracts/monitor-timeline.js";
-import { Disclosure } from "../../components/disclosure";
+import { Badge } from "../../components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../../components/ui/collapsible";
+import { MetricCard } from "../../components/ui/metric-card";
+import { MetricGrid } from "../../components/ui/metric-grid";
 import { isLegacySourceSession, useMonitorFeed } from "../../hooks/use-monitor-feed";
 import {
   bucketizeEvents,
@@ -193,14 +200,14 @@ function InlineTimeSeriesChart({
 
   return (
     <div
-      className="timeline-chart-wrap"
+      className="mt-2 w-full rounded-lg bg-[var(--color-bg-muted)] border border-[var(--color-border-faint)] p-1.5 overflow-hidden relative"
       data-testid={MONITOR_TIMELINE_SELECTORS.PREVIEW(sessionId)}
     >
       {/* ── Degraded state with NO cached data → full-replacement text ── */}
       {isDegraded && !hasCachedEvents ? (
         feedState === "reconnecting" ? (
           <p
-            className="timeline-preview-pending timeline-preview-reconnecting"
+            className="py-4 px-3 text-center text-xs text-[var(--color-warning-text)] italic"
             data-testid={MONITOR_TIMELINE_SELECTORS.FEED_STATE}
             data-state="reconnecting"
           >
@@ -208,7 +215,7 @@ function InlineTimeSeriesChart({
           </p>
         ) : (
           <p
-            className="timeline-preview-pending timeline-preview-disconnected"
+            className="py-4 px-3 text-center text-xs text-[var(--color-error-text)] italic"
             data-testid={MONITOR_TIMELINE_SELECTORS.FEED_STATE}
             data-state="disconnected"
           >
@@ -219,23 +226,25 @@ function InlineTimeSeriesChart({
         <>
           {/* ── Degraded state WITH cached data → overlay badge ── */}
           {isDegraded ? (
-            <span
-              className={`timeline-feed-badge ${feedState === "reconnecting" ? "timeline-feed-badge--reconnecting" : "timeline-feed-badge--disconnected"}`}
+            <Badge
+              variant={feedState === "reconnecting" ? "warning" : "error"}
+              className="absolute top-2 right-2 z-[1] text-[0.65em] font-medium"
               data-testid={MONITOR_TIMELINE_SELECTORS.FEED_STATE}
               data-state={feedState}
             >
               {feedState === "reconnecting"
                 ? "⟳ Reconnecting"
                 : "■ Disconnected"}
-            </span>
+            </Badge>
           ) : null}
 
           <svg
-            className="timeline-chart-svg"
+            className="block w-full"
             viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
             preserveAspectRatio="none"
             role="img"
             aria-label="Session activity timeline"
+            style={{ height: 72 }}
           >
             {/* ── Chart lane background ── */}
             <rect
@@ -461,90 +470,105 @@ export function Monitor() {
     });
 
   return (
-    <section className="surface">
+    <section className="space-y-4">
       {data ? (
-        <div className="metrics-grid">
-          <article className="metric-card">
-            <p className="metric-label">Active Sessions</p>
-            <p className="metric-value">{activeRealSessions.length}</p>
-            <p className="metric-sub">sessions</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Alert Events</p>
-            <p className="metric-value">{alertEvents}</p>
-            <p className="metric-sub">model/token/network/limit</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Main Compactions</p>
-            <p className="metric-value">{data.compactionCounts.main}</p>
-            <p className="metric-sub">main sessions</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Subagent Compactions</p>
-            <p className="metric-value">{data.compactionCounts.subagent}</p>
-            <p className="metric-sub">subagent sessions</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Total Compactions</p>
-            <p className="metric-value">{data.compactionCounts.total}</p>
-            <p className="metric-sub">all sessions</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Feed Status</p>
-            <p className="metric-value">
-              {liveState === "live" ? "Live" : "Degraded"}
-            </p>
-            <p className="metric-sub">{formatTimestamp(data.generatedAt)}</p>
-          </article>
-        </div>
+        <MetricGrid>
+          <MetricCard
+            label="Active Sessions"
+            value={activeRealSessions.length}
+            sub="sessions"
+          />
+          <MetricCard
+            label="Alert Events"
+            value={alertEvents}
+            sub="model/token/network/limit"
+          />
+          <MetricCard
+            label="Main Compactions"
+            value={data.compactionCounts.main}
+            sub="main sessions"
+          />
+          <MetricCard
+            label="Subagent Compactions"
+            value={data.compactionCounts.subagent}
+            sub="subagent sessions"
+          />
+          <MetricCard
+            label="Total Compactions"
+            value={data.compactionCounts.total}
+            sub="all sessions"
+          />
+          <MetricCard
+            label="Feed Status"
+            value={liveState === "live" ? "Live" : "Degraded"}
+            sub={formatTimestamp(data.generatedAt)}
+          />
+        </MetricGrid>
       ) : null}
 
       {liveState === "degraded" ? (
-        <p className="state state-warning" data-testid="route-live-degraded">
+        <p
+          className="rounded-lg border border-[var(--color-warning-bg)] bg-[var(--color-warning-bg)] px-4 py-2 text-sm text-[var(--color-warning-text)]"
+          data-testid="route-live-degraded"
+        >
           Live updates degraded. Reconnecting to the observability stream.
         </p>
       ) : null}
 
       {loading ? (
-        <p className="state" data-testid="route-loading">
+        <p
+          className="py-6 text-center text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Loading monitor snapshot...
         </p>
       ) : null}
 
       {error ? (
-        <p className="state state-error" data-testid="route-error">
+        <p
+          className="rounded-lg border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-2 text-sm text-[var(--color-error-text)]"
+          data-testid="route-error"
+        >
           Monitor API unavailable: {error}
         </p>
       ) : null}
 
       {data ? (
         <>
-          <section className="card">
-            <div className="section-header">
-              <h2>Recent Sessions</h2>
-              <div className="monitor-section-meta-block">
-                <p className="section-meta">{timelineStatus}</p>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <div className="flex justify-between items-start gap-3 mb-2">
+              <h2 className="text-base font-bold text-[var(--color-text-primary)]">
+                Recent Sessions
+              </h2>
+              <div className="flex flex-col items-end gap-0.5">
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  {timelineStatus}
+                </p>
                 {timeline.liveOnlyNotice ? (
-                  <p className="monitor-timeline-note">
+                  <p className="text-[0.7rem] text-[var(--color-text-tertiary)] italic">
                     Live-only timeline from this page load
                   </p>
                 ) : null}
               </div>
             </div>
-            <div className="timeline-legend">
+            <div className="flex flex-wrap gap-2 gap-x-3.5 mt-3 mb-1">
               {TIMELINE_OPERATOR_LANES.map((lane) => (
-                <span className="timeline-legend-item" key={lane}>
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]"
+                  key={lane}
+                >
                   <span
-                    className={`timeline-legend-swatch timeline-legend-swatch--${lane}`}
+                    className="w-2.5 h-2.5 rounded-full inline-block"
                     aria-hidden="true"
+                    style={{ background: LANE_COLORS[lane] }}
                   />
                   {LANE_LABELS[lane]}
                 </span>
               ))}
             </div>
-            <div className="recent-list">
+            <div className="mt-3 space-y-3">
               {sessionCards.length === 0 ? (
-                <p className="empty-copy">
+                <p className="py-4 text-center text-sm text-[var(--color-text-secondary)]">
                   No sessions seen during this page load
                 </p>
               ) : (
@@ -559,27 +583,36 @@ export function Monitor() {
                     latestActionableAge,
                   }) => {
                     return (
-                      <div className="recent-item" key={session.id}>
-                        <div className="recent-title-row">
+                      <div
+                        className="rounded-lg border border-[var(--color-border-faint)] bg-[var(--color-bg-surface)] p-3 transition-colors hover:border-[var(--color-border-default)]"
+                        key={session.id}
+                      >
+                        <div className="mb-1">
                           <Link
-                            className="recent-title"
+                            className="text-sm font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors no-underline"
                             to={`/session/${session.id}`}
                           >
                             {session.title}
                           </Link>
                         </div>
-                        <div className="recent-meta">
-                          <span className="recent-dir">
+                        <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)] mb-2">
+                          <span className="font-mono text-[0.7rem] text-[var(--color-text-tertiary)] truncate max-w-[260px]">
                             {session.directory}
                           </span>
                           <span>{formatTimestamp(session.updatedAt)}</span>
                         </div>
-                        <div className="timeline-card-status-row">
+                        <div className="mb-2">
                           {latestActionableEvent ? (
                             <p
-                              className={`timeline-incident-note timeline-incident-note--${latestActionableLane}`}
+                              className={`flex items-center gap-2 text-xs ${
+                                latestActionableLane === "failure"
+                                  ? "text-[var(--color-error-text)]"
+                                  : latestActionableLane === "pressure"
+                                    ? "text-[var(--color-warning-text)]"
+                                    : "text-[var(--color-text-secondary)]"
+                              }`}
                             >
-                              <strong>
+                              <strong className="font-semibold">
                                 {
                                   LANE_LABELS[
                                     latestActionableLane ?? "activity"
@@ -592,72 +625,85 @@ export function Monitor() {
                               ) : null}
                             </p>
                           ) : (
-                            <p className="timeline-incident-note timeline-incident-note--quiet">
+                            <p className="text-xs text-[var(--color-text-tertiary)] italic">
                               No intervention signals in the last 5 minutes
                             </p>
                           )}
                         </div>
-                        <dl className="stats compact-stats">
-                          <div>
-                            <dt>Messages</dt>
-                            <dd>{session.messageCount}</dd>
+                        <dl className="grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-1 text-xs mb-2">
+                          <div className="flex flex-col">
+                            <dt className="text-[var(--color-text-secondary)]">
+                              Messages
+                            </dt>
+                            <dd className="font-semibold text-[var(--color-text-primary)]">
+                              {session.messageCount}
+                            </dd>
                           </div>
-                          <div>
-                            <dt>Tools</dt>
-                            <dd>{session.toolCallCount}</dd>
+                          <div className="flex flex-col">
+                            <dt className="text-[var(--color-text-secondary)]">
+                              Tools
+                            </dt>
+                            <dd className="font-semibold text-[var(--color-text-primary)]">
+                              {session.toolCallCount}
+                            </dd>
                           </div>
-                          <div>
-                            <dt>Compactions</dt>
-                            <dd>{session.compactionCount}</dd>
+                          <div className="flex flex-col">
+                            <dt className="text-[var(--color-text-secondary)]">
+                              Compactions
+                            </dt>
+                            <dd className="font-semibold text-[var(--color-text-primary)]">
+                              {session.compactionCount}
+                            </dd>
                           </div>
-                          <div>
-                            <dt>Subagents</dt>
-                            <dd>{session.subagentCount}</dd>
+                          <div className="flex flex-col">
+                            <dt className="text-[var(--color-text-secondary)]">
+                              Subagents
+                            </dt>
+                            <dd className="font-semibold text-[var(--color-text-primary)]">
+                              {session.subagentCount}
+                            </dd>
                           </div>
-                          <div>
-                            <dt>Input ratio</dt>
-                            <dd>{formatPercent(session.inputRatioPercent)}</dd>
+                          <div className="flex flex-col">
+                            <dt className="text-[var(--color-text-secondary)]">
+                              Input ratio
+                            </dt>
+                            <dd className="font-semibold text-[var(--color-text-primary)]">
+                              {formatPercent(session.inputRatioPercent)}
+                            </dd>
                           </div>
                         </dl>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 12,
-                            flexWrap: "wrap",
-                            margin: "10px 0 8px",
-                          }}
-                        >
+                        <div className="flex justify-between items-center gap-3 flex-wrap my-2">
                           <div>
-                            <strong style={{ fontSize: "0.9em" }}>
+                            <strong className="text-[0.9em] font-semibold text-[var(--color-text-primary)]">
                               Model usage
                             </strong>
-                            <span
-                              style={{
-                                marginLeft: 8,
-                                color: "#6e6e73",
-                                fontSize: "0.82em",
-                              }}
-                            >
+                            <span className="ml-2 text-[0.82em] text-[var(--color-text-secondary)]">
                               main / subagent split
                             </span>
                           </div>
                           <div
-                            className="view-toggle-bar"
+                            className="inline-flex rounded-lg border border-[var(--color-border-default)] overflow-hidden"
                             role="tablist"
                             aria-label="Monitor token usage view"
                           >
                             <button
                               type="button"
-                              className={`view-toggle-btn${tokenView === "model" ? " active" : ""}`}
+                              className={`px-3 py-1 text-xs font-medium transition-colors ${
+                                tokenView === "model"
+                                  ? "bg-[var(--color-accent)] text-white"
+                                  : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
+                              }`}
                               onClick={() => setTokenView("model")}
                             >
                               Model
                             </button>
                             <button
                               type="button"
-                              className={`view-toggle-btn${tokenView === "agent-model" ? " active" : ""}`}
+                              className={`px-3 py-1 text-xs font-medium transition-colors ${
+                                tokenView === "agent-model"
+                                  ? "bg-[var(--color-accent)] text-white"
+                                  : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
+                              }`}
                               onClick={() => setTokenView("agent-model")}
                             >
                               Agent × Model
@@ -674,77 +720,32 @@ export function Monitor() {
                           }
 
                           return (
-                            <div key={scope} style={{ marginBottom: 10 }}>
-                              <div
-                                style={{
-                                  fontSize: "0.82em",
-                                  fontWeight: 600,
-                                  color: "#6e6e73",
-                                  marginBottom: 6,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.04em",
-                                }}
-                              >
+                            <div key={scope} className="mb-2.5">
+                              <div className="text-[0.82em] font-semibold text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">
                                 {scope === "main" ? "Main" : "Subagent"}
                               </div>
-                              <div style={{ overflowX: "auto" }}>
-                                <table
-                                  style={{
-                                    width: "100%",
-                                    fontSize: "0.82em",
-                                    borderCollapse: "collapse",
-                                  }}
-                                >
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
                                   <thead>
                                     <tr>
-                                      <th
-                                        style={{
-                                          textAlign: "left",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         {tokenView === "model"
                                           ? "Model"
                                           : "Agent × Model"}
                                       </th>
-                                      <th
-                                        style={{
-                                          textAlign: "right",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         Input
                                       </th>
-                                      <th
-                                        style={{
-                                          textAlign: "right",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         Output
                                       </th>
-                                      <th
-                                        style={{
-                                          textAlign: "right",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         Cache R
                                       </th>
-                                      <th
-                                        style={{
-                                          textAlign: "right",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         Cache W
                                       </th>
-                                      <th
-                                        style={{
-                                          textAlign: "right",
-                                          padding: "6px 8px",
-                                        }}
-                                      >
+                                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
                                         Input ratio
                                       </th>
                                     </tr>
@@ -758,61 +759,26 @@ export function Monitor() {
                                           row.providerId,
                                           row.modelId,
                                         ].join("::")}
+                                        className="border-b border-[var(--color-border-faint)]"
                                       >
-                                        <td
-                                          style={{
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                          }}
-                                        >
+                                        <td className="py-2 px-2">
                                           {tokenView === "model"
                                             ? `${row.providerId}/${row.modelId}`
                                             : `${row.agent} × ${row.providerId}/${row.modelId}`}
                                         </td>
-                                        <td
-                                          style={{
-                                            textAlign: "right",
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                          }}
-                                        >
+                                        <td className="text-right py-2 px-2">
                                           {formatTokens(row.inputTokens)}
                                         </td>
-                                        <td
-                                          style={{
-                                            textAlign: "right",
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                          }}
-                                        >
+                                        <td className="text-right py-2 px-2">
                                           {formatTokens(row.outputTokens)}
                                         </td>
-                                        <td
-                                          style={{
-                                            textAlign: "right",
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                          }}
-                                        >
+                                        <td className="text-right py-2 px-2">
                                           {formatTokens(row.cacheReadTokens)}
                                         </td>
-                                        <td
-                                          style={{
-                                            textAlign: "right",
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                          }}
-                                        >
+                                        <td className="text-right py-2 px-2">
                                           {formatTokens(row.cacheWriteTokens)}
                                         </td>
-                                        <td
-                                          style={{
-                                            textAlign: "right",
-                                            padding: "6px 8px",
-                                            borderTop: "1px solid #f0f0f0",
-                                            fontWeight: 600,
-                                          }}
-                                        >
+                                        <td className="text-right py-2 px-2 font-semibold">
                                           {formatPercent(row.inputRatioPercent)}
                                         </td>
                                       </tr>
@@ -838,27 +804,42 @@ export function Monitor() {
             </div>
           </section>
 
-          <Disclosure
-            label="Monitor Signals &amp; Usage Detail"
-            testId="monitor-secondary-details"
-          >
-            <section className="card">
-              <div className="section-header">
-                <h2>Monitor Signals</h2>
-                <p className="section-meta">
-                  {formatTimestamp(data.generatedAt)}
-                </p>
-              </div>
-              <dl className="stats stats-wide">
-                {data.signalBadges.map((badge) => (
-                  <div key={badge.key}>
-                    <dt>{badge.label}</dt>
-                    <dd>{badge.count}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          </Disclosure>
+          <Collapsible defaultOpen={false} data-testid="monitor-secondary-details">
+            <CollapsibleTrigger
+              className="flex items-center gap-2 w-full p-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
+              data-testid="monitor-secondary-details-toggle"
+            >
+              <span className="text-xs">▶</span>
+              Monitor Signals &amp; Usage Detail
+            </CollapsibleTrigger>
+            <CollapsibleContent data-testid="monitor-secondary-details-content">
+              <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4 mt-2">
+                <div className="flex justify-between items-start gap-3 mb-2">
+                  <h2 className="text-base font-bold text-[var(--color-text-primary)]">
+                    Monitor Signals
+                  </h2>
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    {formatTimestamp(data.generatedAt)}
+                  </p>
+                </div>
+                <dl className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3 text-sm">
+                  {data.signalBadges.map((badge) => (
+                    <div
+                      key={badge.key}
+                      className="flex flex-col gap-0.5 rounded-lg bg-[var(--color-bg-muted)] p-2"
+                    >
+                      <dt className="text-xs text-[var(--color-text-secondary)]">
+                        {badge.label}
+                      </dt>
+                      <dd className="text-lg font-bold text-[var(--color-text-primary)]">
+                        {badge.count}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            </CollapsibleContent>
+          </Collapsible>
         </>
       ) : null}
     </section>
