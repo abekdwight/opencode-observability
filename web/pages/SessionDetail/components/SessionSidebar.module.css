@@ -21,6 +21,26 @@
     opacity var(--transition-medium);
 }
 
+/* Resize handle — thin strip on left edge */
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+  /* Subtle visual indicator on hover */
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.resizeHandle:hover,
+.resizeHandle:active {
+  background: var(--color-accent);
+  opacity: 0.3;
+}
+
 .sessionSidebarCollapsed {
   transform: translateX(100%);
   opacity: 0;

@@ -137,6 +137,75 @@ interface SkillInvocation {
   error: string;
 }
 
+// ---------------------------------------------------------------------------
+// Resize handle hook — drag left edge to change sidebar width
+// ---------------------------------------------------------------------------
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 600;
+const SIDEBAR_DEFAULT_WIDTH = 360;
+const SIDEBAR_WIDTH_KEY = "ot-sidebar-width";
+
+function useSidebarResize() {
+  const [width, setWidth] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      if (saved) {
+        const n = Number(saved);
+        if (n >= SIDEBAR_MIN_WIDTH && n <= SIDEBAR_MAX_WIDTH) return n;
+      }
+    } catch { /* ignore */ }
+    return SIDEBAR_DEFAULT_WIDTH;
+  });
+
+  const dragRef = React.useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  const onPointerDown = React.useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      dragRef.current = { startX: e.clientX, startWidth: width };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [width],
+  );
+
+  const onPointerMove = React.useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      // Dragging left increases width (sidebar is on the right)
+      const delta = drag.startX - e.clientX;
+      const next = Math.min(
+        SIDEBAR_MAX_WIDTH,
+        Math.max(SIDEBAR_MIN_WIDTH, drag.startWidth + delta),
+      );
+      setWidth(next);
+    },
+    [],
+  );
+
+  const onPointerUp = React.useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragRef.current) return;
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      dragRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      // Persist
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+      } catch { /* ignore */ }
+    },
+    [width],
+  );
+
+  return { width, onPointerDown, onPointerMove, onPointerUp };
+}
+
 /**
  * Right sidebar panel with overview stats, models, skills, todos, and diffs.
  */
@@ -146,6 +215,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   openDetails,
   onToggleDetail,
 }: SessionSidebarProps) {
+  const resize = useSidebarResize();
   const prettyDir = data.session.directory;
   const todos = data.todos ?? [];
   const doneCount = todos.filter((t) => t.status === "completed").length;
@@ -182,7 +252,19 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     : `${styles.sessionSidebar} ${styles.sessionSidebarCollapsed}`;
 
   return (
-    <aside className={sidebarClass} data-testid="session-sidebar">
+    <aside
+      className={sidebarClass}
+      data-testid="session-sidebar"
+      style={{ width: open ? resize.width : undefined }}
+    >
+      {/* Resize handle — drag to change width */}
+      <div
+        className={styles.resizeHandle}
+        onPointerDown={resize.onPointerDown}
+        onPointerMove={resize.onPointerMove}
+        onPointerUp={resize.onPointerUp}
+        onPointerCancel={resize.onPointerUp}
+      />
       <div className={styles.sidebarScroll}>
         {/* Quick stats */}
         <div className={styles.sidebarSection}>
