@@ -6,15 +6,3 @@ test-results/
 # AI workspace artifacts
 .sisyphus/
 .claude/handover/
-
-# Binary assets (should not be in git)
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.webp
-*.bmp
-*.ico
-*.sqlite
-*.sqlite3
-*.db
