@@ -30,7 +30,6 @@ export function AppShell() {
     <div className="app-shell" data-testid="app-shell">
       <header className="app-header-bar">
         <Link to="/" className="app-brand">
-          <span className="app-brand-dot" />
           OpenCode Telemetry
         </Link>
 
