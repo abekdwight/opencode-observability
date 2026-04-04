@@ -10,15 +10,21 @@ export function Directories() {
     useJson<DirectoriesContract>("/api/directories");
 
   return (
-    <section className="surface">
+    <section className="grid gap-2.5">
       {loading ? (
-        <p className="state" data-testid="route-loading">
+        <p
+          className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Loading directories...
         </p>
       ) : null}
 
       {error ? (
-        <p className="state state-error" data-testid="route-error">
+        <p
+          className="rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+          data-testid="route-error"
+        >
           Failed to load directories: {error}
         </p>
       ) : null}
@@ -30,7 +36,9 @@ export function Directories() {
         : null}
 
       {data && data.repoGroups.length === 0 ? (
-        <p className="empty-copy">No directories found.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          No directories found.
+        </p>
       ) : null}
     </section>
   );
@@ -38,25 +46,48 @@ export function Directories() {
 
 function RepoSection({ repo }: { repo: RepoGroupContract }) {
   return (
-    <div className="repo-section" data-testid="repo-section">
-      <div className="repo-header" title={repo.rawWorktree}>
+    <div
+      className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4"
+      data-testid="repo-section"
+    >
+      <div
+        className="flex items-center gap-2 text-[1.05em] font-bold"
+        title={repo.rawWorktree}
+      >
         {repo.iconColor ? (
-          <span className="repo-icon" style={{ background: repo.iconColor }} />
+          <span
+            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: repo.iconColor }}
+          />
         ) : null}
-        <span className="dir-repo-name">
+        <span className="min-w-0 flex-1 truncate">
           {repo.name}
           {repo.prettyWorktree !== repo.name ? (
-            <span className="repo-path">{repo.prettyWorktree}</span>
+            <span className="ml-2 text-[0.75em] font-normal text-[var(--color-text-secondary)]">
+              {repo.prettyWorktree}
+            </span>
           ) : null}
         </span>
-        <span className="repo-count">{repo.totalCount}</span>
+        <span className="shrink-0 rounded-full bg-[var(--color-bg-muted)] px-2 py-0.5 text-[0.8em] font-medium text-[var(--color-text-secondary)]">
+          {repo.totalCount}
+        </span>
       </div>
-      <ul className="repo-dir-list">
+      <ul className="m-0 list-none p-0">
         {repo.directories.map((dir) => (
-          <li key={dir.rawDirectory} className="repo-dir-item">
-            <Link to={`/dir/${encodeURIComponent(dir.rawDirectory)}`}>
-              <span className="dir-name">{dir.prettyDirectory}</span>
-              <span className="session-count">{dir.sessionCount} sessions</span>
+          <li
+            key={dir.rawDirectory}
+            className="border-b border-[var(--color-border-faint)] last:border-b-0"
+          >
+            <Link
+              to={`/dir/${encodeURIComponent(dir.rawDirectory)}`}
+              className="flex items-center justify-between px-1 py-2.5 text-sm no-underline transition-colors hover:bg-[var(--color-bg-page)] hover:no-underline"
+            >
+              <span className="font-medium text-[var(--color-text-primary)]">
+                {dir.prettyDirectory}
+              </span>
+              <span className="text-[0.85em] text-[var(--color-text-secondary)]">
+                {dir.sessionCount} sessions
+              </span>
             </Link>
           </li>
         ))}

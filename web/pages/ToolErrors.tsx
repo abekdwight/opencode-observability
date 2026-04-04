@@ -12,6 +12,8 @@ import type {
   ToolErrorsContract,
   ToolErrorsOverviewContract,
 } from "../../src/contracts/tool-errors";
+import { MetricCard } from "../components/ui/metric-card";
+import { MetricGrid } from "../components/ui/metric-grid";
 import { useJson } from "../hooks/useJson";
 import { CHART_THEME } from "../lib/chart-theme";
 import { formatDatePrecise } from "../lib/format";
@@ -35,90 +37,105 @@ function ToolErrorsOverview() {
     useJson<ToolErrorsOverviewContract>("/api/tool-errors");
 
   return (
-    <section className="surface">
-      <div className="breadcrumb">
-        <Link to="/">&larr; Dashboard</Link>
-      </div>
+    <section className="grid gap-2.5">
+      <nav className="mb-4 text-[0.85em] text-[var(--color-text-secondary)]">
+        <Link to="/" className="text-[var(--color-accent)]">
+          &larr; Dashboard
+        </Link>
+      </nav>
 
       {loading ? (
-        <p className="state" data-testid="route-loading">
+        <p
+          className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Loading tool errors...
         </p>
       ) : null}
 
       {error ? (
-        <p className="state state-error" data-testid="route-error">
+        <p
+          className="rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+          data-testid="route-error"
+        >
           Failed to load tool errors: {error}
         </p>
       ) : null}
 
       {data ? (
         <>
-          <section className="card">
-            <h2 className="tool-errors-title">Tool Errors Overview</h2>
-            <p className="tool-errors-subtitle">Past {data.windowDays} days</p>
-            <div className="metrics-grid">
-              <article className="metric-card">
-                <p className="metric-label">Total Errors</p>
-                <p className="metric-value">
-                  {data.summary.totalErrors.toLocaleString()}
-                </p>
-              </article>
-              <article className="metric-card">
-                <p className="metric-label">Affected Tools</p>
-                <p className="metric-value">
-                  {data.summary.distinctTools.toLocaleString()}
-                </p>
-              </article>
-              <article className="metric-card">
-                <p className="metric-label">Affected Sessions</p>
-                <p className="metric-value">
-                  {data.summary.affectedSessions.toLocaleString()}
-                </p>
-              </article>
-            </div>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h2 className="m-0 text-[1.35em] font-bold">
+              Tool Errors Overview
+            </h2>
+            <p className="mt-1 text-[0.85em] text-[var(--color-text-secondary)]">
+              Past {data.windowDays} days
+            </p>
+            <MetricGrid className="mt-3">
+              <MetricCard
+                label="Total Errors"
+                value={data.summary.totalErrors.toLocaleString()}
+              />
+              <MetricCard
+                label="Affected Tools"
+                value={data.summary.distinctTools.toLocaleString()}
+              />
+              <MetricCard
+                label="Affected Sessions"
+                value={data.summary.affectedSessions.toLocaleString()}
+              />
+            </MetricGrid>
 
-            <ul
-              style={{ margin: "10px 0 0", paddingLeft: 18, color: "#4d4d52" }}
-            >
+            <ul className="mt-2.5 list-disc pl-4 text-sm text-[var(--color-text-secondary)]">
               {data.insights.map((insight) => (
-                <li key={insight} style={{ marginBottom: 6 }}>
+                <li key={insight} className="mb-1.5">
                   {insight}
                 </li>
               ))}
             </ul>
           </section>
 
-          <section className="card">
-            <h3 className="tool-errors-table-title">Top Failing Tools</h3>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h3 className="m-0 mb-3 text-base font-bold">Top Failing Tools</h3>
             {data.topTools.length > 0 ? (
-              <div className="tool-errors-table-wrap">
-                <table className="tool-errors-table">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th>Tool</th>
-                      <th style={{ textAlign: "right" }}>Errors</th>
-                      <th style={{ textAlign: "right" }}>Calls</th>
-                      <th style={{ textAlign: "right" }}>Error Rate</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Tool
+                      </th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Errors
+                      </th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Calls
+                      </th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Error Rate
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.topTools.map((row) => (
-                      <tr key={row.tool}>
-                        <td>
+                      <tr
+                        key={row.tool}
+                        className="border-b border-[var(--color-border-faint)]"
+                      >
+                        <td className="py-2.5 px-3">
                           <Link
                             to={`/tool-errors/${encodeURIComponent(row.tool)}`}
                           >
                             {row.tool}
                           </Link>
                         </td>
-                        <td style={{ textAlign: "right" }}>
+                        <td className="py-2.5 px-3 text-right">
                           {row.errorCount.toLocaleString()}
                         </td>
-                        <td style={{ textAlign: "right" }}>
+                        <td className="py-2.5 px-3 text-right">
                           {row.totalCalls.toLocaleString()}
                         </td>
-                        <td style={{ textAlign: "right" }}>
+                        <td className="py-2.5 px-3 text-right">
                           {row.errorRate.toFixed(1)}%
                         </td>
                       </tr>
@@ -127,28 +144,35 @@ function ToolErrorsOverview() {
                 </table>
               </div>
             ) : (
-              <p className="empty-copy">
+              <p className="text-sm text-[var(--color-text-secondary)]">
                 No tool errors recorded in this window
               </p>
             )}
           </section>
 
-          <section className="card">
-            <h3 className="tool-errors-table-title">Error Patterns</h3>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h3 className="m-0 mb-3 text-base font-bold">Error Patterns</h3>
             {data.errorPatterns.length > 0 ? (
-              <div className="tool-errors-table-wrap">
-                <table className="tool-errors-table">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th>Pattern</th>
-                      <th style={{ textAlign: "right" }}>Count</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Pattern
+                      </th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Count
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.errorPatterns.map((row) => (
-                      <tr key={row.label}>
-                        <td>{row.label}</td>
-                        <td style={{ textAlign: "right" }}>
+                      <tr
+                        key={row.label}
+                        className="border-b border-[var(--color-border-faint)]"
+                      >
+                        <td className="py-2.5 px-3">{row.label}</td>
+                        <td className="py-2.5 px-3 text-right">
                           {row.count.toLocaleString()}
                         </td>
                       </tr>
@@ -157,46 +181,57 @@ function ToolErrorsOverview() {
                 </table>
               </div>
             ) : (
-              <p className="empty-copy">No recurring patterns found</p>
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                No recurring patterns found
+              </p>
             )}
           </section>
 
-          <section className="card">
-            <h3 className="tool-errors-table-title">Latest Errors</h3>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h3 className="m-0 mb-3 text-base font-bold">Latest Errors</h3>
             {data.latestErrors.length > 0 ? (
-              <div className="tool-errors-table-wrap">
-                <table className="tool-errors-table">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th className="te-col-date">Datetime</th>
-                      <th>Tool</th>
-                      <th className="te-col-session">Session</th>
-                      <th className="te-col-error">Error Message</th>
+                      <th className="w-48 whitespace-nowrap text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Datetime
+                      </th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Tool
+                      </th>
+                      <th className="w-56 text-left font-mono text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Session
+                      </th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Error Message
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.latestErrors.map((row) => (
                       <tr
                         key={`${row.tool}-${row.sessionId}-${row.timeCreated}`}
+                        className="border-b border-[var(--color-border-faint)]"
                       >
-                        <td className="te-col-date">
+                        <td className="w-48 whitespace-nowrap py-2.5 px-3">
                           {formatDatePrecise(row.timeCreated)}
                         </td>
-                        <td>
+                        <td className="py-2.5 px-3">
                           <Link
                             to={`/tool-errors/${encodeURIComponent(row.tool)}`}
                           >
                             {row.tool}
                           </Link>
                         </td>
-                        <td className="te-col-session">
+                        <td className="w-56 py-2.5 px-3 font-mono text-xs">
                           <Link
                             to={`/session/${encodeURIComponent(row.sessionId)}`}
                           >
                             {row.sessionId}
                           </Link>
                         </td>
-                        <td className="te-col-error">
+                        <td className="whitespace-pre-wrap break-words py-2.5 px-3">
                           {row.error || "(no message)"}
                         </td>
                       </tr>
@@ -205,7 +240,9 @@ function ToolErrorsOverview() {
                 </table>
               </div>
             ) : (
-              <p className="empty-copy">No recent errors</p>
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                No recent errors
+              </p>
             )}
           </section>
         </>
@@ -220,35 +257,47 @@ function ToolErrorsDetail({ tool }: { tool: string }) {
   );
 
   return (
-    <section className="surface">
-      <div className="breadcrumb">
-        <Link to="/">Dashboard</Link>
-        <span className="sep">/</span>
-        <Link to="/tool-errors">Tool errors</Link>
-        <span className="sep">/</span>
+    <section className="grid gap-2.5">
+      <nav className="mb-4 text-[0.85em] text-[var(--color-text-secondary)]">
+        <Link to="/" className="text-[var(--color-accent)]">
+          Dashboard
+        </Link>
+        <span className="mx-1.5">/</span>
+        <Link to="/tool-errors" className="text-[var(--color-accent)]">
+          Tool errors
+        </Link>
+        <span className="mx-1.5">/</span>
         <span>{tool}</span>
-      </div>
+      </nav>
 
       {loading ? (
-        <p className="state" data-testid="route-loading">
+        <p
+          className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Loading tool errors...
         </p>
       ) : null}
 
       {error ? (
-        <p className="state state-error" data-testid="route-error">
+        <p
+          className="rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+          data-testid="route-error"
+        >
           Failed to load tool errors: {error}
         </p>
       ) : null}
 
       {data ? (
         <>
-          <section className="card">
-            <h2 className="tool-errors-title">Tool Errors: {data.tool}</h2>
-            <p className="tool-errors-subtitle">
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h2 className="m-0 text-[1.35em] font-bold">
+              Tool Errors: {data.tool}
+            </h2>
+            <p className="mt-1 text-[0.85em] text-[var(--color-text-secondary)]">
               Error timeline for the past 30 days
             </p>
-            <div className="tool-errors-chart-wrap">
+            <div className="mt-3 overflow-x-auto pb-1">
               <ErrorTimelineChart
                 data={data.dailyErrorCounts}
                 toolName={data.tool}
@@ -256,32 +305,41 @@ function ToolErrorsDetail({ tool }: { tool: string }) {
             </div>
           </section>
 
-          <section className="card">
-            <h3 className="tool-errors-table-title">Latest 200 Errors</h3>
+          <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+            <h3 className="m-0 mb-3 text-base font-bold">Latest 200 Errors</h3>
             {data.latestErrors.length > 0 ? (
-              <div className="tool-errors-table-wrap">
-                <table className="tool-errors-table">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr>
-                      <th className="te-col-date">Datetime</th>
-                      <th className="te-col-session">Session</th>
-                      <th className="te-col-error">Error Message</th>
+                      <th className="w-48 whitespace-nowrap text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Datetime
+                      </th>
+                      <th className="w-56 text-left font-mono text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Session
+                      </th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2">
+                        Error Message
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.latestErrors.map((row) => (
-                      <tr key={`${row.sessionId}-${row.timeCreated}`}>
-                        <td className="te-col-date">
+                      <tr
+                        key={`${row.sessionId}-${row.timeCreated}`}
+                        className="border-b border-[var(--color-border-faint)]"
+                      >
+                        <td className="w-48 whitespace-nowrap py-2.5 px-3">
                           {formatDatePrecise(row.timeCreated)}
                         </td>
-                        <td className="te-col-session">
+                        <td className="w-56 py-2.5 px-3 font-mono text-xs">
                           <Link
                             to={`/session/${encodeURIComponent(row.sessionId)}`}
                           >
                             {row.sessionId}
                           </Link>
                         </td>
-                        <td className="te-col-error">
+                        <td className="whitespace-pre-wrap break-words py-2.5 px-3">
                           {row.error || "(no message)"}
                         </td>
                       </tr>
@@ -290,7 +348,9 @@ function ToolErrorsDetail({ tool }: { tool: string }) {
                 </table>
               </div>
             ) : (
-              <p className="empty-copy">No errors recorded for this tool</p>
+              <p className="text-sm text-[var(--color-text-secondary)]">
+                No errors recorded for this tool
+              </p>
             )}
           </section>
         </>
@@ -307,7 +367,11 @@ function ErrorTimelineChart({
   toolName: string;
 }) {
   if (data.length === 0) {
-    return <p className="empty-copy">No timeline data available</p>;
+    return (
+      <p className="text-sm text-[var(--color-text-secondary)]">
+        No timeline data available
+      </p>
+    );
   }
 
   return (
