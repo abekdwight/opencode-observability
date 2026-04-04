@@ -18,29 +18,49 @@ import css from "./SessionDetailPage.module.css";
 function useVirtuosoNavigation(
   listRef: React.RefObject<VirtuosoHandle | null>,
   visibleCount: number,
-): { navIndex: number; jump: (dir: number) => void } {
-  const [navIndex, setNavIndex] = React.useState(-1);
+): {
+  navIndex: number;
+  jump: (dir: number) => void;
+  onRangeChanged: (range: { startIndex: number; endIndex: number }) => void;
+} {
+  // Track the currently visible range via ref (no re-renders on scroll)
+  const visibleRangeRef = React.useRef({ startIndex: 0, endIndex: 0 });
+  // navIndex is state for display in the counter
+  const [navIndex, setNavIndex] = React.useState(() =>
+    visibleCount > 0 ? visibleCount - 1 : 0,
+  );
 
-  // Sync initial index to last message when data loads
+  // Initialize to last message when data first loads
   React.useEffect(() => {
-    if (visibleCount > 0 && navIndex < 0) {
+    if (visibleCount > 0) {
       setNavIndex(visibleCount - 1);
+      visibleRangeRef.current = {
+        startIndex: visibleCount - 1,
+        endIndex: visibleCount - 1,
+      };
     }
-  }, [visibleCount, navIndex]);
+  }, [visibleCount]);
+
+  const onRangeChanged = React.useCallback(
+    (range: { startIndex: number; endIndex: number }) => {
+      visibleRangeRef.current = range;
+    },
+    [],
+  );
 
   const jump = React.useCallback(
     (dir: number) => {
       if (visibleCount === 0) return;
-      setNavIndex((prev) => {
-        const cur = prev < 0 ? visibleCount - 1 : prev;
-        const next = Math.max(0, Math.min(visibleCount - 1, cur + dir));
-        listRef.current?.scrollToIndex({
-          index: next,
-          behavior: "smooth",
-          align: "start",
-        });
-        return next;
+      // Determine current position from the visible range
+      const { startIndex, endIndex } = visibleRangeRef.current;
+      const current = dir > 0 ? endIndex : startIndex;
+      const next = Math.max(0, Math.min(visibleCount - 1, current + dir));
+      listRef.current?.scrollToIndex({
+        index: next,
+        behavior: "smooth",
+        align: "start",
       });
+      setNavIndex(next);
     },
     [visibleCount, listRef],
   );
@@ -63,7 +83,7 @@ function useVirtuosoNavigation(
     return () => document.removeEventListener("keydown", handler);
   }, [jump]);
 
-  return { navIndex, jump };
+  return { navIndex, jump, onRangeChanged };
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +188,7 @@ export function SessionDetailPage(): React.ReactElement {
   }, [messages, filterMode]);
 
   // Navigation
-  const { navIndex, jump: jumpMessage } = useVirtuosoNavigation(
+  const { navIndex, jump: jumpMessage, onRangeChanged } = useVirtuosoNavigation(
     listRef,
     visibleCount,
   );
@@ -292,6 +312,7 @@ export function SessionDetailPage(): React.ReactElement {
             openDetails={openDetails}
             onToggleToolDetail={toggleToolDetail}
             listRef={listRef}
+            onRangeChanged={onRangeChanged}
           />
 
           <ControlBar

@@ -14,6 +14,7 @@ export interface MessageListProps {
   openDetails: Set<string>;
   onToggleToolDetail: (id: string) => void;
   listRef: React.RefObject<VirtuosoHandle | null>;
+  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void;
 }
 
 /**
@@ -47,6 +48,7 @@ export function MessageList({
   openDetails,
   onToggleToolDetail,
   listRef,
+  onRangeChanged,
 }: MessageListProps): React.ReactElement {
   const filteredMessages = useFilteredMessages(messages, filterMode);
 
@@ -77,6 +79,7 @@ export function MessageList({
       data={filteredMessages}
       initialTopMostItemIndex={filteredMessages.length - 1}
       overscan={200}
+      rangeChanged={onRangeChanged}
       itemContent={(_index, item) => (
         <div className={styles.chat}>
           <MessageRow
