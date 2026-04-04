@@ -10,10 +10,9 @@ import { SessionTopBar } from "./components/SessionTopBar";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { ControlBar } from "./components/ControlBar";
 import { MessageList } from "./components/MessageList";
-import css from "./SessionDetailPage.module.css";
 
 // ---------------------------------------------------------------------------
-// useVirtuosoNavigation — navigation adapted for Virtuoso scrolling
+// useVirtuosoNavigation -- navigation adapted for Virtuoso scrolling
 // ---------------------------------------------------------------------------
 function useVirtuosoNavigation(
   listRef: React.RefObject<VirtuosoHandle | null>,
@@ -131,9 +130,9 @@ function useSessionShortcuts(actions: {
 }
 
 // ---------------------------------------------------------------------------
-// SessionDetailPage — page-level orchestrator
+// SessionDetailPage -- page-level orchestrator
 // ---------------------------------------------------------------------------
-export function SessionDetailPage(): React.ReactElement {
+export function SessionDetailPage(): React.ReactElement | null {
   const { sessionId = "" } = useParams();
   const navigate = useNavigate();
   const { data, error, loading } = useJson<SessionDetailContract>(
@@ -286,12 +285,11 @@ export function SessionDetailPage(): React.ReactElement {
 
   if (!data) return null;
 
-  const ideLayoutClass = sidebarOpen
-    ? css.ideLayout
-    : `${css.ideLayout} ${css.sidebarCollapsed}`;
-
   return (
-    <section className={`session-detail-page ${css.page}`} data-testid="session-detail">
+    <section
+      className="session-detail-page flex-1 flex flex-col overflow-hidden p-0"
+      data-testid="session-detail"
+    >
       <SessionTopBar
         session={data.session}
         copyState={copyState}
@@ -301,8 +299,8 @@ export function SessionDetailPage(): React.ReactElement {
         onToggleSidebar={toggleSidebar}
       />
 
-      <div className={ideLayoutClass}>
-        <div className={css.main}>
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 w-full">
           <MessageList
             messages={data.messages}
             filterMode={filterMode}

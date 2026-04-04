@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import { renderSafeMarkdown as renderSharedMarkdown } from "../../../../src/lib/rendering.js";
+import { cn } from "../../../lib/cn";
 import { formatDurationShort, formatTimestampShort } from "../../../lib/format";
 import { COLLAPSE_HEIGHT, MERMAID_SELECTOR } from "../lib/constants";
 import {
@@ -12,7 +13,6 @@ import {
 } from "../lib/mermaid-utils";
 import { ToolTimeline } from "./ToolTimeline";
 import { MermaidLightbox } from "./MermaidLightbox";
-import css from "./MessageRow.module.css";
 
 export interface MessageRowProps {
   msg: SessionMessageContract;
@@ -62,7 +62,7 @@ export const MessageRow = React.memo(function MessageRow({
     trigger: HTMLElement | null;
   } | null>(null);
 
-  // Set innerHTML via layout effect — React won't manage these children,
+  // Set innerHTML via layout effect -- React won't manage these children,
   // so imperative DOM modifications (mermaid enhancement) survive re-renders.
   React.useLayoutEffect(() => {
     if (contentRef.current) {
@@ -139,7 +139,7 @@ export const MessageRow = React.memo(function MessageRow({
       const mermaidClient = await getMermaidClient();
       if (disposed) return;
 
-      // Re-query DOM after await — nodes captured before the await may have
+      // Re-query DOM after await -- nodes captured before the await may have
       // been detached by React reconciliation (e.g. Virtuoso re-mount).
       const freshRoot = contentRef.current;
       if (!freshRoot) return;
@@ -263,21 +263,17 @@ export const MessageRow = React.memo(function MessageRow({
     </div>
   );
 
-  // Compose body classes using CSS module for collapse state
-  const bodyClasses = [
-    "message-body",
-    isCollapsed ? css.bodyCollapsed : css.bodyNotCollapsed,
-    isOverflowing ? css.bodyOverflows : css.bodyNotOverflows,
-  ].join(" ");
-
-  // Expand button text
+  // Determine whether to show expand button and fade
+  const showFade = isCollapsed && isOverflowing;
+  const showExpandBtn =
+    (isCollapsed && isOverflowing) || (!isCollapsed && isOverflowing);
   const expandText = isCollapsed
     ? "\u7D9A\u304D\u3092\u8868\u793A"
     : "\u6298\u308A\u305F\u305F\u3080";
 
   return (
     <div
-      className={`message ${roleClass}${hidden ? " hidden" : ""}`}
+      className={cn("message", roleClass, hidden && "hidden")}
       data-role={msg.role}
       data-testid={`message-${msgIdx}`}
     >
@@ -297,22 +293,36 @@ export const MessageRow = React.memo(function MessageRow({
           onToggleDetail={onToggleDetail}
         />
       ) : null}
-      <div className={bodyClasses} ref={bodyRef}>
+      <div className="message-body" ref={bodyRef}>
         <div
-          className="message-content"
+          className={cn(
+            "message-content",
+            isCollapsed && "max-h-[300px] overflow-hidden",
+          )}
           ref={contentRef}
         />
-        <div className="message-raw">
+        <div
+          className={cn(
+            "message-raw",
+            isCollapsed && "max-h-[300px] overflow-hidden",
+          )}
+        >
           <span className="raw-label">
             {roleLabel} ({dateStr})
           </span>
           {"\n"}
           {msg.text}
         </div>
-        <div className="content-fade" />
+        <div
+          className={cn("content-fade", !showFade && "!hidden")}
+        />
         <button
           type="button"
-          className="expand-btn"
+          className={cn(
+            "expand-btn",
+            !showExpandBtn && "!hidden",
+            !isCollapsed && isOverflowing && "!block text-[var(--color-text-secondary)]",
+          )}
           onClick={handleToggle}
         >
           {expandText}

@@ -1,5 +1,5 @@
 import React from "react";
-import styles from "./DiffView.module.css";
+import { cn } from "../../../lib/cn";
 
 export interface DiffViewProps {
   diff: string;
@@ -13,15 +13,23 @@ export const DiffView = React.memo(function DiffView({ diff }: DiffViewProps) {
   const lines = React.useMemo(() => diff.split("\n"), [diff]);
 
   return (
-    <pre className={styles.diffView}>
+    <pre
+      className={cn(
+        "text-[0.8em] leading-relaxed overflow-x-auto",
+        "bg-[#1e1e1e] text-[#d4d4d4]",
+        "p-[var(--space-lg)] rounded-[var(--radius-md)]",
+        "whitespace-pre-wrap break-words",
+        "max-h-[500px] overflow-y-auto m-0",
+      )}
+    >
       {lines.map((line, i) => {
         let className: string | undefined;
         if (line.startsWith("+")) {
-          className = styles.diffAdd;
+          className = "text-[var(--color-diff-add)]";
         } else if (line.startsWith("-")) {
-          className = styles.diffDel;
+          className = "text-[var(--color-diff-del)]";
         } else if (line.startsWith("@@")) {
-          className = styles.diffHunk;
+          className = "text-[var(--color-diff-hunk)]";
         }
 
         return (

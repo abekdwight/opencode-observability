@@ -4,13 +4,13 @@ import type {
   SessionToolCallContract,
 } from "../../../../src/contracts/session.js";
 import { renderSafeMarkdown as renderSharedMarkdown } from "../../../../src/lib/rendering.js";
+import { cn } from "../../../lib/cn";
 import {
   formatDuration,
   formatTimestamp,
   formatTokens,
 } from "../../../lib/format";
 import { DiffView } from "./DiffView";
-import styles from "./SessionSidebar.module.css";
 
 export interface SessionSidebarProps {
   data: SessionDetailContract;
@@ -138,7 +138,7 @@ interface SkillInvocation {
 }
 
 // ---------------------------------------------------------------------------
-// Resize handle hook — drag left edge to change sidebar width
+// Resize handle hook -- drag left edge to change sidebar width
 // ---------------------------------------------------------------------------
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 600;
@@ -206,6 +206,24 @@ function useSidebarResize() {
   return { width, onPointerDown, onPointerMove, onPointerUp };
 }
 
+// ---------------------------------------------------------------------------
+// Sidebar accordion section title classes
+// ---------------------------------------------------------------------------
+const sectionTitleClasses = cn(
+  "text-[0.7em] font-bold uppercase tracking-widest",
+  "text-[var(--color-text-secondary)]",
+  "mb-[var(--space-sm)] pb-[var(--space-xs)]",
+  "border-b border-[var(--color-border-subtle)]",
+);
+
+const accordionSummaryClasses = cn(
+  "text-[0.7em] font-bold uppercase tracking-widest",
+  "text-[var(--color-text-secondary)]",
+  "cursor-pointer py-[var(--space-sm)]",
+  "border-b border-[var(--color-border-subtle)]",
+  "list-none flex items-center gap-[var(--space-sm)]",
+);
+
 /**
  * Right sidebar panel with overview stats, models, skills, todos, and diffs.
  */
@@ -247,46 +265,57 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     return { loadedSkillNames: names, skillInvocations: invocations };
   }, [data.messages]);
 
-  const sidebarClass = open
-    ? styles.sessionSidebar
-    : `${styles.sessionSidebar} ${styles.sessionSidebarCollapsed}`;
-
   return (
     <aside
-      className={sidebarClass}
+      className={cn(
+        "absolute top-0 right-0 bottom-0 w-[360px]",
+        "border-l border-[var(--color-border-subtle)]",
+        "bg-[var(--color-bg-surface-translucent)] backdrop-blur-[12px]",
+        "flex flex-col overflow-hidden",
+        "z-[var(--z-sidebar)] shadow-[var(--shadow-sidebar)]",
+        "translate-x-0 transition-[transform,opacity] duration-200",
+        "max-[600px]:w-full max-[600px]:border-l-0",
+        !open && "translate-x-full opacity-0 pointer-events-none",
+      )}
       data-testid="session-sidebar"
       style={{ width: open ? resize.width : undefined }}
     >
-      {/* Resize handle — drag to change width */}
+      {/* Resize handle -- drag to change width */}
       <div
-        className={styles.resizeHandle}
+        className={cn(
+          "absolute top-0 -left-[3px] bottom-0 w-1.5",
+          "cursor-col-resize z-[1]",
+          "bg-transparent transition-[background] duration-150",
+          "hover:bg-[var(--color-accent)] hover:opacity-30",
+          "active:bg-[var(--color-accent)] active:opacity-30",
+        )}
         onPointerDown={resize.onPointerDown}
         onPointerMove={resize.onPointerMove}
         onPointerUp={resize.onPointerUp}
         onPointerCancel={resize.onPointerUp}
       />
-      <div className={styles.sidebarScroll}>
+      <div className="flex-1 overflow-y-auto px-[var(--space-xl)] py-[var(--space-lg)]">
         {/* Quick stats */}
-        <div className={styles.sidebarSection}>
-          <div className={styles.sidebarSectionTitle}>Overview</div>
-          <div className={styles.sidebarStats}>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Duration</span>
-              <span className={styles.sidebarStatValue}>
+        <div className="mb-[var(--space-lg)]">
+          <div className={sectionTitleClasses}>Overview</div>
+          <div className="flex flex-col gap-[var(--space-sm)]">
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Duration</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatDuration(data.durationMs)}
               </span>
             </div>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Started</span>
-              <span className={styles.sidebarStatValue}>
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Started</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatTimestamp(data.session.createdAt)}
               </span>
             </div>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Messages</span>
-              <span className={styles.sidebarStatValue}>
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Messages</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {data.messages.length}
-                <span className={styles.sidebarStatSub}>
+                <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                   User{" "}
                   {data.messages.filter((m) => m.role === "user").length} /
                   Assistant{" "}
@@ -294,44 +323,44 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 </span>
               </span>
             </div>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Tool Calls</span>
-              <span className={styles.sidebarStatValue}>
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Tool Calls</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {data.messages.reduce(
                   (sum, m) => sum + m.toolCalls.length,
                   0,
                 )}
                 {data.subagents.length > 0 ? (
-                  <span className={styles.sidebarStatSub}>
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                     Subagents {data.subagents.length}
                   </span>
                 ) : null}
               </span>
             </div>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Tokens</span>
-              <span className={styles.sidebarStatValue}>
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Tokens</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatTokens(data.tokens.total)}
-                <span className={styles.sidebarStatSub}>
+                <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                   In {formatTokens(data.tokens.input)} / Out{" "}
                   {formatTokens(data.tokens.output)}
                 </span>
               </span>
             </div>
-            <div className={styles.sidebarStat}>
-              <span className={styles.sidebarStatLabel}>Cost</span>
-              <span className={styles.sidebarStatValue}>
+            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)] last:border-b-0">
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Cost</span>
+              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {data.tokens.cost > 0
                   ? `$${data.tokens.cost.toFixed(4)}`
                   : "$0.00"}
               </span>
             </div>
             {(data.session.summary?.files ?? 0) > 0 ? (
-              <div className={styles.sidebarStat}>
-                <span className={styles.sidebarStatLabel}>File Changes</span>
-                <span className={styles.sidebarStatValue}>
+              <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)]">
+                <span className="text-[var(--color-text-secondary)] font-medium shrink-0">File Changes</span>
+                <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                   {data.session.summary.files} files
-                  <span className={styles.sidebarStatSub}>
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                     +{data.session.summary.additions} -{data.session.summary.deletions}
                   </span>
                 </span>
@@ -341,24 +370,26 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </div>
 
         {/* Directory */}
-        <div className={styles.sidebarSection}>
-          <div className={styles.sidebarSectionTitle}>Directory</div>
-          <div className={styles.sidebarDir}>{prettyDir}</div>
+        <div className="mb-[var(--space-lg)]">
+          <div className={sectionTitleClasses}>Directory</div>
+          <div className="text-[0.75em] font-[var(--font-mono)] text-[var(--color-text-secondary)] break-all">
+            {prettyDir}
+          </div>
         </div>
 
         {/* Todos */}
         {todos.length > 0 ? (
           <details
-            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+            className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="todos-accordion"
           >
-            <summary className={styles.sidebarAccordionSummary}>
+            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
               Todos{" "}
-              <span className={styles.sidebarBadge}>
+              <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
                 {doneCount}/{todos.length}
               </span>
             </summary>
-            <div className={styles.sidebarAccordionBody}>
+            <div className="py-[var(--space-sm)]">
               {todos.map((t) => {
                 const icon =
                   t.status === "completed"
@@ -373,7 +404,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 return (
                   <div
                     key={`${t.content}-${t.status}-${t.priority}`}
-                    className={styles.todoItem}
+                    className="text-[0.9em] py-[var(--space-xs)] flex gap-[var(--space-sm)] items-start"
                     style={dim ? { opacity: 0.6 } : undefined}
                   >
                     {icon} <span>{t.content}</span>
@@ -387,25 +418,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         {/* Model Breakdown */}
         {data.modelBreakdown.length > 0 ? (
           <details
-            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+            className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="model-breakdown-accordion"
           >
-            <summary className={styles.sidebarAccordionSummary}>
+            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
               Models{" "}
-              <span className={styles.sidebarBadge}>
+              <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
                 {data.modelBreakdown.length}
               </span>
             </summary>
-            <div className={styles.sidebarAccordionBody}>
+            <div className="py-[var(--space-sm)]">
               {data.modelBreakdown.map((model) => (
                 <div
                   key={`${model.modelId}-${model.providerId}`}
-                  className={styles.sidebarModelRow}
+                  className="py-[var(--space-sm)] border-b border-[var(--color-border-faint)] last:border-b-0"
                 >
-                  <div className={styles.sidebarModelName}>
+                  <div className="text-[0.82em] font-semibold text-[var(--color-text-primary)] mb-0.5">
                     {model.modelId}
                   </div>
-                  <div className={styles.sidebarModelMeta}>
+                  <div className="flex flex-wrap gap-[var(--space-sm)] text-[0.72em] text-[var(--color-text-tertiary)]">
                     <span>{model.providerId}</span>
                     <span>{model.messageCount} msgs</span>
                     <span>{formatTokens(model.totalTokens)} tokens</span>
@@ -421,20 +452,22 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </details>
         ) : null}
 
-        {/* Loaded Skills — always shown */}
+        {/* Loaded Skills -- always shown */}
         <details
-          className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+          className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
           data-testid="loaded-skills-accordion"
         >
-          <summary className={styles.sidebarAccordionSummary}>
+          <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
             Skills{" "}
-            <span className={styles.sidebarBadge}>
+            <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
               {loadedSkillNames.length}
             </span>
           </summary>
-          <div className={styles.sidebarAccordionBody}>
+          <div className="py-[var(--space-sm)]">
             {loadedSkillNames.length === 0 ? (
-              <div className={styles.sidebarEmpty}>No skills loaded</div>
+              <div className="text-[0.8em] text-[var(--color-text-tertiary)] py-[var(--space-xs)]">
+                No skills loaded
+              </div>
             ) : null}
             {loadedSkillNames.map((skillName) => {
                 const invocations = skillInvocations.filter(
@@ -452,11 +485,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                       : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
                     : "";
                 return (
-                  <div key={skillName} className={styles.sidebarSkillRow}>
+                  <div key={skillName} className="py-[var(--space-xs)]">
                     {hasDetail ? (
                       <button
                         type="button"
-                        className={styles.skillLineButton}
+                        className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
                         onClick={() => onToggleDetail(detailId)}
                       >
                         {"\u2699\uFE0F"} <span>{skillName}</span>
@@ -498,13 +531,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         {/* Diffs */}
         {data.summaryDiffs ? (
           <details
-            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+            className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="diffs-card"
           >
-            <summary className={styles.sidebarAccordionSummary}>
+            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
               Changes
             </summary>
-            <div className={styles.sidebarAccordionBody}>
+            <div className="py-[var(--space-sm)]">
               <DiffView diff={data.summaryDiffs} />
             </div>
           </details>
