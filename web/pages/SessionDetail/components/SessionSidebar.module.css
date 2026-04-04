@@ -167,6 +167,12 @@
   padding: var(--space-sm) 0;
 }
 
+.sidebarEmpty {
+  font-size: 0.8em;
+  color: var(--color-text-tertiary);
+  padding: var(--space-xs) 0;
+}
+
 /* Sidebar model rows */
 .sidebarModelRow {
   padding: var(--space-sm) 0;

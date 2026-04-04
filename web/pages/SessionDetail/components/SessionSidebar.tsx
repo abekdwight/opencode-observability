@@ -383,20 +383,22 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </details>
         ) : null}
 
-        {/* Loaded Skills */}
-        {loadedSkillNames.length > 0 ? (
-          <details
-            className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
-            data-testid="loaded-skills-accordion"
-          >
-            <summary className={styles.sidebarAccordionSummary}>
-              Skills{" "}
-              <span className={styles.sidebarBadge}>
-                {loadedSkillNames.length}
-              </span>
-            </summary>
-            <div className={styles.sidebarAccordionBody}>
-              {loadedSkillNames.map((skillName) => {
+        {/* Loaded Skills — always shown */}
+        <details
+          className={`${styles.sidebarSection} ${styles.sidebarAccordion}`}
+          data-testid="loaded-skills-accordion"
+        >
+          <summary className={styles.sidebarAccordionSummary}>
+            Skills{" "}
+            <span className={styles.sidebarBadge}>
+              {loadedSkillNames.length}
+            </span>
+          </summary>
+          <div className={styles.sidebarAccordionBody}>
+            {loadedSkillNames.length === 0 ? (
+              <div className={styles.sidebarEmpty}>No skills loaded</div>
+            ) : null}
+            {loadedSkillNames.map((skillName) => {
                 const invocations = skillInvocations.filter(
                   (s) => s.name === skillName,
                 );
@@ -454,7 +456,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               })}
             </div>
           </details>
-        ) : null}
 
         {/* Todos */}
         {todos.length > 0 ? (
