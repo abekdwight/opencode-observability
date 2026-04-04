@@ -53,18 +53,18 @@ function HelpButton() {
       </button>
       {open ? (
         <div className={styles.helpTooltip}>
-          <div className={styles.helpTitle}>Keyboard Shortcuts</div>
+          <div className={styles.helpTitle}>キーボードショートカット</div>
           <table className={styles.helpTable}>
             <tbody>
-              <tr><td className={styles.helpKey}><kbd>j</kbd> / <kbd>k</kbd></td><td>Next / Previous message</td></tr>
-              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Toggle collapse</td></tr>
-              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>U</kbd></td><td>Cycle filter (All/User/Assistant)</td></tr>
-              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Toggle Markdown / Plain text</td></tr>
-              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>.</kbd></td><td>Toggle tool calls</td></tr>
-              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Toggle sidebar</td></tr>
+              <tr><td className={styles.helpKey}><kbd>j</kbd> / <kbd>k</kbd></td><td>次 / 前のメッセージ</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>折りたたみ切替</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>U</kbd></td><td>フィルタ切替（全/User/Assistant）</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Markdown / プレーンテキスト切替</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>.</kbd></td><td>ツール呼出の表示切替</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>サイドバー切替</td></tr>
             </tbody>
           </table>
-          <div className={styles.helpNote}>Mac: use <kbd>Cmd</kbd> instead of <kbd>Ctrl</kbd></div>
+          <div className={styles.helpNote}>Mac: <kbd>Ctrl</kbd> の代わりに <kbd>Cmd</kbd> を使用</div>
         </div>
       ) : null}
     </div>
