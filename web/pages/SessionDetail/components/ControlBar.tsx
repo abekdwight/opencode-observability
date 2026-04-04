@@ -17,6 +17,60 @@ export interface ControlBarProps {
   onJump: (dir: number) => void;
 }
 
+// ---------------------------------------------------------------------------
+// HelpButton — ? icon with tooltip showing keyboard shortcuts
+// ---------------------------------------------------------------------------
+function HelpButton() {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className={styles.helpWrap} ref={ref}>
+      <button
+        type="button"
+        className={styles.helpBtn}
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Keyboard shortcuts"
+        data-testid="btn-help"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-hidden="true">
+          <circle cx="8" cy="8" r="7" />
+          <path d="M5.5 6a2.5 2.5 0 0 1 5 0c0 1.5-2.5 1.5-2.5 3" />
+          <circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
+      {open ? (
+        <div className={styles.helpTooltip}>
+          <div className={styles.helpTitle}>Keyboard Shortcuts</div>
+          <table className={styles.helpTable}>
+            <tbody>
+              <tr><td className={styles.helpKey}><kbd>j</kbd> / <kbd>k</kbd></td><td>Next / Previous message</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Toggle collapse</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>U</kbd></td><td>Cycle filter (All/User/Assistant)</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Toggle Markdown / Plain text</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>.</kbd></td><td>Toggle tool calls</td></tr>
+              <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Toggle sidebar</td></tr>
+            </tbody>
+          </table>
+          <div className={styles.helpNote}>Mac: use <kbd>Cmd</kbd> instead of <kbd>Ctrl</kbd></div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Bottom toolbar with collapse, filter, plain-mode, tools-toggle, and navigation controls.
  */
@@ -141,6 +195,10 @@ export const ControlBar = React.memo(function ControlBar({
             <path d="M4 6l4 4 4-4" />
           </svg>
         </button>
+
+        <div className={styles.ctrlSep} />
+
+        <HelpButton />
       </div>
     </div>
   );
