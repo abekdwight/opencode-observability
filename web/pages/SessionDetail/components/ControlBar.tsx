@@ -56,7 +56,7 @@ function HelpButton() {
           <div className={styles.helpTitle}>キーボードショートカット</div>
           <table className={styles.helpTable}>
             <tbody>
-              <tr><td className={styles.helpKey}><kbd>j</kbd> / <kbd>k</kbd></td><td>次 / 前のメッセージ</td></tr>
+              <tr><td className={styles.helpKey}><kbd>j</kbd> / <kbd>k</kbd></td><td>次 / 前のメッセージへジャンプ</td></tr>
               <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>折りたたみ切替</td></tr>
               <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>U</kbd></td><td>フィルタ切替（全/User/Assistant）</td></tr>
               <tr><td className={styles.helpKey}><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Markdown / プレーンテキスト切替</td></tr>
