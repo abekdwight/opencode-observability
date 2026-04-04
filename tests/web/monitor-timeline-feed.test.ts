@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "vitest";
 import type { MonitorTimelineEventContract } from "../../src/contracts/monitor-timeline.js";
-import type { TimelineSessionCache } from "../../web/hooks/useMonitorTimelineFeed.js";
+import type { TimelineSessionCache } from "../../web/hooks/use-monitor-timeline-feed.js";
 import {
   bucketizeEvents,
   classifyEventLane,
@@ -21,7 +21,7 @@ import {
   TIMELINE_OPERATOR_LANES,
   TIMELINE_WINDOW_MS,
   timelineFeedReducer,
-} from "../../web/hooks/useMonitorTimelineFeed.js";
+} from "../../web/hooks/use-monitor-timeline-feed.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers

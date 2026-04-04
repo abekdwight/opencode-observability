@@ -3,7 +3,7 @@ import type { MonitorSessionSummary } from "../../src/contracts/monitor.js";
 import {
   isLegacySourceSession,
   mergeRetainedMonitorSessions,
-} from "../../web/hooks/useMonitorFeed.js";
+} from "../../web/hooks/use-monitor-feed.js";
 
 function makeSession(
   id: string,
