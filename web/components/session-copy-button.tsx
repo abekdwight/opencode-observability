@@ -1,4 +1,5 @@
 import React from "react";
+import { cn } from "../lib/cn";
 
 interface SessionCopyButtonProps {
   sessionId: string;
@@ -82,14 +83,6 @@ export function SessionCopyButton({
     [],
   );
 
-  const className = [
-    "session-copy-btn",
-    state === "copied" ? "copied" : "",
-    state === "error" ? "copy-error" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
   const label =
     state === "copied"
       ? `${sessionId} のコマンドをコピーしました`
@@ -99,13 +92,20 @@ export function SessionCopyButton({
 
   return (
     <button
-      className={className}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-2 py-2 text-[0.8em] text-[var(--color-text-primary)] transition-all duration-200 hover:bg-[var(--color-accent-bg)]",
+        state === "copied" && "border-[#4caf50] bg-[#e8f4ec] text-[#2e7d32] [&_.copy-icon]:hidden [&_.check-icon]:inline-flex",
+        state === "error" && "border-[var(--color-error-border)] bg-[var(--color-error-bg)] text-[var(--color-error)]",
+        state !== "copied" && "[&_.check-icon]:hidden",
+      )}
       type="button"
       aria-label={label}
       title={label}
       onClick={handleCopy}
+      disabled={state !== "idle"}
+      style={state !== "idle" ? { opacity: 0.72, cursor: "default" } : undefined}
     >
-      <span className="session-copy-icon-copy" aria-hidden="true">
+      <span className="copy-icon inline-flex size-[0.95em] shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-full" aria-hidden="true">
         <svg
           width="14"
           height="14"
@@ -122,7 +122,7 @@ export function SessionCopyButton({
           <path d="M5 15V5a2 2 0 0 1 2-2h10" />
         </svg>
       </span>
-      <span className="session-copy-icon-check" aria-hidden="true">
+      <span className="check-icon inline-flex size-[0.95em] shrink-0 items-center justify-center [&_svg]:block [&_svg]:size-full" aria-hidden="true">
         <svg
           width="14"
           height="14"
@@ -138,7 +138,7 @@ export function SessionCopyButton({
           <polyline points="20 6 10 18 4 12" />
         </svg>
       </span>
-      <span className="session-copy-id">{sessionId}</span>
+      <span className="whitespace-nowrap font-[var(--font-mono)] text-[0.8em]">{sessionId}</span>
     </button>
   );
 }

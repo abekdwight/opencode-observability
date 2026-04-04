@@ -268,8 +268,8 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   if (loading) {
     return (
-      <section className="surface">
-        <p className="state" data-testid="route-loading">
+      <section className="grid gap-2.5">
+        <p className="m-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]" data-testid="route-loading">
           Loading session detail...
         </p>
       </section>
@@ -278,8 +278,8 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   if (error) {
     return (
-      <section className="surface">
-        <p className="state state-error" data-testid="route-error">
+      <section className="grid gap-2.5">
+        <p className="m-0 rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]" data-testid="route-error">
           Session API unavailable: {error}
         </p>
       </section>

@@ -1,5 +1,6 @@
 import React from "react";
 import type { DashboardHeatmapDayContract } from "../../../src/contracts/dashboard";
+import { useTheme } from "../../hooks/use-theme";
 
 const CELL = 13;
 const GAP = 2;
@@ -7,13 +8,36 @@ const STEP = CELL + GAP;
 const LEFT_PAD = 28;
 const TOP_PAD = 20;
 
-function getColor(cnt: number, maxCount: number): string {
-  if (cnt === 0) return "#ebedf0";
+const LIGHT_PALETTE = {
+  empty: "#ebedf0",
+  low: "#9be9a8",
+  mid: "#40c463",
+  high: "#30a14e",
+  max: "#216e39",
+  text: "#86868b",
+  tooltipBg: "#1d1d1f",
+  tooltipText: "#fff",
+};
+
+const DARK_PALETTE = {
+  empty: "#1c1c1e",
+  low: "#0e4429",
+  mid: "#006d32",
+  high: "#26a641",
+  max: "#39d353",
+  text: "#8b8b8e",
+  tooltipBg: "#ececef",
+  tooltipText: "#0a0a0b",
+};
+
+function getColor(cnt: number, maxCount: number, isDark: boolean): string {
+  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+  if (cnt === 0) return palette.empty;
   const ratio = cnt / maxCount;
-  if (ratio < 0.25) return "#9be9a8";
-  if (ratio < 0.5) return "#40c463";
-  if (ratio < 0.75) return "#30a14e";
-  return "#216e39";
+  if (ratio < 0.25) return palette.low;
+  if (ratio < 0.5) return palette.mid;
+  if (ratio < 0.75) return palette.high;
+  return palette.max;
 }
 
 function toDateStr(d: Date): string {
@@ -56,6 +80,10 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
   startDay,
   endDay,
 }: Props) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
+
   const dayMap = React.useMemo(() => {
     const m = new Map<string, number>();
     for (const { day, count } of dayCounts) m.set(day, count);
@@ -106,7 +134,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
   } | null>(null);
 
   return (
-    <div className="heatmap-scroll">
+    <div className="overflow-x-auto pb-1">
       <svg
         width={svgWidth}
         height={svgHeight}
@@ -126,7 +154,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
             x={0}
             y={TOP_PAD + row * STEP + CELL - 2}
             fontSize={9}
-            fill="#86868b"
+            fill={palette.text}
             fontFamily="system-ui,sans-serif"
           >
             {label}
@@ -140,7 +168,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
             x={LEFT_PAD + col * STEP}
             y={TOP_PAD - 6}
             fontSize={10}
-            fill="#86868b"
+            fill={palette.text}
             fontFamily="system-ui,sans-serif"
           >
             {label}
@@ -172,7 +200,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
               width={CELL}
               height={CELL}
               rx={2}
-              fill={getColor(cnt, maxCount)}
+              fill={getColor(cnt, maxCount, isDark)}
               onPointerEnter={() =>
                 setTooltip({ x: x + CELL / 2, y, text: title })
               }
@@ -192,14 +220,14 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
               width={140}
               height={22}
               rx={4}
-              fill="#1d1d1f"
+              fill={palette.tooltipBg}
             />
             <text
               x={tooltip.x}
               y={tooltip.y - 14}
               textAnchor="middle"
               fontSize={11}
-              fill="#fff"
+              fill={palette.tooltipText}
               fontFamily="system-ui,sans-serif"
             >
               {tooltip.text}
@@ -208,7 +236,7 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
         ) : null}
       </svg>
 
-      <div className="heatmap-legend">
+      <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
         <span>Less</span>
         <svg
           width={68}
@@ -217,11 +245,11 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
           aria-label="Heatmap color legend"
         >
           <title>Legend</title>
-          <rect x={0} y={0} width={12} height={12} rx={2} fill="#ebedf0" />
-          <rect x={14} y={0} width={12} height={12} rx={2} fill="#9be9a8" />
-          <rect x={28} y={0} width={12} height={12} rx={2} fill="#40c463" />
-          <rect x={42} y={0} width={12} height={12} rx={2} fill="#30a14e" />
-          <rect x={56} y={0} width={12} height={12} rx={2} fill="#216e39" />
+          <rect x={0} y={0} width={12} height={12} rx={2} fill={palette.empty} />
+          <rect x={14} y={0} width={12} height={12} rx={2} fill={palette.low} />
+          <rect x={28} y={0} width={12} height={12} rx={2} fill={palette.mid} />
+          <rect x={42} y={0} width={12} height={12} rx={2} fill={palette.high} />
+          <rect x={56} y={0} width={12} height={12} rx={2} fill={palette.max} />
         </svg>
         <span>More</span>
       </div>

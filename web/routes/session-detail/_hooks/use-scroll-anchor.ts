@@ -12,7 +12,7 @@ export function useScrollAnchor(
   const getAnchor = React.useCallback(() => {
     const container = containerRef.current;
     const nodes = container?.querySelectorAll<HTMLElement>(
-      ".message:not(.hidden)",
+      "[data-message-role]:not([data-hidden])",
     );
     if (!nodes || !container) return null;
     const containerTop = container.getBoundingClientRect().top;

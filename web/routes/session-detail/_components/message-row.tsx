@@ -40,7 +40,6 @@ export const MessageRow = React.memo(function MessageRow({
   onToggleDetail,
 }: MessageRowProps) {
   const isUser = msg.role === "user";
-  const roleClass = isUser ? "message-user" : "message-assistant";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
 
@@ -86,8 +85,8 @@ export const MessageRow = React.memo(function MessageRow({
 
     const checkOverflow = () => {
       const contentEl = plainMode
-        ? body.querySelector<HTMLElement>(".message-raw")
-        : body.querySelector<HTMLElement>(".message-content");
+        ? body.querySelector<HTMLElement>("[data-message-raw]")
+        : body.querySelector<HTMLElement>("[data-message-content]");
       if (!contentEl) {
         setIsOverflowing(false);
         return;
@@ -104,8 +103,8 @@ export const MessageRow = React.memo(function MessageRow({
       checkOverflow();
     });
     const contentEl = plainMode
-      ? body.querySelector<HTMLElement>(".message-raw")
-      : body.querySelector<HTMLElement>(".message-content");
+      ? body.querySelector<HTMLElement>("[data-message-raw]")
+      : body.querySelector<HTMLElement>("[data-message-content]");
     if (contentEl) {
       observer.observe(contentEl);
     }
@@ -160,15 +159,15 @@ export const MessageRow = React.memo(function MessageRow({
         try {
           const previewButton = document.createElement("button");
           previewButton.type = "button";
-          previewButton.className = "mermaid-preview";
+          previewButton.className = "w-full rounded-xl border border-[var(--color-border-default)] bg-gradient-to-b from-[#fcfcfd] to-[#f5f5f7] p-3 text-left cursor-zoom-in transition-[border-color,box-shadow] duration-150 hover:border-[var(--color-accent)] hover:shadow-[0_0_0_2px_rgba(0,102,204,0.12)] dark:from-[var(--color-bg-elevated)] dark:to-[var(--color-bg-muted)]";
           previewButton.setAttribute("aria-label", "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}\u{8868}\u{793A}");
           previewButton.setAttribute("title", "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}");
 
           const previewCanvas = document.createElement("div");
-          previewCanvas.className = "mermaid-preview-canvas";
+          previewCanvas.className = "overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] p-2.5 flex justify-center items-start [&_svg]:block [&_svg]:max-w-full [&_svg]:w-auto [&_svg]:h-auto [&_svg]:m-0";
 
           const previewHint = document.createElement("span");
-          previewHint.className = "mermaid-preview-hint";
+          previewHint.className = "block mt-2 text-[var(--color-text-secondary)] text-xs tracking-[0.02em]";
           previewHint.textContent = "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}";
 
           const { svg } = await mermaidClient.render(
@@ -202,7 +201,7 @@ export const MessageRow = React.memo(function MessageRow({
             )
           ) {
             const errorNote = document.createElement("p");
-            errorNote.className = "mermaid-error-note";
+            errorNote.className = "mermaid-error-note my-2 text-[0.83em] font-medium text-[var(--color-error-text)]";
             errorNote.textContent =
               "Mermaid\u56F3\u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u305F\u305F\u3081\u3001\u30BD\u30FC\u30B9\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002";
             pre.before(errorNote);
@@ -226,20 +225,20 @@ export const MessageRow = React.memo(function MessageRow({
   if (!isUser) {
     if (msg.modelId) {
       metaChips.push(
-        <span key="model" className="meta-chip chip-model">
+        <span key="model" className="rounded-[var(--radius-sm)] bg-[var(--color-model-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-model-chip-text)]">
           {msg.modelId}
         </span>,
       );
     }
     if (msg.agent) {
       metaChips.push(
-        <span key="agent" className="meta-chip chip-agent">
+        <span key="agent" className="rounded-[var(--radius-sm)] bg-[var(--color-agent-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-agent-chip-text)]">
           {msg.agent}
         </span>,
       );
     }
     metaChips.push(
-      <span key="tps" className="meta-chip chip-tps">
+      <span key="tps" className="rounded-[var(--radius-sm)] bg-[var(--color-tps-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-tps-chip-text)]">
         TPS {msg.outputTpsLabel || "\u2014"}
       </span>,
     );
@@ -247,12 +246,12 @@ export const MessageRow = React.memo(function MessageRow({
 
   // Subagent links
   const subagentLinks = !isUser && msg.subagentLinks.length > 0 && (
-    <div className="subagent-links">
+    <div className="mb-2 flex flex-col gap-1">
       {msg.subagentLinks.map((link) => (
         <Link
           key={link.id}
           to={`/session/${encodeURIComponent(link.id)}`}
-          className="subagent-link"
+          className="inline-block rounded-lg border-l-[3px] border-l-[var(--color-accent)] bg-[var(--color-accent-bg)] px-2 py-1 text-[0.82em] text-[var(--color-accent)] hover:bg-[#d0e8f7] hover:no-underline"
         >
           {"\u2192"} {link.title}
           {link.durationMs > 0
@@ -273,13 +272,29 @@ export const MessageRow = React.memo(function MessageRow({
 
   return (
     <div
-      className={cn("message", roleClass, hidden && "hidden")}
+      className={cn(
+        "my-3.5 flex flex-col",
+        isUser ? "items-stretch [&_.msg-header]:justify-end" : "items-stretch",
+        hidden && "!hidden",
+      )}
       data-role={msg.role}
       data-testid={`message-${msgIdx}`}
+      data-message-role={msg.role}
+      {...(hidden ? { "data-hidden": "" } : {})}
     >
-      <div className="message-header">
-        <span className="message-role">{roleLabel}</span>
-        <span className="message-time">{dateStr}</span>
+      {/* Header */}
+      <div className="msg-header mb-2 flex flex-wrap items-center gap-2 text-[0.8em] text-[var(--color-text-secondary)]">
+        <span
+          className={cn(
+            "rounded-[var(--radius-sm)] px-2.5 py-[2px] text-[0.85em] font-semibold",
+            isUser
+              ? "bg-[var(--color-user-bg)] text-[var(--color-user-badge)]"
+              : "bg-[var(--color-assistant-badge-bg)] text-[var(--color-text-inverse)]",
+          )}
+        >
+          {roleLabel}
+        </span>
+        <span>{dateStr}</span>
         {metaChips}
       </div>
       {subagentLinks}
@@ -293,33 +308,58 @@ export const MessageRow = React.memo(function MessageRow({
           onToggleDetail={onToggleDetail}
         />
       ) : null}
-      <div className="message-body" ref={bodyRef}>
+      <div className="relative w-full" ref={bodyRef}>
+        {/* Rendered markdown content */}
         <div
+          data-message-content
           className={cn(
-            "message-content",
+            /* message-content base */
+            "w-full rounded-xl px-[18px] py-3.5 text-[0.95em] leading-[1.7] [&_img]:max-w-full [&_img]:h-auto",
+            /* message-content typography */
+            "[&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[var(--color-border-subtle)] [&_pre]:bg-[var(--color-bg-code)] [&_pre]:p-3.5",
+            "[&_code]:rounded-[var(--radius-sm)] [&_code]:bg-[var(--color-bg-code)] [&_code]:px-2 [&_code]:py-[2px] [&_code]:font-[var(--font-mono)] [&_code]:text-[0.88em]",
+            "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
+            /* message-content tables */
+            "[&_table]:w-full [&_table]:border-collapse [&_table]:my-2",
+            "[&_th]:border [&_th]:border-[var(--color-border-default)] [&_th]:bg-[var(--color-bg-root)] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+            "[&_td]:border [&_td]:border-[var(--color-border-default)] [&_td]:px-3 [&_td]:py-2 [&_td]:text-left",
+            /* role-specific */
+            isUser
+              ? "border border-[var(--color-user-border)] bg-[var(--color-user-bg)]"
+              : "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
             isCollapsed && "max-h-[300px] overflow-hidden",
           )}
           ref={contentRef}
         />
+        {/* Raw / plain text content */}
         <div
+          data-message-raw
           className={cn(
-            "message-raw",
+            "hidden whitespace-pre-wrap break-words font-[var(--font-sans)] text-[0.93em] leading-relaxed",
             isCollapsed && "max-h-[300px] overflow-hidden",
           )}
         >
-          <span className="raw-label">
+          <span className="font-bold text-[var(--color-text-primary)]">
             {roleLabel} ({dateStr})
           </span>
           {"\n"}
           {msg.text}
         </div>
+        {/* Fade overlay for collapsed state */}
         <div
-          className={cn("content-fade", !showFade && "!hidden")}
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-8 h-[60px] rounded-b-xl",
+            isUser
+              ? "bg-gradient-to-b from-transparent to-[var(--color-user-bg)]"
+              : "bg-gradient-to-b from-transparent to-[var(--color-bg-surface)]",
+            !showFade && "!hidden",
+          )}
         />
+        {/* Expand/collapse button */}
         <button
           type="button"
           className={cn(
-            "expand-btn",
+            "block w-full rounded-b-xl border-none bg-transparent p-2 text-center text-[0.82em] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]",
             !showExpandBtn && "!hidden",
             !isCollapsed && isOverflowing && "!block text-[var(--color-text-secondary)]",
           )}
@@ -335,7 +375,8 @@ export const MessageRow = React.memo(function MessageRow({
           onClose={() => setZoomState(null)}
         />
       ) : null}
-      <hr className="plain-sep" />
+      {/* Plain mode separator */}
+      <hr className="mx-0 my-3 hidden border-t border-dashed border-[#c0c0c0] border-b-0 border-l-0 border-r-0" data-plain-sep />
     </div>
   );
 });

@@ -72,3 +72,56 @@ body {
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
+
+/* Global link styles */
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Mermaid lightbox scroll lock */
+html.mermaid-lightbox-open,
+body.mermaid-lightbox-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Plain-mode body class: toggles message display */
+body.plain-mode [data-message-content] {
+  display: none;
+}
+
+body.plain-mode [data-message-raw] {
+  display: block;
+}
+
+body.plain-mode .msg-header {
+  display: none;
+}
+
+body.plain-mode [data-role="user"] [data-message-raw],
+body.plain-mode [data-role="assistant"] [data-message-raw] {
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+body.plain-mode [data-plain-sep] {
+  display: block;
+  border: none;
+  border-top: 1px dashed #c0c0c0;
+  margin: 12px 0;
+}
+
+body.plain-mode [data-message-role]:last-child [data-plain-sep] {
+  display: none;
+}
+
+/* Nav highlight on role badge (added by j/k navigation) */
+[data-message-role].nav-highlight .msg-header > span:first-child {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}

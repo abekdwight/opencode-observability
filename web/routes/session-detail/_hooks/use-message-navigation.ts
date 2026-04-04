@@ -21,7 +21,7 @@ export function useMessageNavigation(options: {
     }
     const container = containerRef.current;
     const nodes = container?.querySelectorAll<HTMLElement>(
-      ".message:not(.hidden)",
+      "[data-message-role]:not([data-hidden])",
     );
     if (!nodes || !container) return;
     const containerRect = container.getBoundingClientRect();
@@ -37,7 +37,7 @@ export function useMessageNavigation(options: {
     (dir: number) => {
       const container = containerRef.current;
       const nodes = container?.querySelectorAll<HTMLElement>(
-        ".message:not(.hidden)",
+        "[data-message-role]:not([data-hidden])",
       );
       if (!nodes || nodes.length === 0 || !container) return;
       setNavIndex((prev) => {

@@ -13,7 +13,6 @@ import { Search } from "./routes/search/search";
 import { SessionDetail } from "./routes/session-detail";
 import { ToolErrors } from "./routes/tool-errors/tool-errors";
 import "./styles/tailwind.css";
-import "./styles/legacy.css";
 
 ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
   <React.StrictMode>
