@@ -1,6 +1,5 @@
 import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { VirtuosoHandle } from "react-virtuoso";
 import type { SessionDetailContract } from "../../../src/contracts/session.js";
 import { useJson } from "../../hooks/use-json";
 import { useLayoutMode } from "../../lib/layout-context";
@@ -13,19 +12,15 @@ import { useSessionPreferences } from "./_hooks/use-session-preferences";
 import { buildCopyCommand } from "./_lib/copy-command";
 
 // ---------------------------------------------------------------------------
-// useVirtuosoNavigation -- navigation adapted for Virtuoso scrolling
+// useScrollNavigation -- j/k navigation for a plain scrollable container
 // ---------------------------------------------------------------------------
-function useVirtuosoNavigation(
-  listRef: React.RefObject<VirtuosoHandle | null>,
+function useScrollNavigation(
+  containerRef: React.RefObject<HTMLDivElement | null>,
   visibleCount: number,
 ): {
   navIndex: number;
   jump: (dir: number) => void;
-  onRangeChanged: (range: { startIndex: number; endIndex: number }) => void;
 } {
-  // Track the currently visible range via ref (no re-renders on scroll)
-  const visibleRangeRef = React.useRef({ startIndex: 0, endIndex: 0 });
-  // navIndex is state for display in the counter
   const [navIndex, setNavIndex] = React.useState(() =>
     visibleCount > 0 ? visibleCount - 1 : 0,
   );
@@ -34,35 +29,25 @@ function useVirtuosoNavigation(
   React.useEffect(() => {
     if (visibleCount > 0) {
       setNavIndex(visibleCount - 1);
-      visibleRangeRef.current = {
-        startIndex: visibleCount - 1,
-        endIndex: visibleCount - 1,
-      };
     }
   }, [visibleCount]);
-
-  const onRangeChanged = React.useCallback(
-    (range: { startIndex: number; endIndex: number }) => {
-      visibleRangeRef.current = range;
-    },
-    [],
-  );
 
   const jump = React.useCallback(
     (dir: number) => {
       if (visibleCount === 0) return;
-      // Determine current position from the visible range
-      const { startIndex, endIndex } = visibleRangeRef.current;
-      const current = dir > 0 ? endIndex : startIndex;
-      const next = Math.max(0, Math.min(visibleCount - 1, current + dir));
-      listRef.current?.scrollToIndex({
-        index: next,
-        behavior: "smooth",
-        align: "start",
+      setNavIndex((prev) => {
+        const next = Math.max(0, Math.min(visibleCount - 1, prev + dir));
+        // Scroll the target message into view
+        const container = containerRef.current;
+        if (container) {
+          const children = container.children;
+          const child = children[next] as HTMLElement | undefined;
+          child?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        return next;
       });
-      setNavIndex(next);
     },
-    [visibleCount, listRef],
+    [visibleCount, containerRef],
   );
 
   // Keyboard navigation (j/k)
@@ -83,7 +68,7 @@ function useVirtuosoNavigation(
     return () => document.removeEventListener("keydown", handler);
   }, [jump]);
 
-  return { navIndex, jump, onRangeChanged };
+  return { navIndex, jump };
 }
 
 // ---------------------------------------------------------------------------
@@ -148,8 +133,8 @@ export function SessionDetailPage(): React.ReactElement | null {
     `/api/session/${encodeURIComponent(sessionId)}`,
   );
 
-  // Virtuoso ref
-  const listRef = React.useRef<VirtuosoHandle | null>(null);
+  // Scrollable container ref
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
 
   // Copy state
   const [copyState, setCopyState] = React.useState<"idle" | "copied" | "error">(
@@ -162,7 +147,7 @@ export function SessionDetailPage(): React.ReactElement | null {
   // Provide a no-op recheckOverflows since MessageRow now manages its own
   const recheckOverflowsNoop = React.useCallback(() => {}, []);
 
-  // Provide no-op scroll anchor since Virtuoso manages scrolling
+  // Provide no-op scroll anchor (no longer needed with plain list)
   const getAnchorNoop = React.useCallback(
     () => null as { el: HTMLElement; offset: number } | null,
     [],
@@ -190,11 +175,10 @@ export function SessionDetailPage(): React.ReactElement | null {
   }, [messages, filterMode]);
 
   // Navigation
-  const {
-    navIndex,
-    jump: jumpMessage,
-    onRangeChanged,
-  } = useVirtuosoNavigation(listRef, visibleCount);
+  const { navIndex, jump: jumpMessage } = useScrollNavigation(
+    containerRef,
+    visibleCount,
+  );
 
   // Keyboard shortcuts
   useSessionShortcuts(
@@ -313,8 +297,7 @@ export function SessionDetailPage(): React.ReactElement | null {
             collapseEnabled={collapseEnabled}
             openDetails={openDetails}
             onToggleToolDetail={toggleToolDetail}
-            listRef={listRef}
-            onRangeChanged={onRangeChanged}
+            containerRef={containerRef}
           />
 
           <ControlBar
@@ -324,6 +307,7 @@ export function SessionDetailPage(): React.ReactElement | null {
             onCycleFilter={cycleFilter}
             plainMode={plainMode}
             onTogglePlain={togglePlain}
+            collapseDisabled={plainMode}
             toolsVisible={toolsVisible}
             onToggleTools={toggleTools}
             navIndex={navIndex}

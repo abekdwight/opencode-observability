@@ -139,7 +139,7 @@ export const MessageRow = React.memo(function MessageRow({
       if (disposed) return;
 
       // Re-query DOM after await -- nodes captured before the await may have
-      // been detached by React reconciliation (e.g. Virtuoso re-mount).
+      // been detached by React reconciliation.
       const freshRoot = contentRef.current;
       if (!freshRoot) return;
       const freshCodeNodes = Array.from(
@@ -262,11 +262,11 @@ export const MessageRow = React.memo(function MessageRow({
     </div>
   );
 
-  // Determine whether to show expand button and fade
-  const showFade = isCollapsed && isOverflowing;
-  const showExpandBtn =
-    (isCollapsed && isOverflowing) || (!isCollapsed && isOverflowing);
-  const expandText = isCollapsed
+  // In plain mode, suppress all collapse UI (plain mode is for copying)
+  const effectiveCollapsed = plainMode ? false : isCollapsed;
+  const showFade = effectiveCollapsed && isOverflowing;
+  const showExpandBtn = !plainMode && isOverflowing;
+  const expandText = effectiveCollapsed
     ? "\u7D9A\u304D\u3092\u8868\u793A"
     : "\u6298\u308A\u305F\u305F\u3080";
 
@@ -327,7 +327,7 @@ export const MessageRow = React.memo(function MessageRow({
             isUser
               ? "border border-[var(--color-user-border)] bg-[var(--color-bg-elevated)]"
               : "border border-[var(--color-border-faint)] bg-[var(--color-bg-surface)]",
-            isCollapsed && "max-h-[300px] overflow-hidden",
+            effectiveCollapsed && "max-h-[300px] overflow-hidden",
           )}
           ref={contentRef}
         />
@@ -336,7 +336,7 @@ export const MessageRow = React.memo(function MessageRow({
           data-message-raw
           className={cn(
             "hidden whitespace-pre-wrap break-words font-[var(--font-sans)] text-[0.93em] leading-relaxed",
-            isCollapsed && "max-h-[300px] overflow-hidden",
+            effectiveCollapsed && "max-h-[300px] overflow-hidden",
           )}
         >
           <span className="font-bold text-[var(--color-text-primary)]">

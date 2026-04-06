@@ -1,5 +1,4 @@
 import React from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import type { FilterMode } from "../_lib/constants";
 import { MessageRow } from "./message-row";
@@ -12,8 +11,7 @@ export interface MessageListProps {
   collapseEnabled: boolean;
   openDetails: Set<string>;
   onToggleToolDetail: (id: string) => void;
-  listRef: React.RefObject<VirtuosoHandle | null>;
-  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -36,7 +34,7 @@ function useFilteredMessages(
 
 /**
  * Wrapper around the chat list that renders all visible messages.
- * Uses react-virtuoso for virtual scrolling.
+ * Uses a plain div list for full browser text search and copy support.
  */
 export function MessageList({
   messages,
@@ -46,10 +44,17 @@ export function MessageList({
   collapseEnabled,
   openDetails,
   onToggleToolDetail,
-  listRef,
-  onRangeChanged,
+  containerRef,
 }: MessageListProps): React.ReactElement {
   const filteredMessages = useFilteredMessages(messages, filterMode);
+
+  // Scroll to bottom on initial mount
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (messages.length === 0) {
     return (
@@ -72,17 +77,17 @@ export function MessageList({
   }
 
   return (
-    <Virtuoso
-      ref={listRef}
+    <div
+      ref={containerRef}
       className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain"
-      data={filteredMessages}
-      initialTopMostItemIndex={filteredMessages.length - 1}
-      overscan={200}
-      rangeChanged={onRangeChanged}
-      itemContent={(_index, item) => (
-        <div className="py-[var(--space-sm)] px-[var(--space-2xl)] pb-[var(--space-xl)] max-w-[960px] mx-auto w-full">
+      data-testid="chat-messages"
+    >
+      {filteredMessages.map((item) => (
+        <div
+          key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
+          className="py-[var(--space-sm)] px-[var(--space-2xl)] pb-[var(--space-xl)] max-w-[960px] mx-auto w-full"
+        >
           <MessageRow
-            key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
             msg={item.msg}
             msgIdx={item.originalIdx}
             hidden={false}
@@ -93,8 +98,7 @@ export function MessageList({
             onToggleDetail={onToggleToolDetail}
           />
         </div>
-      )}
-      data-testid="chat-messages"
-    />
+      ))}
+    </div>
   );
 }

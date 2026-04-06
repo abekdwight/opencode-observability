@@ -10,6 +10,8 @@ export interface ControlBarProps {
   onCycleFilter: () => void;
   plainMode: boolean;
   onTogglePlain: () => void;
+  /** When true, collapse button is disabled (plain mode overrides collapse) */
+  collapseDisabled?: boolean;
   toolsVisible: boolean;
   onToggleTools: () => void;
   navIndex: number;
@@ -163,6 +165,7 @@ export const ControlBar = React.memo(function ControlBar({
   onCycleFilter,
   plainMode,
   onTogglePlain,
+  collapseDisabled,
   toolsVisible,
   onToggleTools,
   navIndex,
@@ -190,8 +193,9 @@ export const ControlBar = React.memo(function ControlBar({
       <div className="flex gap-[var(--space-sm)] items-center justify-center flex-nowrap">
         <button
           type="button"
-          className={cn(ctrlBtnBase, collapseEnabled && ctrlBtnActive)}
+          className={cn(ctrlBtnBase, collapseEnabled && !collapseDisabled && ctrlBtnActive, collapseDisabled && "opacity-40 cursor-not-allowed")}
           onClick={onToggleCollapse}
+          disabled={collapseDisabled}
           data-testid="btn-collapse"
         >
           <svg
