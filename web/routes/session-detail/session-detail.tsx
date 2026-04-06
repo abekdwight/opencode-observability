@@ -138,9 +138,10 @@ export function SessionDetailPage(): React.ReactElement | null {
   const navigate = useNavigate();
   const { setMode } = useLayoutMode();
 
-  // Switch to IDE layout mode on mount
+  // Switch to IDE layout mode on mount, reset on unmount
   React.useEffect(() => {
     setMode("ide");
+    return () => setMode("default");
   }, [setMode]);
 
   const { data, error, loading } = useJson<SessionDetailContract>(

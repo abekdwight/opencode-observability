@@ -1,65 +1,81 @@
 :root {
-  /* Colors - Neutral (Light theme) */
-  --color-text-primary: #1d1d1f;
-  --color-text-secondary: #6e6e73;
-  --color-text-tertiary: #aeaeb2;
-  --color-text-inverse: #ffffff;
-  --color-bg-root: #fafafa;
+  /* ── Light theme ────────────────────────────────────────────────
+   *  Warm neutral base. No hue in the chrome — color is reserved
+   *  for semantic signals only (success / warning / error).
+   *  Accent = contrast (dark fill on light ground), not chroma.
+   * ────────────────────────────────────────────────────────────── */
+
+  /* Text */
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #6b6b6f;
+  --color-text-tertiary: #9a9a9e;
+  --color-text-inverse: #fafafa;
+
+  /* Surfaces — subtle warm undertone */
+  --color-bg-root: #f7f7f8;
   --color-bg-surface: #ffffff;
-  --color-bg-surface-translucent: rgba(255, 255, 255, 0.85);
-  --color-bg-elevated: #f5f5f7;
-  --color-bg-muted: #f0f0f2;
-  --color-bg-code: #f5f5f7;
-  --color-border-default: rgba(0, 0, 0, 0.08);
-  --color-border-subtle: rgba(0, 0, 0, 0.05);
+  --color-bg-surface-translucent: rgba(255, 255, 255, 0.88);
+  --color-bg-elevated: #f0f0f2;
+  --color-bg-muted: #eaeaec;
+  --color-bg-code: #f0f0f2;
+
+  /* Borders */
+  --color-border-default: rgba(0, 0, 0, 0.10);
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
   --color-border-faint: rgba(0, 0, 0, 0.03);
 
-  /* Colors - Semantic */
-  --color-accent: #6366f1;
-  --color-accent-hover: #4f46e5;
-  --color-accent-bg: rgba(99, 102, 241, 0.08);
-  --color-accent-light: rgba(99, 102, 241, 0.05);
-  --color-success: #22c55e;
-  --color-success-bg: rgba(34, 197, 94, 0.08);
-  --color-warning: #f59e0b;
-  --color-warning-text: #92400e;
-  --color-warning-bg: rgba(245, 158, 11, 0.08);
-  --color-error: #ef4444;
-  --color-error-text: #dc2626;
-  --color-error-bg: rgba(239, 68, 68, 0.08);
-  --color-error-border: rgba(239, 68, 68, 0.2);
-  --color-info: #3b82f6;
-  --color-delete-hover: #d32f2f;
+  /* Accent — achromatic: dark fill on light, used for buttons & focus.
+   * NOT for link text. Links inherit text color. */
+  --color-accent: #1a1a1a;
+  --color-accent-hover: #333336;
+  --color-accent-bg: rgba(0, 0, 0, 0.05);
+  --color-accent-light: rgba(0, 0, 0, 0.03);
 
-  /* Colors - Role */
-  --color-user-bg: rgba(99, 102, 241, 0.08);
-  --color-user-border: rgba(99, 102, 241, 0.2);
-  --color-user-badge: #4f46e5;
-  --color-assistant-badge-bg: #3a3a3c;
-  --color-model-chip-bg: rgba(139, 92, 246, 0.1);
-  --color-model-chip-text: #7c3aed;
-  --color-agent-chip-bg: rgba(34, 197, 94, 0.1);
-  --color-agent-chip-text: #16a34a;
-  --color-tps-chip-bg: rgba(59, 130, 246, 0.1);
-  --color-tps-chip-text: #2563eb;
+  /* Links — inherit text, no special hue */
+  --color-link: var(--color-text-primary);
 
-  /* Colors - Diff */
-  --color-diff-add: #22c55e;
-  --color-diff-del: #ef4444;
-  --color-diff-hunk: #6366f1;
+  /* Semantic — muted, harmonious tones (not neon) */
+  --color-success: #1a7f37;
+  --color-success-bg: rgba(26, 127, 55, 0.07);
+  --color-warning: #9a6700;
+  --color-warning-text: #7d5600;
+  --color-warning-bg: rgba(154, 103, 0, 0.07);
+  --color-error: #cf222e;
+  --color-error-text: #cf222e;
+  --color-error-bg: rgba(207, 34, 46, 0.05);
+  --color-error-border: rgba(207, 34, 46, 0.18);
+  --color-info: #6b6b6f;
+  --color-delete-hover: #cf222e;
 
-  /* Colors - Timeline lanes */
-  --color-lane-activity: #a1a1a6;
-  --color-lane-subagent: #3b82f6;
-  --color-lane-pressure: #f59e0b;
-  --color-lane-failure: #ef4444;
+  /* Role chips — user messages have visible tint for contrast with assistant */
+  --color-user-bg: rgba(0, 0, 0, 0.04);
+  --color-user-border: rgba(0, 0, 0, 0.10);
+  --color-user-badge: #444448;
+  --color-assistant-badge-bg: #333336;
+  --color-model-chip-bg: rgba(120, 87, 195, 0.07);
+  --color-model-chip-text: #6e40c9;
+  --color-agent-chip-bg: rgba(26, 127, 55, 0.07);
+  --color-agent-chip-text: #1a7f37;
+  --color-tps-chip-bg: rgba(0, 0, 0, 0.04);
+  --color-tps-chip-text: #555559;
+
+  /* Diff */
+  --color-diff-add: #1a7f37;
+  --color-diff-del: #cf222e;
+  --color-diff-hunk: #6b6b6f;
+
+  /* Timeline lanes — functional color, intentionally desaturated */
+  --color-lane-activity: #9a9a9e;
+  --color-lane-subagent: #5a8abf;
+  --color-lane-pressure: #c29020;
+  --color-lane-failure: #cf4040;
 
   /* Typography */
   --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono:
     "Geist Mono", "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
-  /* Spacing (new naming) */
+  /* Spacing */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -67,8 +83,6 @@
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
-
-  /* Spacing (legacy aliases) */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 12px;
@@ -83,10 +97,10 @@
   --radius-xl: 16px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
-  --shadow-sidebar: -4px 0 16px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-sidebar: -4px 0 12px rgba(0, 0, 0, 0.04);
 
   /* Transitions */
   --transition-fast: 0.15s ease;
@@ -101,50 +115,81 @@
   --z-lightbox: 200;
   --z-command-palette: 300;
 
-  /* Legacy alias: --color-bg-page maps to --color-bg-root */
+  /* Legacy alias */
   --color-bg-page: var(--color-bg-root);
 }
 
 [data-theme="dark"] {
-  --color-text-primary: #ececef;
-  --color-text-secondary: #8b8b8e;
-  --color-text-tertiary: #5c5c5f;
-  --color-text-inverse: #0a0a0b;
-  --color-bg-root: #0a0a0b;
-  --color-bg-surface: #141415;
-  --color-bg-surface-translucent: rgba(20, 20, 21, 0.85);
-  --color-bg-elevated: #1c1c1e;
-  --color-bg-muted: #1a1a1c;
-  --color-bg-code: #1c1c1e;
-  --color-border-default: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.05);
-  --color-border-faint: rgba(255, 255, 255, 0.03);
+  /* ── Dark theme ─────────────────────────────────────────────────
+   *  Warm charcoal. Visible steps between layers. Same achromatic
+   *  accent logic — light fill on dark ground.
+   * ────────────────────────────────────────────────────────────── */
 
-  /* Semantic colors adjust for dark */
-  --color-accent-bg: rgba(99, 102, 241, 0.15);
-  --color-accent-light: rgba(99, 102, 241, 0.08);
-  --color-success-bg: rgba(34, 197, 94, 0.15);
-  --color-warning-text: #fbbf24;
-  --color-warning-bg: rgba(245, 158, 11, 0.15);
-  --color-error-text: #f87171;
-  --color-error-bg: rgba(239, 68, 68, 0.15);
-  --color-error-border: rgba(239, 68, 68, 0.3);
+  /* Text */
+  --color-text-primary: #dfdfe2;
+  --color-text-secondary: #8c8c91;
+  --color-text-tertiary: #5a5a5f;
+  --color-text-inverse: #161618;
 
-  /* Role colors adjust for dark */
-  --color-user-bg: rgba(99, 102, 241, 0.12);
-  --color-user-border: rgba(99, 102, 241, 0.25);
-  --color-user-badge: #818cf8;
-  --color-assistant-badge-bg: #d1d5db;
-  --color-model-chip-bg: rgba(139, 92, 246, 0.15);
-  --color-model-chip-text: #a78bfa;
-  --color-agent-chip-bg: rgba(34, 197, 94, 0.15);
-  --color-agent-chip-text: #4ade80;
-  --color-tps-chip-bg: rgba(59, 130, 246, 0.15);
-  --color-tps-chip-text: #60a5fa;
+  /* Surfaces — warm, not pitch-black */
+  --color-bg-root: #161618;
+  --color-bg-surface: #1e1e21;
+  --color-bg-surface-translucent: rgba(30, 30, 33, 0.88);
+  --color-bg-elevated: #292930;
+  --color-bg-muted: #222226;
+  --color-bg-code: #222226;
 
-  /* Shadows adjust for dark */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-sidebar: -4px 0 16px rgba(0, 0, 0, 0.3);
+  /* Borders */
+  --color-border-default: rgba(255, 255, 255, 0.10);
+  --color-border-subtle: rgba(255, 255, 255, 0.07);
+  --color-border-faint: rgba(255, 255, 255, 0.04);
+
+  /* Accent — achromatic: light fill on dark */
+  --color-accent: #dfdfe2;
+  --color-accent-hover: #c0c0c4;
+  --color-accent-bg: rgba(255, 255, 255, 0.06);
+  --color-accent-light: rgba(255, 255, 255, 0.03);
+
+  /* Links — inherit text */
+  --color-link: var(--color-text-primary);
+
+  /* Semantic — softer in dark to avoid retinal burn */
+  --color-success: #58d372;
+  --color-success-bg: rgba(88, 211, 114, 0.10);
+  --color-warning: #e0ac3b;
+  --color-warning-text: #e0ac3b;
+  --color-warning-bg: rgba(224, 172, 59, 0.10);
+  --color-error: #f27068;
+  --color-error-text: #f27068;
+  --color-error-bg: rgba(242, 112, 104, 0.10);
+  --color-error-border: rgba(242, 112, 104, 0.22);
+
+  /* Role — user messages get a visible tinted bg to contrast with assistant */
+  --color-user-bg: rgba(255, 255, 255, 0.08);
+  --color-user-border: rgba(255, 255, 255, 0.14);
+  --color-user-badge: #a0a0a5;
+  --color-assistant-badge-bg: #a0a0a5;
+  --color-model-chip-bg: rgba(180, 150, 240, 0.10);
+  --color-model-chip-text: #b8a0f0;
+  --color-agent-chip-bg: rgba(88, 211, 114, 0.10);
+  --color-agent-chip-text: #58d372;
+  --color-tps-chip-bg: rgba(255, 255, 255, 0.05);
+  --color-tps-chip-text: #8c8c91;
+
+  /* Diff */
+  --color-diff-add: #3fb950;
+  --color-diff-del: #f27068;
+  --color-diff-hunk: #8c8c91;
+
+  /* Timeline lanes */
+  --color-lane-activity: #6a6a6f;
+  --color-lane-subagent: #6a9fd8;
+  --color-lane-pressure: #d4a830;
+  --color-lane-failure: #e05a52;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-sidebar: -4px 0 12px rgba(0, 0, 0, 0.4);
 }

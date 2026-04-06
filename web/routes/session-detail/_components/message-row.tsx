@@ -251,7 +251,7 @@ export const MessageRow = React.memo(function MessageRow({
         <Link
           key={link.id}
           to={`/session/${encodeURIComponent(link.id)}`}
-          className="inline-block rounded-lg border-l-[3px] border-l-[var(--color-accent)] bg-[var(--color-accent-bg)] px-2 py-1 text-[0.82em] text-[var(--color-accent)] hover:bg-[#d0e8f7] hover:no-underline"
+          className="inline-block rounded-lg border-l-[3px] border-l-[var(--color-border-default)] bg-[var(--color-bg-elevated)] px-2 py-1 text-[0.82em] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-muted)] hover:no-underline"
         >
           {"\u2192"} {link.title}
           {link.durationMs > 0
@@ -325,8 +325,8 @@ export const MessageRow = React.memo(function MessageRow({
             "[&_td]:border [&_td]:border-[var(--color-border-default)] [&_td]:px-3 [&_td]:py-2 [&_td]:text-left",
             /* role-specific */
             isUser
-              ? "border border-[var(--color-user-border)] bg-[var(--color-user-bg)]"
-              : "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
+              ? "border border-[var(--color-user-border)] bg-[var(--color-bg-elevated)]"
+              : "border border-[var(--color-border-faint)] bg-[var(--color-bg-surface)]",
             isCollapsed && "max-h-[300px] overflow-hidden",
           )}
           ref={contentRef}
@@ -350,7 +350,7 @@ export const MessageRow = React.memo(function MessageRow({
           className={cn(
             "pointer-events-none absolute inset-x-0 bottom-8 h-[60px] rounded-b-xl",
             isUser
-              ? "bg-gradient-to-b from-transparent to-[var(--color-user-bg)]"
+              ? "bg-gradient-to-b from-transparent to-[var(--color-bg-elevated)]"
               : "bg-gradient-to-b from-transparent to-[var(--color-bg-surface)]",
             !showFade && "!hidden",
           )}

@@ -26,34 +26,33 @@ function isActive(pathname: string, to: string): boolean {
   return pathname.startsWith(to);
 }
 
-/** Dispatch a synthetic Cmd+K event to toggle the command palette. */
-function triggerCommandPalette() {
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "k",
-      metaKey: true,
-      bubbles: true,
-    }),
-  );
-}
-
 export function AppShell() {
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
   const location = useLocation();
   const [headerActions, setHeaderActions] =
     React.useState<React.ReactNode>(null);
   const [layoutMode, setLayoutMode] = React.useState<LayoutMode>("default");
   const { setTheme, resolvedTheme } = useTheme();
+  const [cmdkOpen, setCmdkOpen] = React.useState(false);
 
   const layoutModeValue = React.useMemo(
     () => ({ mode: layoutMode, setMode: setLayoutMode }),
     [layoutMode],
   );
 
-  // Reset layout mode on route change — pathname triggers re-run
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset on pathname change
+  // Global Cmd+K / Ctrl+K shortcut
   React.useEffect(() => {
-    setLayoutMode("default");
-  }, [location.pathname]);
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdkOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   return (
     <LayoutModeContext.Provider value={layoutModeValue}>
@@ -102,10 +101,11 @@ export function AppShell() {
             {/* Command Palette trigger */}
             <button
               type="button"
-              onClick={triggerCommandPalette}
+              onClick={() => setCmdkOpen(true)}
               className="h-7 px-2.5 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs font-medium flex items-center gap-1.5 hover:border-[var(--color-accent)] hover:text-[var(--color-text-primary)] transition-colors duration-150"
             >
-              <span className="opacity-60">⌘</span>K
+              <span className="opacity-60">{isMac ? "⌘" : "Ctrl"}</span>
+              {isMac ? "K" : "+K"}
             </button>
 
             {/* Theme toggle */}
@@ -123,7 +123,7 @@ export function AppShell() {
         </header>
 
         {/* Command Palette */}
-        <CommandPalette />
+        <CommandPalette open={cmdkOpen} onOpenChange={setCmdkOpen} />
 
         {/* Main content */}
         <main

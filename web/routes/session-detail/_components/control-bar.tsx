@@ -24,6 +24,12 @@ function HelpButton() {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
+  const modKey = isMac ? '⌘' : 'Ctrl';
+  const altPlatformNote = isMac
+    ? 'Windows: ⌘ の代わりに Ctrl を使用'
+    : 'Mac: Ctrl の代わりに Cmd を使用';
+
   // Close on outside click
   React.useEffect(() => {
     if (!open) return;
@@ -83,7 +89,7 @@ function HelpButton() {
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">Ctrl</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
                   +
                   <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">E</kbd>
                 </td>
@@ -91,7 +97,7 @@ function HelpButton() {
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">Ctrl</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
                   +
                   <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">U</kbd>
                 </td>
@@ -99,7 +105,7 @@ function HelpButton() {
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">Ctrl</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
                   +
                   <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">M</kbd>
                 </td>
@@ -107,7 +113,7 @@ function HelpButton() {
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">Ctrl</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
                   +
                   <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">.</kbd>
                 </td>
@@ -115,7 +121,7 @@ function HelpButton() {
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">Ctrl</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
                   +
                   <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">B</kbd>
                 </td>
@@ -124,11 +130,7 @@ function HelpButton() {
             </tbody>
           </table>
           <div className="mt-2 text-[0.72em] text-[var(--color-text-tertiary)]">
-            {"Mac: "}
-            <kbd className="font-[var(--font-mono)] text-[0.9em]">Ctrl</kbd>
-            {" \u306E\u4EE3\u308F\u308A\u306B "}
-            <kbd className="font-[var(--font-mono)] text-[0.9em]">Cmd</kbd>
-            {" \u3092\u4F7F\u7528"}
+            {altPlatformNote}
           </div>
         </div>
       ) : null}

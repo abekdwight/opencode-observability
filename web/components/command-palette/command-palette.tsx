@@ -1,14 +1,45 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
+import { useNavigate } from "react-router-dom";
+import { useTheme } from "../../hooks/use-theme";
 import { cn } from "../../lib/cn";
 import { actionCommands, navigationCommands } from "./commands";
-import { useCommandPalette } from "./use-command-palette";
 
-export function CommandPalette() {
-  const { open, setOpen } = useCommandPalette();
+interface CommandPaletteProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+  const navigate = useNavigate();
+  const { setTheme, resolvedTheme } = useTheme();
+
+  const handleSelect = (commandId: string) => {
+    switch (commandId) {
+      case "go-dashboard":
+        navigate("/");
+        break;
+      case "go-monitor":
+        navigate("/monitor");
+        break;
+      case "go-search":
+        navigate("/search");
+        break;
+      case "go-directories":
+        navigate("/directories");
+        break;
+      case "go-tool-errors":
+        navigate("/tool-errors");
+        break;
+      case "toggle-theme":
+        setTheme(resolvedTheme === "dark" ? "light" : "dark");
+        break;
+    }
+    onOpenChange(false);
+  };
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[var(--z-command-palette)] bg-black/50" />
         <DialogPrimitive.Content
@@ -44,6 +75,7 @@ export function CommandPalette() {
                     key={cmd.id}
                     value={cmd.label}
                     keywords={cmd.keywords}
+                    onSelect={() => handleSelect(cmd.id)}
                     className="flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none aria-selected:bg-[var(--color-bg-elevated)]"
                   >
                     {cmd.label}
@@ -60,6 +92,7 @@ export function CommandPalette() {
                     key={cmd.id}
                     value={cmd.label}
                     keywords={cmd.keywords}
+                    onSelect={() => handleSelect(cmd.id)}
                     className="flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none aria-selected:bg-[var(--color-bg-elevated)]"
                   >
                     {cmd.label}

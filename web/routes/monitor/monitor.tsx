@@ -53,13 +53,10 @@ const BAR_GAP = 0.6;
 const BAR_STEP = CHART_WIDTH / TIMELINE_BUCKET_COUNT;
 const BAR_WIDTH = Math.max(BAR_STEP - BAR_GAP, 1);
 
-/** Operator lane → colour mapping (muted activity, vivid pressure/failure). */
-const LANE_COLORS: Record<TimelineOperatorLane, string> = {
-  activity: "#a1a1a6",
-  subagent: "#3b82f6",
-  pressure: "#f59e0b",
-  failure: "#ef4444",
-};
+/** CSS-variable-based lane colour helper (adapts to light/dark mode). */
+function laneColorVar(lane: TimelineOperatorLane): string {
+  return `var(--color-lane-${lane})`;
+}
 
 /** Horizontal gridline y-fractions (25 %, 50 %, 75 % of chart height). */
 const H_GRID_FRACTIONS = [0.25, 0.5, 0.75];
@@ -252,8 +249,8 @@ function InlineTimeSeriesChart({
               y={chartTop}
               width={CHART_WIDTH}
               height={CHART_HEIGHT}
-              fill="#f8f8fa"
               rx="2"
+              style={{ fill: 'var(--color-bg-muted)' }}
             />
 
             {/* ── Horizontal gridlines (25/50/75 %) ── */}
@@ -266,8 +263,8 @@ function InlineTimeSeriesChart({
                   y1={y}
                   x2={SVG_PAD_LEFT + CHART_WIDTH}
                   y2={y}
-                  stroke="#ececef"
                   strokeWidth="0.5"
+                  style={{ stroke: 'var(--color-border-faint)' }}
                 />
               );
             })}
@@ -278,8 +275,8 @@ function InlineTimeSeriesChart({
               y1={chartBottom}
               x2={SVG_PAD_LEFT + CHART_WIDTH}
               y2={chartBottom}
-              stroke="#d8d8dc"
               strokeWidth="0.75"
+              style={{ stroke: 'var(--color-border-default)' }}
             />
 
             {/* ── Vertical minute gridlines + axis labels ── */}
@@ -296,17 +293,17 @@ function InlineTimeSeriesChart({
                     y1={chartTop}
                     x2={x}
                     y2={chartBottom}
-                    stroke="#dcdce0"
                     strokeWidth="0.5"
                     strokeDasharray="3,2"
+                    style={{ stroke: 'var(--color-border-subtle)' }}
                   />
                   <text
                     x={x}
                     y={axisY}
                     textAnchor="middle"
-                    fill="#a1a1a6"
                     fontSize="7.5"
-                    fontFamily="system-ui, sans-serif"
+                    fontFamily="var(--font-sans)"
+                    style={{ fill: 'var(--color-text-tertiary)' }}
                   >
                     {label}
                   </text>
@@ -333,8 +330,8 @@ function InlineTimeSeriesChart({
                         y={y}
                         width={BAR_WIDTH}
                         height={barHeight}
-                        fill={LANE_COLORS[lane]}
                         rx="0.5"
+                        style={{ fill: laneColorVar(lane) }}
                         opacity={
                           lane === "activity"
                             ? 0.45
@@ -354,10 +351,10 @@ function InlineTimeSeriesChart({
               x={SVG_PAD_LEFT + CHART_WIDTH + 2}
               y={axisY}
               textAnchor="start"
-              fill="#1d1d1f"
               fontSize="7.5"
               fontWeight="600"
-              fontFamily="system-ui, sans-serif"
+              fontFamily="var(--font-sans)"
+              style={{ fill: 'var(--color-text-primary)' }}
             >
               Now
             </text>
@@ -367,9 +364,9 @@ function InlineTimeSeriesChart({
               x={SVG_PAD_LEFT - 2}
               y={axisY}
               textAnchor="end"
-              fill="#a1a1a6"
               fontSize="7"
-              fontFamily="system-ui, sans-serif"
+              fontFamily="var(--font-sans)"
+              style={{ fill: 'var(--color-text-tertiary)' }}
             >
               5m
             </text>
@@ -560,7 +557,7 @@ export function Monitor() {
                   <span
                     className="w-2.5 h-2.5 rounded-full inline-block"
                     aria-hidden="true"
-                    style={{ background: LANE_COLORS[lane] }}
+                    style={{ background: laneColorVar(lane) }}
                   />
                   {LANE_LABELS[lane]}
                 </span>
@@ -690,7 +687,7 @@ export function Monitor() {
                               type="button"
                               className={`px-3 py-1 text-xs font-medium transition-colors ${
                                 tokenView === "model"
-                                  ? "bg-[var(--color-accent)] text-white"
+                                  ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
                                   : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
                               }`}
                               onClick={() => setTokenView("model")}
@@ -701,7 +698,7 @@ export function Monitor() {
                               type="button"
                               className={`px-3 py-1 text-xs font-medium transition-colors ${
                                 tokenView === "agent-model"
-                                  ? "bg-[var(--color-accent)] text-white"
+                                  ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
                                   : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]"
                               }`}
                               onClick={() => setTokenView("agent-model")}

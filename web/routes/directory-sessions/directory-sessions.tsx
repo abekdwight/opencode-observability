@@ -69,7 +69,7 @@ export function DirectorySessions() {
         <span>{prettyDir}</span>
       </nav>
 
-      <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+      <section className="p-4">
         <div className="mb-2 flex items-start justify-between gap-3">
           <h2 className="m-0 text-[1.15em] font-bold">Sessions</h2>
         </div>
@@ -90,7 +90,7 @@ export function DirectorySessions() {
                 className={cn(
                   "rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors",
                   sort === s &&
-                    "border-transparent bg-[var(--color-accent)] text-white",
+                    "bg-[var(--color-accent-bg)] text-[var(--color-accent)] border-[var(--color-accent)]",
                 )}
                 onClick={() => handleSort(s)}
               >
@@ -133,42 +133,44 @@ export function DirectorySessions() {
                   : "";
 
               return (
-                <li key={s.id} className="my-2.5">
-                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4 transition-all hover:border-[var(--color-accent)] hover:shadow-[0_2px_8px_rgba(0,102,204,0.08)]">
+                <li key={s.id} className="group my-2.5">
+                  <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4 transition-all hover:border-[var(--color-accent)] hover:shadow-[0_2px_8px_rgba(99,102,241,0.12)]">
                     <div className="flex items-center justify-between gap-2">
                       <Link
                         to={`/session/${encodeURIComponent(s.id)}`}
-                        className="text-[1.05em] font-semibold text-[var(--color-accent)] hover:underline"
+                        className="text-sm font-semibold text-[var(--color-accent)] hover:underline"
                       >
                         {s.title}
                       </Link>
-                      <SessionCopyButton
-                        sessionId={s.id}
-                        directory={data.directory}
-                      />
+                      <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                        <SessionCopyButton
+                          sessionId={s.id}
+                          directory={data.directory}
+                        />
+                      </div>
                     </div>
                     <Link
                       to={`/session/${encodeURIComponent(s.id)}`}
                       className="block text-inherit no-underline hover:no-underline"
                     >
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[0.82em] text-[var(--color-text-secondary)]">
+                      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
                         <span>{formatTimestampShort(s.createdAt)}</span>
-                        <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
+                        <span className="rounded-md bg-[var(--color-bg-elevated)] px-2 py-0.5 font-medium text-[var(--color-text-secondary)]">
                           {formatDurationShort(s.durationMs)}
                         </span>
-                        <span className="rounded-md bg-[#f0f0f0] px-2 py-0.5 font-medium">
+                        <span className="rounded-md bg-[var(--color-bg-elevated)] px-2 py-0.5 font-medium text-[var(--color-text-secondary)]">
                           {s.messageCount} msgs
                         </span>
-                        <span className="rounded-md bg-[#fff3e0] px-2 py-0.5 font-medium text-[#e65100]">
+                        <span className="rounded-md bg-[var(--color-warning-bg)] px-2 py-0.5 font-medium text-[var(--color-warning-text)]">
                           {formatTokens(s.totalTokens)} tokens
                         </span>
                         {s.subagentCount > 0 ? (
-                          <span className="rounded-md bg-[#e8f5e9] px-2 py-0.5 font-medium text-[#2e7d32]">
+                          <span className="rounded-md bg-[var(--color-success-bg)] px-2 py-0.5 font-medium text-[var(--color-success)]">
                             {s.subagentCount} subagents
                           </span>
                         ) : null}
                         {fileStr ? (
-                          <span className="rounded-md bg-[#e8f5e9] px-2 py-0.5 font-medium text-[#2e7d32]">
+                          <span className="rounded-md bg-[var(--color-success-bg)] px-2 py-0.5 font-medium text-[var(--color-success)]">
                             {fileStr}
                           </span>
                         ) : null}

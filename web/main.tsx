@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/app-shell";
-import { CommandPalette } from "./components/command-palette/command-palette";
 import { ThemeProvider } from "./components/theme-provider";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Dashboard } from "./routes/dashboard";
@@ -32,7 +31,6 @@ ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
               <Route path="*" element={<Navigate replace to="/" />} />
             </Route>
           </Routes>
-          <CommandPalette />
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>
