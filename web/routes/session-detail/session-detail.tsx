@@ -10,6 +10,7 @@ import { SessionTopBar } from "./_components/session-top-bar";
 import { useOpenDetails } from "./_hooks/use-open-details";
 import { useSessionPreferences } from "./_hooks/use-session-preferences";
 import { buildCopyCommand } from "./_lib/copy-command";
+import { applyOmoFilter, detectOmoContent } from "./_lib/omo-filter";
 
 // ---------------------------------------------------------------------------
 // useScrollNavigation -- j/k navigation for a plain scrollable container
@@ -80,6 +81,7 @@ function useSessionShortcuts(actions: {
   togglePlain: () => void;
   toggleTools: () => void;
   toggleSidebar: () => void;
+  toggleOmoFilter: () => void;
 }) {
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -107,6 +109,10 @@ function useSessionShortcuts(actions: {
         case "b": // Sidebar toggle
           e.preventDefault();
           actions.toggleSidebar();
+          break;
+        case "o": // OMO filter toggle
+          e.preventDefault();
+          actions.toggleOmoFilter();
           break;
       }
     };
@@ -159,20 +165,27 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   // View preferences
   const [
-    { collapseEnabled, filterMode, plainMode, toolsVisible, sidebarOpen },
-    { toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar },
+    { collapseEnabled, filterMode, plainMode, toolsVisible, sidebarOpen, omoFilter },
+    { toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar, toggleOmoFilter },
   ] = useSessionPreferences({
     getAnchor: getAnchorNoop,
     restoreAnchor: restoreAnchorNoop,
     recheckOverflows: recheckOverflowsNoop,
   });
 
-  // Filtered messages count
+  // OMO detection (memoised — runs once per message set)
   const messages = data?.messages ?? [];
+  const hasOmoContent = React.useMemo(
+    () => detectOmoContent(messages),
+    [messages],
+  );
+
+  // Filtered messages count (accounts for omo + role filter)
   const visibleCount = React.useMemo(() => {
-    if (filterMode === "all") return messages.length;
-    return messages.filter((m) => m.role === filterMode).length;
-  }, [messages, filterMode]);
+    const list = omoFilter && hasOmoContent ? applyOmoFilter(messages) : messages;
+    if (filterMode === "all") return list.length;
+    return list.filter((m) => m.role === filterMode).length;
+  }, [messages, filterMode, omoFilter, hasOmoContent]);
 
   // Navigation
   const { navIndex, jump: jumpMessage } = useScrollNavigation(
@@ -189,8 +202,9 @@ export function SessionDetailPage(): React.ReactElement | null {
         togglePlain,
         toggleTools,
         toggleSidebar,
+        toggleOmoFilter,
       }),
-      [toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar],
+      [toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar, toggleOmoFilter],
     ),
   );
 
@@ -285,6 +299,9 @@ export function SessionDetailPage(): React.ReactElement | null {
         onDelete={handleDelete}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        hasOmoContent={hasOmoContent}
+        omoFilter={omoFilter}
+        onToggleOmoFilter={toggleOmoFilter}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -292,6 +309,7 @@ export function SessionDetailPage(): React.ReactElement | null {
           <MessageList
             messages={data.messages}
             filterMode={filterMode}
+            omoFilter={omoFilter && hasOmoContent}
             toolsVisible={toolsVisible}
             plainMode={plainMode}
             collapseEnabled={collapseEnabled}

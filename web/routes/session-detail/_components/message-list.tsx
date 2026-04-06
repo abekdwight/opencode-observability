@@ -1,11 +1,13 @@
 import React from "react";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import type { FilterMode } from "../_lib/constants";
+import { applyOmoFilter } from "../_lib/omo-filter";
 import { MessageRow } from "./message-row";
 
 export interface MessageListProps {
   messages: SessionMessageContract[];
   filterMode: FilterMode;
+  omoFilter: boolean;
   toolsVisible: boolean;
   plainMode: boolean;
   collapseEnabled: boolean;
@@ -16,20 +18,22 @@ export interface MessageListProps {
 
 /**
  * Builds the visible message list with original indices preserved.
+ * When omoFilter is enabled, synthetic OMO messages are removed and
+ * OMO-prefixed user messages have their prefix stripped.
  */
 function useFilteredMessages(
   messages: SessionMessageContract[],
   filterMode: FilterMode,
+  omoFilter: boolean,
 ): Array<{ msg: SessionMessageContract; originalIdx: number }> {
-  return React.useMemo(
-    () =>
-      messages
-        .map((msg, idx) => ({ msg, originalIdx: idx }))
-        .filter(
-          ({ msg }) => filterMode === "all" || msg.role === filterMode,
-        ),
-    [messages, filterMode],
-  );
+  return React.useMemo(() => {
+    const source = omoFilter ? applyOmoFilter(messages) : messages;
+    return source
+      .map((msg, idx) => ({ msg, originalIdx: idx }))
+      .filter(
+        ({ msg }) => filterMode === "all" || msg.role === filterMode,
+      );
+  }, [messages, filterMode, omoFilter]);
 }
 
 /**
@@ -39,6 +43,7 @@ function useFilteredMessages(
 export function MessageList({
   messages,
   filterMode,
+  omoFilter,
   toolsVisible,
   plainMode,
   collapseEnabled,
@@ -46,7 +51,7 @@ export function MessageList({
   onToggleToolDetail,
   containerRef,
 }: MessageListProps): React.ReactElement {
-  const filteredMessages = useFilteredMessages(messages, filterMode);
+  const filteredMessages = useFilteredMessages(messages, filterMode, omoFilter);
 
   // Scroll to bottom on initial mount
   React.useLayoutEffect(() => {

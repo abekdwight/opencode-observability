@@ -34,6 +34,7 @@ export interface SessionPreferences {
   plainMode: boolean;
   toolsVisible: boolean;
   sidebarOpen: boolean;
+  omoFilter: boolean;
 }
 
 export interface SessionPreferenceActions {
@@ -42,6 +43,7 @@ export interface SessionPreferenceActions {
   togglePlain: () => void;
   toggleTools: () => void;
   toggleSidebar: () => void;
+  toggleOmoFilter: () => void;
 }
 
 export function useSessionPreferences(
@@ -73,6 +75,9 @@ export function useSessionPreferences(
   const [sidebarOpen, setSidebarOpen] = React.useState(
     () => readPref("ot-sidebar", "true") !== "false",
   );
+  const [omoFilter, setOmoFilter] = React.useState(
+    () => readPref("ot-omo", "true") !== "false",
+  );
 
   // --- Persist preferences ---
   React.useEffect(() => {
@@ -90,6 +95,9 @@ export function useSessionPreferences(
   React.useEffect(() => {
     writePref("ot-sidebar", String(sidebarOpen));
   }, [sidebarOpen]);
+  React.useEffect(() => {
+    writePref("ot-omo", String(omoFilter));
+  }, [omoFilter]);
 
   // --- Control actions ---
   const togglePlain = React.useCallback(() => {
@@ -125,12 +133,22 @@ export function useSessionPreferences(
     setSidebarOpen((prev) => !prev);
   }, []);
 
+  const toggleOmoFilter = React.useCallback(() => {
+    const anchor = getAnchor();
+    setOmoFilter((prev) => !prev);
+    requestAnimationFrame(() => {
+      recheckOverflowsRef.current();
+      restoreAnchor(anchor);
+    });
+  }, [getAnchor, restoreAnchor]);
+
   const preferences: SessionPreferences = {
     collapseEnabled,
     filterMode,
     plainMode,
     toolsVisible,
     sidebarOpen,
+    omoFilter,
   };
 
   const actions: SessionPreferenceActions = {
@@ -139,6 +157,7 @@ export function useSessionPreferences(
     togglePlain,
     toggleTools,
     toggleSidebar,
+    toggleOmoFilter,
   };
 
   return [preferences, actions];

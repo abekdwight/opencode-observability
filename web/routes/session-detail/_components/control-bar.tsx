@@ -129,6 +129,14 @@ function HelpButton() {
                 </td>
                 <td className="py-0.5 align-middle">{"\u30B5\u30A4\u30C9\u30D0\u30FC\u5207\u66FF"}</td>
               </tr>
+              <tr>
+                <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  +
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">O</kbd>
+                </td>
+                <td className="py-0.5 align-middle">{"OMO\u30D5\u30A3\u30EB\u30BF\u5207\u66FF"}</td>
+              </tr>
             </tbody>
           </table>
           <div className="mt-2 text-[0.72em] text-[var(--color-text-tertiary)]">
