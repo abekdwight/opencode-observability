@@ -88,7 +88,7 @@ function SkillDetailContent({
           >
             Output
           </div>
-          <div ref={outputRef} />
+          <div ref={outputRef} data-message-content />
         </div>
       ) : null}
       {error ? (
@@ -239,10 +239,18 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const doneCount = todos.filter((t) => t.status === "completed").length;
 
   // Compute loaded skills
-  const { loadedSkillNames, skillInvocations } = React.useMemo(() => {
+  const {
+    loadedSkillNames,
+    skillInvocations,
+    loadedToolNames,
+    toolInvocations,
+  } = React.useMemo(() => {
     const invocations: SkillInvocation[] = [];
+    const nonSkillInvocations: SkillInvocation[] = [];
     const names: string[] = [];
+    const toolNames: string[] = [];
     const seen = new Set<string>();
+    const seenTools = new Set<string>();
     for (const msg of data.messages) {
       for (const tc of msg.toolCalls) {
         if ((tc.tool === "skill" || tc.tool === "skill_mcp") && tc.input) {
@@ -259,10 +267,30 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             fullOutput: tc.fullOutput,
             error: tc.error,
           });
+          continue;
         }
+        const toolName = tc.tool || "unknown";
+        if (!seenTools.has(toolName)) {
+          seenTools.add(toolName);
+          toolNames.push(toolName);
+        }
+        nonSkillInvocations.push({
+          name: toolName,
+          tool: tc.tool,
+          durationMs: tc.durationMs,
+          status: tc.status,
+          fullInput: tc.fullInput,
+          fullOutput: tc.fullOutput,
+          error: tc.error,
+        });
       }
     }
-    return { loadedSkillNames: names, skillInvocations: invocations };
+    return {
+      loadedSkillNames: names,
+      skillInvocations: invocations,
+      loadedToolNames: toolNames,
+      toolInvocations: nonSkillInvocations,
+    };
   }, [data.messages]);
 
   return (
@@ -516,6 +544,88 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                       </span>
                     )}
                     {hasDetail && isSkillOpen ? (
+                      <SkillDetailContent
+                        fullInput={lastInvocation.fullInput}
+                        fullOutput={lastInvocation.fullOutput}
+                        error={lastInvocation.error}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
+
+        {/* Tools -- always shown */}
+        <details
+          className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
+          data-testid="loaded-tools-accordion"
+        >
+          <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+            Tools{" "}
+            <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
+              {loadedToolNames.length}
+            </span>
+          </summary>
+          <div className="py-[var(--space-sm)]">
+            {loadedToolNames.length === 0 ? (
+              <div className="text-[0.8em] text-[var(--color-text-tertiary)] py-[var(--space-xs)]">
+                No tools used
+              </div>
+            ) : null}
+            {loadedToolNames.map((toolName) => {
+                const invocations = toolInvocations.filter(
+                  (t) => t.name === toolName,
+                );
+                const lastInvocation = invocations[invocations.length - 1];
+                const hasDetail =
+                  lastInvocation?.fullInput || lastInvocation?.fullOutput;
+                const detailId = `tool-detail-${toolName}`;
+                const isToolOpen = openDetails.has(detailId);
+                const durStr =
+                  lastInvocation.durationMs > 0
+                    ? lastInvocation.durationMs < 1000
+                      ? `${lastInvocation.durationMs}ms`
+                      : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
+                    : "";
+                return (
+                  <div key={toolName} className="py-[var(--space-xs)]">
+                    {hasDetail ? (
+                      <button
+                        type="button"
+                        className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
+                        onClick={() => onToggleDetail(detailId)}
+                      >
+                        {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {invocations.length}x
+                        </span>
+                        {durStr ? (
+                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                            {durStr}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {invocations.length}x
+                        </span>
+                        {durStr ? (
+                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                            {durStr}
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
+                    {hasDetail && isToolOpen ? (
                       <SkillDetailContent
                         fullInput={lastInvocation.fullInput}
                         fullOutput={lastInvocation.fullOutput}

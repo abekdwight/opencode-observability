@@ -382,6 +382,7 @@ export function buildSessionDetailContract(
         title: link.title,
         durationMs: link.durationMs,
       })),
+      fileDiffs: message.fileDiffs,
     })),
     todos: routeView.todos.map((todo) => ({
       content: todo.content,

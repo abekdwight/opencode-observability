@@ -61,6 +61,16 @@ export interface SessionMessageSubagentLinkContract {
   durationMs: number;
 }
 
+export interface MessageFileDiffContract {
+  filePath: string;
+  tool: "edit" | "apply_patch" | "write";
+  diff: string | null;
+  additions: number;
+  deletions: number;
+  isNewFile: boolean;
+  fromSubagent: boolean;
+}
+
 export interface SessionMessageContract {
   role: "user" | "assistant";
   text: string;
@@ -70,6 +80,7 @@ export interface SessionMessageContract {
   createdAt: string;
   toolCalls: SessionToolCallContract[];
   subagentLinks: SessionMessageSubagentLinkContract[];
+  fileDiffs: MessageFileDiffContract[];
 }
 
 export interface SessionTodoContract {

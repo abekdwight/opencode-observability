@@ -11,6 +11,7 @@ import {
   decodeHtmlEntities,
   normalizeMermaidSvg,
 } from "../_lib/mermaid-utils";
+import { FileDiffs } from "./file-diffs";
 import { ToolTimeline } from "./tool-timeline";
 import { MermaidLightbox } from "./mermaid-lightbox";
 
@@ -307,6 +308,10 @@ export const MessageRow = React.memo(function MessageRow({
           openDetails={openDetails}
           onToggleDetail={onToggleDetail}
         />
+      ) : null}
+      {/* File diffs */}
+      {msg.fileDiffs?.length > 0 ? (
+        <FileDiffs diffs={msg.fileDiffs} />
       ) : null}
       <div className="relative w-full" ref={bodyRef}>
         {/* Rendered markdown content */}

@@ -263,6 +263,43 @@ export function listSessionToolParts(
     .all(sessionId) as SessionToolPartRecord[];
 }
 
+export interface FileChangePartRecord {
+  session_id: string;
+  message_id: string;
+  tool: string;
+  input_json: string | null;
+  diff: string | null;
+  filediff_json: string | null;
+}
+
+/**
+ * Batch-fetch file-modifying tool parts (edit, apply_patch, write) for
+ * multiple session IDs in a single query.
+ */
+export function listFileChangePartsForSessions(
+  db: Database,
+  sessionIds: string[],
+): FileChangePartRecord[] {
+  if (sessionIds.length === 0) return [];
+  const placeholders = sessionIds.map(() => "?").join(",");
+  return db
+    .prepare(
+      `SELECT p.session_id,
+              p.message_id,
+              json_extract(p.data, '$.tool') AS tool,
+              json_extract(p.data, '$.state.input') AS input_json,
+              json_extract(p.data, '$.state.metadata.diff') AS diff,
+              json_extract(p.data, '$.state.metadata.filediff') AS filediff_json
+       FROM part p
+       WHERE p.session_id IN (${placeholders})
+         AND json_extract(p.data, '$.type') = 'tool'
+         AND json_extract(p.data, '$.tool') IN ('edit', 'apply_patch', 'write')
+         AND json_extract(p.data, '$.state.status') = 'completed'
+       ORDER BY p.session_id, p.message_id, p.time_created ASC, p.rowid ASC`,
+    )
+    .all(...sessionIds) as FileChangePartRecord[];
+}
+
 export function listSessionTodos(
   db: Database,
   sessionId: string,

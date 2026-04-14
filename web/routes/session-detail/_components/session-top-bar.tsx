@@ -62,6 +62,43 @@ export const SessionTopBar = React.memo(function SessionTopBar({
         </div>
 
         <div className="flex gap-[var(--space-sm)] items-center shrink-0">
+          {hasOmoContent ? (
+            <button
+              type="button"
+              className={cn(
+                "h-[22px] px-1.5",
+                "rounded-[var(--radius-sm)]",
+                "border",
+                "text-[0.7em] font-medium tracking-[0.02em]",
+                "inline-flex items-center gap-1",
+                "cursor-pointer transition-all duration-[var(--transition-fast)]",
+                "select-none",
+                omoFilter
+                  ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)] border-[var(--color-accent)]"
+                  : "bg-[var(--color-bg-elevated)] text-[var(--color-text-tertiary)] border-[var(--color-border-default)] hover:border-[var(--color-accent)] hover:text-[var(--color-text-secondary)]",
+              )}
+              onClick={onToggleOmoFilter}
+              title={omoFilter ? "OMO\u30D5\u30A3\u30EB\u30BF ON\uFF08\u81EA\u52D5\u633F\u5165\u30B3\u30E1\u30F3\u30C8\u3092\u975E\u8868\u793A\uFF09" : "OMO\u30D5\u30A3\u30EB\u30BF OFF\uFF08\u3059\u3079\u3066\u8868\u793A\uFF09"}
+              data-testid="btn-omo-filter"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M1.5 3h13M3.5 6.5h9M5.5 10h5M7 13.5h2" />
+                {!omoFilter ? <path d="M13 3L3 13" strokeWidth="2" /> : null}
+              </svg>
+              <span className="font-[var(--font-mono)] leading-none">OMO</span>
+            </button>
+          ) : null}
+
           <button
             type="button"
             className={copyBtnClass}
@@ -142,43 +179,6 @@ export const SessionTopBar = React.memo(function SessionTopBar({
               <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
             </svg>
           </button>
-
-          {hasOmoContent ? (
-            <button
-              type="button"
-              className={cn(
-                "h-[22px] px-1.5",
-                "rounded-[var(--radius-sm)]",
-                "border",
-                "text-[0.7em] font-medium tracking-[0.02em]",
-                "inline-flex items-center gap-1",
-                "cursor-pointer transition-all duration-[var(--transition-fast)]",
-                "select-none",
-                omoFilter
-                  ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)] border-[var(--color-accent)]"
-                  : "bg-[var(--color-bg-elevated)] text-[var(--color-text-tertiary)] border-[var(--color-border-default)] hover:border-[var(--color-accent)] hover:text-[var(--color-text-secondary)]",
-              )}
-              onClick={onToggleOmoFilter}
-              title={omoFilter ? "OMO\u30D5\u30A3\u30EB\u30BF ON\uFF08\u81EA\u52D5\u633F\u5165\u30B3\u30E1\u30F3\u30C8\u3092\u975E\u8868\u793A\uFF09" : "OMO\u30D5\u30A3\u30EB\u30BF OFF\uFF08\u3059\u3079\u3066\u8868\u793A\uFF09"}
-              data-testid="btn-omo-filter"
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M1.5 3h13M3.5 6.5h9M5.5 10h5M7 13.5h2" />
-                {!omoFilter ? <path d="M13 3L3 13" strokeWidth="2" /> : null}
-              </svg>
-              <span className="font-[var(--font-mono)] leading-none">OMO</span>
-            </button>
-          ) : null}
 
           <button
             type="button"

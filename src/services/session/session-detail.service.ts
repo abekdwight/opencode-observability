@@ -10,6 +10,7 @@ import {
   formatDuration,
   prettifyPath,
 } from "../../lib/text-format.js";
+import type { MessageFileDiffContract } from "../../contracts/session.js";
 import {
   countSessionCompactionMessages,
   countSessionToolCalls,
@@ -19,12 +20,14 @@ import {
   getSessionTitleRecord,
   getSessionTokenStats,
   listChildSessionRecords,
+  listFileChangePartsForSessions,
   listSessionMessages,
   listSessionModelTokenBreakdown,
   listSessionRoleCounts,
   listSessionTitlesByIds,
   listSessionTodos,
   listSessionToolParts,
+  type FileChangePartRecord,
   type SessionMessageRecord,
   type SessionRecord,
   type SessionTodoRecord,
@@ -67,6 +70,7 @@ export interface SessionMessageDetail {
   time_created: string | number;
   toolCalls: ToolCallItem[];
   subagentLinks: SessionMessageSubagentLink[];
+  fileDiffs: MessageFileDiffContract[];
 }
 
 export interface SessionRouteView {
@@ -280,6 +284,166 @@ function summarizeToolInput(
   return "";
 }
 
+// ---------------------------------------------------------------------------
+// File diff extraction helpers
+// ---------------------------------------------------------------------------
+
+function countDiffLines(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+  }
+  return { additions, deletions };
+}
+
+function extractFilePath(record: FileChangePartRecord): string {
+  try {
+    if (record.input_json) {
+      const input = JSON.parse(record.input_json) as Record<string, unknown>;
+      if (typeof input.filePath === "string") return input.filePath;
+      if (typeof input.file_path === "string") return input.file_path;
+      // apply_patch: extract from patchText
+      if (typeof input.patchText === "string") {
+        const match = input.patchText.match(
+          /\*\*\* (?:Update|Add) File: (.+)/,
+        );
+        if (match) return match[1].trim();
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return "unknown";
+}
+
+function parseFileChangeRecord(
+  record: FileChangePartRecord,
+  fromSubagent: boolean,
+): MessageFileDiffContract {
+  const filePath = extractFilePath(record);
+  const tool = record.tool as "edit" | "apply_patch" | "write";
+
+  // Prefer metadata.diff (unified diff)
+  let diff = record.diff;
+  if (!diff && record.input_json && tool === "apply_patch") {
+    try {
+      const input = JSON.parse(record.input_json) as { patchText?: string };
+      diff = input.patchText ?? null;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let additions = 0;
+  let deletions = 0;
+  if (diff) {
+    ({ additions, deletions } = countDiffLines(diff));
+  } else if (record.filediff_json) {
+    try {
+      const filediff = JSON.parse(record.filediff_json) as {
+        additions?: number;
+        deletions?: number;
+      };
+      additions = filediff.additions ?? 0;
+      deletions = filediff.deletions ?? 0;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // write tool: check if new file
+  let isNewFile = false;
+  if (tool === "write" && record.input_json) {
+    try {
+      const input = JSON.parse(record.input_json) as Record<string, unknown>;
+      // metadata.exists is a number (0 = new file) in the DB
+      isNewFile = !record.filediff_json;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { filePath, tool, diff, additions, deletions, isNewFile, fromSubagent };
+}
+
+/**
+ * Build per-message file diffs. Aggregates direct tool calls and subagent
+ * changes back to the parent message that spawned them.
+ */
+function buildMessageFileDiffs(
+  db: Database,
+  sessionId: string,
+  messageToSubagentIdsMap: Map<string, string[]>,
+): Map<string, MessageFileDiffContract[]> {
+  // Collect all session IDs we need to query (main + all subagents, recursively)
+  const allSessionIds = new Set<string>([sessionId]);
+  const subagentToParentMessage = new Map<string, string>();
+
+  // Build subagent→parentMessage mapping from the already-collected map
+  for (const [messageId, subIds] of messageToSubagentIdsMap) {
+    for (const subId of subIds) {
+      allSessionIds.add(subId);
+      subagentToParentMessage.set(subId, messageId);
+    }
+  }
+
+  // Handle nested subagents: query child sessions for all known subagent IDs
+  // and map them back up the chain to the root parent message
+  let frontier = Array.from(subagentToParentMessage.keys());
+  while (frontier.length > 0) {
+    const placeholders = frontier.map(() => "?").join(",");
+    const children = db
+      .prepare(
+        `SELECT id, parent_id FROM session WHERE parent_id IN (${placeholders})`,
+      )
+      .all(...frontier) as { id: string; parent_id: string }[];
+    frontier = [];
+    for (const child of children) {
+      if (!allSessionIds.has(child.id)) {
+        allSessionIds.add(child.id);
+        // Inherit the root parent message from the parent subagent
+        const rootMessage = subagentToParentMessage.get(child.parent_id);
+        if (rootMessage) {
+          subagentToParentMessage.set(child.id, rootMessage);
+          frontier.push(child.id);
+        }
+      }
+    }
+  }
+
+  // Batch-fetch all file change parts
+  const allParts = listFileChangePartsForSessions(
+    db,
+    Array.from(allSessionIds),
+  );
+
+  // Group by parent message ID
+  const result = new Map<string, MessageFileDiffContract[]>();
+
+  for (const part of allParts) {
+    let targetMessageId: string;
+    const isFromSubagent = part.session_id !== sessionId;
+
+    if (isFromSubagent) {
+      // Map subagent changes to the parent message that spawned them
+      const parentMsg = subagentToParentMessage.get(part.session_id);
+      if (!parentMsg) continue; // orphaned subagent, skip
+      targetMessageId = parentMsg;
+    } else {
+      targetMessageId = part.message_id;
+    }
+
+    const fileDiff = parseFileChangeRecord(part, isFromSubagent);
+    const existing = result.get(targetMessageId) || [];
+    existing.push(fileDiff);
+    result.set(targetMessageId, existing);
+  }
+
+  return result;
+}
+
 export function buildSessionRouteView(
   db: Database,
   sessionId: string,
@@ -404,6 +568,13 @@ export function buildSessionRouteView(
     }
   }
 
+  // Build per-message file diffs (direct + subagent changes)
+  const messageFileDiffs = buildMessageFileDiffs(
+    db,
+    sessionId,
+    messageToSubagentIdsMap,
+  );
+
   const viewMessages = messages.map<SessionViewMessage>((message) => {
     if (message.role !== "assistant") return message;
     const outputTps = calcOutputTps(
@@ -434,6 +605,7 @@ export function buildSessionRouteView(
       time_created: message.time_created,
       toolCalls: messageToolCalls.get(message.id) ?? [],
       subagentLinks,
+      fileDiffs: messageFileDiffs.get(message.id) ?? [],
     };
   });
 
