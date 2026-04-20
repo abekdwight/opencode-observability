@@ -7,70 +7,11 @@ import { ControlBar } from "./_components/control-bar";
 import { MessageList } from "./_components/message-list";
 import { SessionSidebar } from "./_components/session-sidebar";
 import { SessionTopBar } from "./_components/session-top-bar";
+import { useMessageNavigation } from "./_hooks/use-message-navigation";
 import { useOpenDetails } from "./_hooks/use-open-details";
 import { useSessionPreferences } from "./_hooks/use-session-preferences";
 import { buildCopyCommand } from "./_lib/copy-command";
 import { applyOmoFilter, detectOmoContent } from "./_lib/omo-filter";
-
-// ---------------------------------------------------------------------------
-// useScrollNavigation -- j/k navigation for a plain scrollable container
-// ---------------------------------------------------------------------------
-function useScrollNavigation(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  visibleCount: number,
-): {
-  navIndex: number;
-  jump: (dir: number) => void;
-} {
-  const [navIndex, setNavIndex] = React.useState(() =>
-    visibleCount > 0 ? visibleCount - 1 : 0,
-  );
-
-  // Initialize to last message when data first loads
-  React.useEffect(() => {
-    if (visibleCount > 0) {
-      setNavIndex(visibleCount - 1);
-    }
-  }, [visibleCount]);
-
-  const jump = React.useCallback(
-    (dir: number) => {
-      if (visibleCount === 0) return;
-      setNavIndex((prev) => {
-        const next = Math.max(0, Math.min(visibleCount - 1, prev + dir));
-        // Scroll the target message into view
-        const container = containerRef.current;
-        if (container) {
-          const children = container.children;
-          const child = children[next] as HTMLElement | undefined;
-          child?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-        return next;
-      });
-    },
-    [visibleCount, containerRef],
-  );
-
-  // Keyboard navigation (j/k)
-  React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (e.key === "j" || (e.key === "ArrowDown" && e.altKey)) {
-        e.preventDefault();
-        jump(1);
-      }
-      if (e.key === "k" || (e.key === "ArrowUp" && e.altKey)) {
-        e.preventDefault();
-        jump(-1);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [jump]);
-
-  return { navIndex, jump };
-}
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts for session detail (Ctrl/Cmd + key)
@@ -165,8 +106,22 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   // View preferences
   const [
-    { collapseEnabled, filterMode, plainMode, toolsVisible, sidebarOpen, omoFilter },
-    { toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar, toggleOmoFilter },
+    {
+      collapseEnabled,
+      filterMode,
+      plainMode,
+      toolsVisible,
+      sidebarOpen,
+      omoFilter,
+    },
+    {
+      toggleCollapse,
+      cycleFilter,
+      togglePlain,
+      toggleTools,
+      toggleSidebar,
+      toggleOmoFilter,
+    },
   ] = useSessionPreferences({
     getAnchor: getAnchorNoop,
     restoreAnchor: restoreAnchorNoop,
@@ -182,16 +137,18 @@ export function SessionDetailPage(): React.ReactElement | null {
 
   // Filtered messages count (accounts for omo + role filter)
   const visibleCount = React.useMemo(() => {
-    const list = omoFilter && hasOmoContent ? applyOmoFilter(messages) : messages;
+    const list =
+      omoFilter && hasOmoContent ? applyOmoFilter(messages) : messages;
     if (filterMode === "all") return list.length;
     return list.filter((m) => m.role === filterMode).length;
   }, [messages, filterMode, omoFilter, hasOmoContent]);
 
   // Navigation
-  const { navIndex, jump: jumpMessage } = useScrollNavigation(
+  const { navIndex, jump: jumpMessage } = useMessageNavigation({
     containerRef,
     visibleCount,
-  );
+    filterMode,
+  });
 
   // Keyboard shortcuts
   useSessionShortcuts(
@@ -204,7 +161,14 @@ export function SessionDetailPage(): React.ReactElement | null {
         toggleSidebar,
         toggleOmoFilter,
       }),
-      [toggleCollapse, cycleFilter, togglePlain, toggleTools, toggleSidebar, toggleOmoFilter],
+      [
+        toggleCollapse,
+        cycleFilter,
+        togglePlain,
+        toggleTools,
+        toggleSidebar,
+        toggleOmoFilter,
+      ],
     ),
   );
 
@@ -268,7 +232,10 @@ export function SessionDetailPage(): React.ReactElement | null {
   if (loading) {
     return (
       <section className="grid gap-2.5">
-        <p className="m-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]" data-testid="route-loading">
+        <p
+          className="m-0 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
+          data-testid="route-loading"
+        >
           Loading session detail...
         </p>
       </section>
@@ -278,7 +245,10 @@ export function SessionDetailPage(): React.ReactElement | null {
   if (error) {
     return (
       <section className="grid gap-2.5">
-        <p className="m-0 rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]" data-testid="route-error">
+        <p
+          className="m-0 rounded-xl border border-[var(--color-error-border)] bg-[var(--color-error-bg)] px-4 py-3 text-sm text-[var(--color-error)]"
+          data-testid="route-error"
+        >
           Session API unavailable: {error}
         </p>
       </section>

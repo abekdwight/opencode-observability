@@ -1,4 +1,57 @@
 import React from "react";
+import type { FilterMode } from "../_lib/constants";
+
+interface MessageNode {
+  element: HTMLElement;
+  role: "user" | "assistant";
+  absoluteIndex: number;
+}
+
+function collectVisibleMessageNodes(
+  container: HTMLDivElement | null,
+  filterMode: FilterMode,
+): MessageNode[] {
+  if (!container) return [];
+  const selector =
+    filterMode === "assistant"
+      ? "[data-message-role='assistant']:not([data-hidden])"
+      : filterMode === "user"
+        ? "[data-message-role='user']:not([data-hidden])"
+        : "[data-message-role]:not([data-hidden])";
+  const nodeList = container.querySelectorAll<HTMLElement>(selector);
+  return Array.from(nodeList).map((element, absoluteIndex) => ({
+    element,
+    role: element.dataset.messageRole === "user" ? "user" : "assistant",
+    absoluteIndex,
+  }));
+}
+
+function findAnchorIndex(
+  nodes: MessageNode[],
+  container: HTMLDivElement | null,
+): number {
+  if (!container || nodes.length === 0) return -1;
+  const containerTop = container.getBoundingClientRect().top + 12;
+  let anchorIndex = nodes[nodes.length - 1]?.absoluteIndex ?? -1;
+  for (const node of nodes) {
+    if (node.element.getBoundingClientRect().bottom > containerTop) {
+      anchorIndex = node.absoluteIndex;
+      break;
+    }
+  }
+  return anchorIndex;
+}
+
+function selectJumpTargets(
+  nodes: MessageNode[],
+  filterMode: FilterMode,
+): MessageNode[] {
+  if (filterMode === "assistant") {
+    return nodes.filter((node) => node.role === "assistant");
+  }
+  const userNodes = nodes.filter((node) => node.role === "user");
+  return userNodes.length > 0 ? userNodes : nodes;
+}
 
 // ---------------------------------------------------------------------------
 // useMessageNavigation — j/k keyboard nav + scroll sync for message counter
@@ -6,13 +59,27 @@ import React from "react";
 export function useMessageNavigation(options: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   visibleCount: number;
+  filterMode: FilterMode;
 }): {
   navIndex: number;
   jump: (dir: number) => void;
 } {
-  const { containerRef, visibleCount } = options;
+  const { containerRef, visibleCount, filterMode } = options;
 
-  const [navIndex, setNavIndex] = React.useState(-1);
+  const [navIndex, setNavIndex] = React.useState(() =>
+    visibleCount > 0 ? visibleCount - 1 : -1,
+  );
+
+  React.useEffect(() => {
+    if (visibleCount === 0) {
+      setNavIndex(-1);
+      return;
+    }
+    setNavIndex((prev) => {
+      if (prev < 0 || prev >= visibleCount) return visibleCount - 1;
+      return prev;
+    });
+  }, [visibleCount]);
 
   const syncNavToView = React.useCallback(() => {
     if (visibleCount === 0) {
@@ -20,37 +87,44 @@ export function useMessageNavigation(options: {
       return;
     }
     const container = containerRef.current;
-    const nodes = container?.querySelectorAll<HTMLElement>(
-      "[data-message-role]:not([data-hidden])",
-    );
-    if (!nodes || !container) return;
-    const containerRect = container.getBoundingClientRect();
-    const threshold = containerRect.top + containerRect.height / 3;
-    let best = 0;
-    for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i].getBoundingClientRect().top <= threshold) best = i;
-    }
-    setNavIndex(best);
-  }, [visibleCount, containerRef]);
+    if (!container) return;
+    const nodes = collectVisibleMessageNodes(container, filterMode);
+    const anchorIndex = findAnchorIndex(nodes, container);
+    setNavIndex(anchorIndex);
+  }, [visibleCount, containerRef, filterMode]);
 
   const jump = React.useCallback(
     (dir: number) => {
       const container = containerRef.current;
-      const nodes = container?.querySelectorAll<HTMLElement>(
-        "[data-message-role]:not([data-hidden])",
-      );
-      if (!nodes || nodes.length === 0 || !container) return;
-      setNavIndex((prev) => {
-        const cur = prev < 0 ? 0 : prev;
-        const next = Math.max(0, Math.min(nodes.length - 1, cur + dir));
-        const nodeTop = nodes[next].offsetTop;
-        container.scrollTo({ top: nodeTop - 12, behavior: "smooth" });
-        nodes[next].classList.add("nav-highlight");
-        setTimeout(() => nodes[next]?.classList.remove("nav-highlight"), 800);
-        return next;
+      if (!container) return;
+
+      const nodes = collectVisibleMessageNodes(container, filterMode);
+      if (nodes.length === 0) return;
+
+      const targets = selectJumpTargets(nodes, filterMode);
+      if (targets.length === 0) return;
+
+      const current =
+        navIndex >= 0 ? navIndex : findAnchorIndex(nodes, container);
+      const clampedCurrent = Math.max(0, Math.min(nodes.length - 1, current));
+
+      const target =
+        dir > 0
+          ? targets.find((node) => node.absoluteIndex > clampedCurrent)
+          : [...targets]
+              .reverse()
+              .find((node) => node.absoluteIndex < clampedCurrent);
+      if (!target) return;
+
+      container.scrollTo({
+        top: target.element.offsetTop - 12,
+        behavior: "instant",
       });
+      target.element.classList.add("nav-highlight");
+      setTimeout(() => target.element.classList.remove("nav-highlight"), 800);
+      setNavIndex(target.absoluteIndex);
     },
-    [containerRef],
+    [containerRef, filterMode, navIndex],
   );
 
   // Keyboard navigation (j/k)
@@ -75,17 +149,22 @@ export function useMessageNavigation(options: {
   React.useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    let timer: ReturnType<typeof setTimeout>;
+    let rafId = 0;
     const handler = () => {
-      clearTimeout(timer);
-      timer = setTimeout(syncNavToView, 150);
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(syncNavToView);
     };
     container.addEventListener("scroll", handler, { passive: true });
+    syncNavToView();
     return () => {
-      clearTimeout(timer);
+      cancelAnimationFrame(rafId);
       container.removeEventListener("scroll", handler);
     };
   }, [syncNavToView, containerRef]);
+
+  React.useEffect(() => {
+    syncNavToView();
+  }, [syncNavToView]);
 
   return { navIndex, jump };
 }
