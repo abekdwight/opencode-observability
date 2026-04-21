@@ -45,12 +45,12 @@ function ModelPerformanceHeaderHelp({
         align === "right" && "justify-end",
       )}
     >
-      <span>{label}</span>
+      <span className="model-performance-th-label">{label}</span>
       <RadixTooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+            className="model-performance-info-btn inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
             aria-label={`${label} help`}
           >
             <svg
@@ -74,7 +74,7 @@ function ModelPerformanceHeaderHelp({
             </svg>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
+        <TooltipContent side="top" className="model-performance-tooltip max-w-xs">
           {tooltip}
         </TooltipContent>
       </RadixTooltip>
@@ -247,8 +247,8 @@ export function ModelPerformanceSection({
       </div>
 
       {mode === "table" ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="model-performance-table-scroll overflow-x-auto">
+          <table className="model-performance-table w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border-subtle)]">
                 <th className="pb-2 text-left text-xs font-semibold text-[var(--color-text-secondary)]">
@@ -321,13 +321,13 @@ export function ModelPerformanceSection({
                       <span className="inline-flex items-center gap-0.5">
                         {isFallback ? (
                           <span
-                            className="text-[var(--color-text-tertiary)]"
-                            title="P50 unavailable -- showing weighted average"
+                            className="model-performance-fallback text-[var(--color-text-tertiary)]"
+                            title="P50 unavailable — showing weighted average"
                           >
                             *
                           </span>
                         ) : null}
-                        <span className="font-semibold">
+                        <span className="model-performance-primary-value font-semibold">
                           {formatNullableMetric(primaryTps)}
                         </span>
                       </span>

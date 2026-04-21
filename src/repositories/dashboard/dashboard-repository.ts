@@ -1,4 +1,5 @@
 type SqliteDatabase = import("better-sqlite3").Database;
+import type { DashboardSessionSourceStamp } from "../../services/dashboard/dashboard-aggregation-types.js";
 
 export interface DashboardPartRow {
   tool: string | null;
@@ -92,6 +93,50 @@ export interface DashboardLiveSummary {
   recentTokenRows: DashboardRecentTokenRow[];
 }
 
+export interface DashboardAtomRootSessionRow {
+  id: string;
+  projectId: string;
+  worktree: string | null;
+  directory: string;
+  title: string;
+  timeCreated: number;
+  timeUpdated: number;
+  day: string;
+}
+
+export interface DashboardAtomMessageRow {
+  sessionId: string;
+  timeCreated: number;
+  day: string;
+  hour: string;
+  role: string | null;
+  model: string | null;
+  provider: string | null;
+  agent: string | null;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  durationMs: number;
+}
+
+export interface DashboardAtomPartRow {
+  sessionId: string;
+  day: string;
+  hour: string;
+  tool: string | null;
+  status: string | null;
+  error: string | null;
+}
+
+export interface DashboardSessionAtomSource {
+  rootSession: DashboardAtomRootSessionRow;
+  messages: DashboardAtomMessageRow[];
+  parts: DashboardAtomPartRow[];
+}
+
 export interface DashboardCacheStamp {
   partRowId: number;
   messageRowId: number;
@@ -100,6 +145,45 @@ export interface DashboardCacheStamp {
   maxPartUpdatedAt: number;
   maxMessageUpdatedAt: number;
   maxSessionUpdatedAt: number;
+}
+
+function toUniqueSortedIds(ids: string[]): string[] {
+  return Array.from(new Set(ids)).sort();
+}
+
+export function readDashboardRootSessionIdsForSessionIds(
+  db: SqliteDatabase,
+  sessionIds: string[],
+): string[] {
+  const ids = toUniqueSortedIds(sessionIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `
+      WITH RECURSIVE session_tree(id, root_session_id) AS (
+        SELECT id, id
+        FROM session
+        WHERE parent_id IS NULL
+
+        UNION ALL
+
+        SELECT child.id, session_tree.root_session_id
+        FROM session child
+        JOIN session_tree ON child.parent_id = session_tree.id
+      )
+      SELECT DISTINCT session_tree.root_session_id AS rootSessionId
+      FROM session_tree
+      WHERE session_tree.id IN (${placeholders})
+      ORDER BY session_tree.root_session_id
+    `,
+    )
+    .all(...ids) as Array<{ rootSessionId: string }>;
+
+  return rows.map((row) => row.rootSessionId);
 }
 
 function readMaxRowId(
@@ -163,7 +247,7 @@ export function readDashboardCacheStamp(
   };
 }
 
-export function readDashboardChangedDaysSince(
+function readDashboardChangedDaysSince(
   db: SqliteDatabase,
   previous: DashboardCacheStamp,
 ): string[] {
@@ -211,6 +295,185 @@ export function readDashboardChangedDaysSince(
   return Array.from(days).sort();
 }
 
+export function readDashboardChangedRootSessionIdsSince(
+  db: SqliteDatabase,
+  previous: DashboardCacheStamp,
+): string[] {
+  const rows = db
+    .prepare(
+      `
+      WITH RECURSIVE session_tree(id, root_session_id) AS (
+        SELECT id, id
+        FROM session
+        WHERE parent_id IS NULL
+
+        UNION ALL
+
+        SELECT child.id, session_tree.root_session_id
+        FROM session child
+        JOIN session_tree ON child.parent_id = session_tree.id
+      ),
+      changed_session_ids(session_id) AS (
+        SELECT id
+        FROM session
+        WHERE rowid > ? OR time_updated > ?
+
+        UNION
+
+        SELECT session_id
+        FROM message
+        WHERE rowid > ? OR time_updated > ?
+
+        UNION
+
+        SELECT session_id
+        FROM part
+        WHERE rowid > ? OR time_updated > ?
+      )
+      SELECT DISTINCT session_tree.root_session_id AS rootSessionId
+      FROM changed_session_ids
+      JOIN session_tree ON session_tree.id = changed_session_ids.session_id
+      ORDER BY session_tree.root_session_id
+    `,
+    )
+    .all(
+      previous.sessionRowId,
+      previous.maxSessionUpdatedAt,
+      previous.messageRowId,
+      previous.maxMessageUpdatedAt,
+      previous.partRowId,
+      previous.maxPartUpdatedAt,
+    ) as Array<{ rootSessionId: string }>;
+
+  return rows.map((row) => row.rootSessionId);
+}
+
+export function readDashboardSessionSourceStamps(
+  db: SqliteDatabase,
+  rootSessionIds: string[],
+): DashboardSessionSourceStamp[] {
+  const ids = toUniqueSortedIds(rootSessionIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `
+      WITH RECURSIVE descendants(root_session_id, session_id) AS (
+        SELECT id, id
+        FROM session
+        WHERE id IN (${placeholders})
+          AND parent_id IS NULL
+
+        UNION ALL
+
+        SELECT descendants.root_session_id, child.id
+        FROM session child
+        JOIN descendants ON child.parent_id = descendants.session_id
+      ),
+      session_stats AS (
+        SELECT descendants.root_session_id AS rootSessionId,
+               COUNT(*) AS sessionRowCount,
+               MAX(s.rowid) AS sessionRowId,
+               MAX(s.time_updated) AS maxSessionUpdatedAt
+        FROM descendants
+        JOIN session s ON s.id = descendants.session_id
+        GROUP BY descendants.root_session_id
+      ),
+      message_stats AS (
+        SELECT descendants.root_session_id AS rootSessionId,
+               COUNT(*) AS messageRowCount,
+               MAX(m.rowid) AS messageRowId,
+               MAX(m.time_updated) AS maxMessageUpdatedAt
+        FROM descendants
+        JOIN message m ON m.session_id = descendants.session_id
+        GROUP BY descendants.root_session_id
+      ),
+      part_stats AS (
+        SELECT descendants.root_session_id AS rootSessionId,
+               COUNT(*) AS partRowCount,
+               MAX(p.rowid) AS partRowId,
+               MAX(p.time_updated) AS maxPartUpdatedAt
+        FROM descendants
+        JOIN part p ON p.session_id = descendants.session_id
+        GROUP BY descendants.root_session_id
+      )
+      SELECT session_stats.rootSessionId AS rootSessionId,
+             session_stats.sessionRowCount AS sessionRowCount,
+             session_stats.sessionRowId AS sessionRowId,
+             session_stats.maxSessionUpdatedAt AS maxSessionUpdatedAt,
+             COALESCE(message_stats.messageRowCount, 0) AS messageRowCount,
+             COALESCE(message_stats.messageRowId, 0) AS messageRowId,
+             COALESCE(message_stats.maxMessageUpdatedAt, 0) AS maxMessageUpdatedAt,
+             COALESCE(part_stats.partRowCount, 0) AS partRowCount,
+             COALESCE(part_stats.partRowId, 0) AS partRowId,
+             COALESCE(part_stats.maxPartUpdatedAt, 0) AS maxPartUpdatedAt
+      FROM session_stats
+      LEFT JOIN message_stats ON message_stats.rootSessionId = session_stats.rootSessionId
+      LEFT JOIN part_stats ON part_stats.rootSessionId = session_stats.rootSessionId
+      ORDER BY session_stats.rootSessionId
+    `,
+    )
+    .all(...ids) as DashboardSessionSourceStamp[];
+
+  return rows;
+}
+
+export function readDashboardAffectedDaysForRootSessionIds(
+  db: SqliteDatabase,
+  rootSessionIds: string[],
+): string[] {
+  const ids = toUniqueSortedIds(rootSessionIds);
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `
+      WITH RECURSIVE descendants(root_session_id, session_id) AS (
+        SELECT id, id
+        FROM session
+        WHERE id IN (${placeholders})
+          AND parent_id IS NULL
+
+        UNION ALL
+
+        SELECT descendants.root_session_id, child.id
+        FROM session child
+        JOIN descendants ON child.parent_id = descendants.session_id
+      ),
+      touched_days(day) AS (
+        SELECT DISTINCT date(s.time_created/1000, 'unixepoch', 'localtime') AS day
+        FROM descendants
+        JOIN session s ON s.id = descendants.session_id
+
+        UNION
+
+        SELECT DISTINCT date(m.time_created/1000, 'unixepoch', 'localtime') AS day
+        FROM descendants
+        JOIN message m ON m.session_id = descendants.session_id
+
+        UNION
+
+        SELECT DISTINCT date(p.time_created/1000, 'unixepoch', 'localtime') AS day
+        FROM descendants
+        JOIN part p ON p.session_id = descendants.session_id
+      )
+      SELECT day
+      FROM touched_days
+      WHERE day IS NOT NULL
+      ORDER BY day
+    `,
+    )
+    .all(...ids) as Array<{ day: string }>;
+
+  return rows.map((row) => row.day);
+}
+
 export function readSessionDeletionTargetIds(
   db: SqliteDatabase,
   sessionId: string,
@@ -232,61 +495,121 @@ export function readDashboardAffectedDaysForSessionIds(
   db: SqliteDatabase,
   sessionIds: string[],
 ): string[] {
-  const ids = Array.from(new Set(sessionIds));
-  if (ids.length === 0) {
-    return [];
-  }
+  const rootSessionIds = readDashboardRootSessionIdsForSessionIds(db, sessionIds);
+  return readDashboardAffectedDaysForRootSessionIds(db, rootSessionIds);
+}
 
-  const placeholders = ids.map(() => "?").join(",");
-  const days = new Set<string>();
-
-  const sessionDays = db
+export function readDashboardSessionAtomSource(
+  db: SqliteDatabase,
+  rootSessionId: string,
+): DashboardSessionAtomSource | null {
+  const rootSession = db
     .prepare(
       `
-      SELECT DISTINCT date(time_created/1000, 'unixepoch', 'localtime') AS day
-      FROM session
-      WHERE id IN (${placeholders})
+      SELECT s.id AS id,
+             s.project_id AS projectId,
+             p.worktree AS worktree,
+             s.directory AS directory,
+             s.title AS title,
+             s.time_created AS timeCreated,
+             s.time_updated AS timeUpdated,
+             date(s.time_created/1000, 'unixepoch', 'localtime') AS day
+      FROM session s
+      JOIN project p ON p.id = s.project_id
+      WHERE s.id = ?
+        AND s.parent_id IS NULL
     `,
     )
-    .all(...ids) as Array<{ day: string | null }>;
-  for (const row of sessionDays) {
-    if (row.day) {
-      days.add(row.day);
-    }
+    .get(rootSessionId) as DashboardAtomRootSessionRow | undefined;
+
+  if (!rootSession) {
+    return null;
   }
 
-  const messageDays = db
+  const messages = db
     .prepare(
       `
-      SELECT DISTINCT date(time_created/1000, 'unixepoch', 'localtime') AS day
-      FROM message
-      WHERE session_id IN (${placeholders})
+      WITH RECURSIVE descendants(session_id) AS (
+        SELECT id
+        FROM session
+        WHERE id = ?
+          AND parent_id IS NULL
+
+        UNION ALL
+
+        SELECT child.id
+        FROM session child
+        JOIN descendants ON child.parent_id = descendants.session_id
+      )
+      SELECT m.session_id AS sessionId,
+             m.time_created AS timeCreated,
+             date(m.time_created/1000, 'unixepoch', 'localtime') AS day,
+             strftime('%H', m.time_created/1000, 'unixepoch', 'localtime') AS hour,
+             json_extract(m.data, '$.role') AS role,
+             json_extract(m.data, '$.modelID') AS model,
+             COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
+             json_extract(m.data, '$.agent') AS agent,
+             COALESCE(
+               NULLIF(json_extract(m.data, '$.tokens.total'), 0),
+               COALESCE(json_extract(m.data, '$.tokens.input'), 0)
+                 + COALESCE(json_extract(m.data, '$.tokens.output'), 0)
+                 + COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)
+                 + COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0),
+               0
+             ) AS totalTokens,
+             COALESCE(json_extract(m.data, '$.tokens.input'), 0) AS inputTokens,
+             COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS outputTokens,
+             COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cacheReadTokens,
+             COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0) AS cacheWriteTokens,
+             COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoningTokens,
+             CASE
+               WHEN json_extract(m.data, '$.time.created') IS NOT NULL
+                AND json_extract(m.data, '$.time.completed') IS NOT NULL
+                AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
+               THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
+               ELSE 0
+             END AS durationMs
+      FROM message m
+      JOIN descendants ON descendants.session_id = m.session_id
+      ORDER BY m.session_id, m.time_created, m.id
     `,
     )
-    .all(...ids) as Array<{ day: string | null }>;
-  for (const row of messageDays) {
-    if (row.day) {
-      days.add(row.day);
-    }
-  }
+    .all(rootSessionId) as DashboardAtomMessageRow[];
 
-  const partDays = db
+  const parts = db
     .prepare(
       `
-      SELECT DISTINCT date(p.time_created/1000, 'unixepoch', 'localtime') AS day
+      WITH RECURSIVE descendants(session_id) AS (
+        SELECT id
+        FROM session
+        WHERE id = ?
+          AND parent_id IS NULL
+
+        UNION ALL
+
+        SELECT child.id
+        FROM session child
+        JOIN descendants ON child.parent_id = descendants.session_id
+      )
+      SELECT p.session_id AS sessionId,
+             date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
+             strftime('%H', p.time_created/1000, 'unixepoch', 'localtime') AS hour,
+             json_extract(p.data, '$.tool') AS tool,
+             json_extract(p.data, '$.state.status') AS status,
+             json_extract(p.data, '$.state.error') AS error
       FROM part p
-      JOIN message m ON m.id = p.message_id
-      WHERE m.session_id IN (${placeholders})
+      JOIN descendants ON descendants.session_id = p.session_id
+      WHERE json_extract(p.data, '$.type') = 'tool'
+      ORDER BY p.time_created, p.id
     `,
     )
-    .all(...ids) as Array<{ day: string | null }>;
-  for (const row of partDays) {
-    if (row.day) {
-      days.add(row.day);
-    }
-  }
+    .all(rootSessionId) as DashboardAtomPartRow[];
 
-  return Array.from(days).sort();
+  return {
+    rootSession,
+    messages,
+    parts,
+  };
 }
 
 export function fetchDashboardPartData(
@@ -475,7 +798,7 @@ export function fetchDashboardRepoData(
   };
 }
 
-export function fetchDashboardLiveSummary(
+function fetchDashboardLiveSummary(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
 ): DashboardLiveSummary {

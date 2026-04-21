@@ -13,7 +13,6 @@ import {
   parseLocalDate,
   toLocalDateString,
 } from "../../lib/dashboard-time.js";
-import { calcRepoDayActiveDurations } from "../../lib/duration.js";
 import { resolveRepoBucketKey } from "../../lib/repo-root.js";
 import {
   escapeHtml,
@@ -24,11 +23,17 @@ import {
 } from "../../lib/text-format.js";
 import {
   type DashboardRepositoryWindow,
-  fetchDashboardLiveSummary,
   fetchDashboardMessageData,
   fetchDashboardPartData,
   fetchDashboardRepoData,
 } from "../../repositories/dashboard/dashboard-repository.js";
+import type {
+  DashboardDayRollup,
+  DashboardMcpUsageTotals,
+  DashboardModelTokenTotals,
+  DashboardProjectionSource,
+  DashboardToolReliabilityTotals,
+} from "./dashboard-aggregation-types.js";
 
 type SqliteDatabase = import("better-sqlite3").Database;
 
@@ -713,6 +718,104 @@ function buildRecentSessionsData(
   }));
 }
 
+function incrementCount(map: Map<string, number>, key: string, value: number): void {
+  if (!key || value === 0) return;
+  map.set(key, (map.get(key) ?? 0) + value);
+}
+
+function aggregateNumberMapFromRollups(
+  rollups: DashboardDayRollup[],
+  pickMap: (rollup: DashboardDayRollup) => Map<string, number>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const rollup of rollups) {
+    for (const [key, value] of pickMap(rollup)) {
+      incrementCount(out, key, value);
+    }
+  }
+  return out;
+}
+
+function aggregateMcpUsageTotalsFromRollups(
+  rollups: DashboardDayRollup[],
+): Map<string, DashboardMcpUsageTotals> {
+  const out = new Map<string, DashboardMcpUsageTotals>();
+  for (const rollup of rollups) {
+    for (const [key, value] of rollup.mcpUsage) {
+      let entry = out.get(key);
+      if (!entry) {
+        entry = {
+          server: value.server,
+          calls: 0,
+          errors: 0,
+          isBuiltin: value.isBuiltin,
+        };
+        out.set(key, entry);
+      }
+      entry.calls += value.calls;
+      entry.errors += value.errors;
+    }
+  }
+  return out;
+}
+
+function aggregateToolReliabilityTotalsFromRollups(
+  rollups: DashboardDayRollup[],
+): Map<string, DashboardToolReliabilityTotals> {
+  const out = new Map<string, DashboardToolReliabilityTotals>();
+  for (const rollup of rollups) {
+    for (const [key, value] of rollup.toolReliabilityMatrix) {
+      let entry = out.get(key);
+      if (!entry) {
+        entry = {
+          tool: value.tool,
+          success: 0,
+          error: 0,
+          total: 0,
+        };
+        out.set(key, entry);
+      }
+      entry.success += value.success;
+      entry.error += value.error;
+      entry.total += value.total;
+    }
+  }
+  return out;
+}
+
+function aggregateModelTokenTotalsFromRollups(
+  rollups: DashboardDayRollup[],
+): Map<string, DashboardModelTokenTotals> {
+  const out = new Map<string, DashboardModelTokenTotals>();
+  for (const rollup of rollups) {
+    for (const [key, value] of rollup.modelTokenTotals) {
+      let entry = out.get(key);
+      if (!entry) {
+        entry = {
+          model: value.model,
+          provider: value.provider,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          nonCacheInputTokens: 0,
+          inputTotalTokens: 0,
+          totalTokens: 0,
+        };
+        out.set(key, entry);
+      }
+      entry.inputTokens += value.inputTokens;
+      entry.outputTokens += value.outputTokens;
+      entry.cacheReadTokens += value.cacheReadTokens;
+      entry.cacheWriteTokens += value.cacheWriteTokens;
+      entry.nonCacheInputTokens += value.nonCacheInputTokens;
+      entry.inputTotalTokens += value.inputTotalTokens;
+      entry.totalTokens += value.totalTokens;
+    }
+  }
+  return out;
+}
+
 function renderRecentSessionsHtml(
   recentSessions: DashboardRecentSessionItem[],
 ): string {
@@ -807,19 +910,14 @@ function renderToolMatrixHtml(rows: DashboardToolReliabilityRow[]): string {
 }
 
 function buildMcpUsageData(
-  mcpServerBuckets: Map<string, number>,
-  selection: DashboardSelectionBoundsContract,
+  mcpUsageTotals: Map<string, DashboardMcpUsageTotals>,
 ): DashboardMcpUsageRow[] {
   const mcpServerMap = new Map<string, { calls: number; errors: number }>();
-  for (const [key, cnt] of mcpServerBuckets) {
-    const parts = key.split("\t");
-    if (!isDayWithinSelection(parts[2] ?? "", selection)) continue;
-    const server = parts[0];
-    const status = parts[1];
-    const entry = mcpServerMap.get(server) || { calls: 0, errors: 0 };
-    entry.calls += cnt;
-    if (status === "error") entry.errors += cnt;
-    mcpServerMap.set(server, entry);
+  for (const value of mcpUsageTotals.values()) {
+    mcpServerMap.set(value.server, {
+      calls: value.calls,
+      errors: value.errors,
+    });
   }
 
   const builtinEntry = mcpServerMap.get("builtin") || { calls: 0, errors: 0 };
@@ -894,9 +992,16 @@ function renderMcpAggHtml(rows: DashboardMcpUsageRow[]): string {
 }
 
 function buildErrorTrendData(
-  toolErrorDetails: Map<string, number>,
+  selectedDayRollups: DashboardDayRollup[],
   selection: DashboardSelectionBoundsContract,
 ): DashboardLineSeries[] {
+  const toolErrorDetails = new Map<string, number>();
+  for (const rollup of selectedDayRollups) {
+    for (const [tool, count] of rollup.toolErrorsByToolDay) {
+      incrementCount(toolErrorDetails, `${tool}\t${rollup.day}`, count);
+    }
+  }
+
   const toolErrorTotals = new Map<string, number>();
   for (const [key, cnt] of toolErrorDetails) {
     const [tool, day] = key.split("\t");
@@ -946,74 +1051,41 @@ function buildErrorTrendData(
     }));
 }
 
-function buildErrorTrendHourlyBars(
-  db: SqliteDatabase,
-  window: DashboardRepositoryWindow,
-  labels: string[],
+function buildHourlyErrorBars(
+  selectedDayRollups: DashboardDayRollup[],
 ): DashboardStackBar[] {
-  const stackLabels = labels.filter((label) => label !== "Other");
-  const includeOther = labels.includes("Other");
-  if (stackLabels.length === 0 && !includeOther) return [];
-
-  const labelSet = new Set(stackLabels);
-  const hourTotals = new Map<string, number[]>();
-  for (const label of stackLabels) {
-    hourTotals.set(label, new Array(24).fill(0));
-  }
-  if (includeOther) {
-    hourTotals.set("Other", new Array(24).fill(0));
+  const hourTotals = new Array(24).fill(0);
+  for (const rollup of selectedDayRollups) {
+    for (const [hour, count] of rollup.toolErrorsByHour) {
+      const hourIndex = Number(hour);
+      if (!Number.isInteger(hourIndex) || hourIndex < 0 || hourIndex > 23) {
+        continue;
+      }
+      hourTotals[hourIndex] += count;
+    }
   }
 
-  const params = [window.startDayInclusive, window.endDayExclusive];
-  const rows = db
-    .prepare(`
-      SELECT json_extract(p.data, '$.tool') AS tool,
-             strftime('%H', p.time_created/1000, 'unixepoch', 'localtime') AS hour
-      FROM part p
-      WHERE json_extract(p.data, '$.type') = 'tool'
-        AND json_extract(p.data, '$.state.status') = 'error'
-        AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
-        AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
-    `)
-    .all(...params) as Array<{ tool: string | null; hour: string }>;
-
-  for (const { tool, hour } of rows) {
-    const hourIndex = Number(hour);
-    if (!Number.isInteger(hourIndex) || hourIndex < 0 || hourIndex > 23)
-      continue;
-    const label = tool ?? "unknown";
-    const seriesKey = labelSet.has(label)
-      ? label
-      : includeOther
-        ? "Other"
-        : null;
-    if (!seriesKey) continue;
-    const totals = hourTotals.get(seriesKey);
-    if (!totals) continue;
-    totals[hourIndex] += 1;
+  if (!hourTotals.some((value) => value > 0)) {
+    return [];
   }
 
-  const orderedLabels = [...stackLabels, ...(includeOther ? ["Other"] : [])];
   return Array.from({ length: 24 }, (_, hour) => ({
     label: String(hour).padStart(2, "0"),
-    stacks: orderedLabels
-      .map((label, index) => ({
-        name: label,
-        value: hourTotals.get(label)?.[hour] ?? 0,
-        color: ERROR_TREND_COLORS[index] ?? "#86868b",
-      }))
-      .filter((stack) => stack.value > 0),
+    stacks:
+      hourTotals[hour] > 0
+        ? [
+            {
+              name: "Errors",
+              value: hourTotals[hour],
+              color: ERROR_TREND_COLORS[0],
+            },
+          ]
+        : [],
   }));
 }
 
 const TPS_AVG_MIN_SAMPLES = 5;
-const TPS_P10_MIN_SAMPLES = 5;
 const TPS_P50_MIN_SAMPLES = 20;
-const TPS_P90_MIN_SAMPLES = 50;
-const TPS_P99_MIN_SAMPLES = 200;
-const LATENCY_P50_MIN_SAMPLES = 20;
-const LATENCY_P90_MIN_SAMPLES = 50;
-const LATENCY_P99_MIN_SAMPLES = 200;
 
 function interpolateQuantile(values: number[], quantile: number): number {
   if (values.length === 0) return 0;
@@ -1038,38 +1110,9 @@ function quantileOrNull(
   return Number(interpolateQuantile(values, quantile).toFixed(2));
 }
 
-function buildModelPerformanceStatsData(
-  db: SqliteDatabase,
-  window: DashboardRepositoryWindow,
+function buildModelPerformanceStatsRows(
+  selectedSessionAtoms: DashboardProjectionSource["modelPerformanceStats"]["selectedSessionAtoms"],
 ): DashboardModelPerformanceStatsRow[] {
-  const params = [window.startDayInclusive, window.endDayExclusive];
-  const rows = db
-    .prepare(`
-      SELECT json_extract(m.data, '$.modelID') AS model,
-             COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
-             COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
-             COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoning_tokens,
-             CASE
-               WHEN json_extract(m.data, '$.time.created') IS NOT NULL
-                AND json_extract(m.data, '$.time.completed') IS NOT NULL
-                AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
-               THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
-               ELSE 0
-             END AS duration_ms
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.modelID') IS NOT NULL
-        AND json_extract(m.data, '$.modelID') != ''
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
-    `)
-    .all(...params) as Array<{
-    model: string | null;
-    provider: string | null;
-    output_tokens: number;
-    reasoning_tokens: number;
-    duration_ms: number;
-  }>;
 
   interface Bucket {
     model: string;
@@ -1087,46 +1130,35 @@ function buildModelPerformanceStatsData(
 
   const buckets = new Map<string, Bucket>();
 
-  for (const row of rows) {
-    const model = row.model || "(unknown)";
-    const provider = row.provider || "unknown";
-    const key = `${model}\t${provider}`;
-    const outputTokens = Number(row.output_tokens) || 0;
-    const reasoningTokens = Number(row.reasoning_tokens) || 0;
-    const durationMs = Number(row.duration_ms) || 0;
+  for (const atom of selectedSessionAtoms) {
+    for (const [key, sample] of atom.modelPerformanceSamples) {
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = {
+          model: sample.model,
+          provider: sample.provider,
+          totalMessages: 0,
+          validTpsMessages: 0,
+          validLatencyMessages: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          sumTpsOutputTokens: 0,
+          sumTpsDurationMs: 0,
+          tpsValues: [],
+          latencyValuesMs: [],
+        };
+        buckets.set(key, bucket);
+      }
 
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        model,
-        provider,
-        totalMessages: 0,
-        validTpsMessages: 0,
-        validLatencyMessages: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-        sumTpsOutputTokens: 0,
-        sumTpsDurationMs: 0,
-        tpsValues: [],
-        latencyValuesMs: [],
-      };
-      buckets.set(key, bucket);
-    }
-
-    bucket.totalMessages += 1;
-    bucket.outputTokens += outputTokens;
-    bucket.reasoningTokens += reasoningTokens;
-
-    if (durationMs > 0) {
-      bucket.validLatencyMessages += 1;
-      bucket.latencyValuesMs.push(durationMs);
-    }
-
-    if (durationMs > 0 && outputTokens > 0) {
-      bucket.validTpsMessages += 1;
-      bucket.sumTpsOutputTokens += outputTokens;
-      bucket.sumTpsDurationMs += durationMs;
-      bucket.tpsValues.push((outputTokens * 1000) / durationMs);
+      bucket.totalMessages += sample.totalMessages;
+      bucket.validTpsMessages += sample.validTpsMessages;
+      bucket.validLatencyMessages += sample.validLatencyMessages;
+      bucket.outputTokens += sample.outputTokens;
+      bucket.reasoningTokens += sample.reasoningTokens;
+      bucket.sumTpsOutputTokens += sample.sumOutputTokens;
+      bucket.sumTpsDurationMs += sample.sumDurationMs;
+      bucket.tpsValues.push(...sample.tpsSamples);
+      bucket.latencyValuesMs.push(...sample.latencySamplesMs);
     }
   }
 
@@ -1157,25 +1189,13 @@ function buildModelPerformanceStatsData(
         model: bucket.model,
         provider: bucket.provider,
         avgTps,
-        tpsP10: quantileOrNull(bucket.tpsValues, 0.1, TPS_P10_MIN_SAMPLES),
+        tpsP10: null,
         tpsP50: quantileOrNull(bucket.tpsValues, 0.5, TPS_P50_MIN_SAMPLES),
-        tpsP90: quantileOrNull(bucket.tpsValues, 0.9, TPS_P90_MIN_SAMPLES),
-        tpsP99: quantileOrNull(bucket.tpsValues, 0.99, TPS_P99_MIN_SAMPLES),
-        latencyP50Ms: quantileOrNull(
-          bucket.latencyValuesMs,
-          0.5,
-          LATENCY_P50_MIN_SAMPLES,
-        ),
-        latencyP90Ms: quantileOrNull(
-          bucket.latencyValuesMs,
-          0.9,
-          LATENCY_P90_MIN_SAMPLES,
-        ),
-        latencyP99Ms: quantileOrNull(
-          bucket.latencyValuesMs,
-          0.99,
-          LATENCY_P99_MIN_SAMPLES,
-        ),
+        tpsP90: null,
+        tpsP99: null,
+        latencyP50Ms: null,
+        latencyP90Ms: null,
+        latencyP99Ms: null,
         totalMessages: bucket.totalMessages,
         validTpsMessages: bucket.validTpsMessages,
         validLatencyMessages: bucket.validLatencyMessages,
@@ -1206,56 +1226,28 @@ function buildModelPerformanceStatsData(
     });
 }
 
-function buildModelTokenConsumptionData(
-  db: SqliteDatabase,
-  window: DashboardRepositoryWindow,
+function buildModelTokenConsumptionRows(
+  selectedDayRollups: DashboardProjectionSource["modelTokenConsumption"]["selectedDayRollups"],
 ): DashboardModelTokenConsumptionRow[] {
-  const params = [window.startDayInclusive, window.endDayExclusive];
-  const rows = db
-    .prepare(`
-      SELECT json_extract(m.data, '$.modelID') AS model,
-             COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.input'), 0)) AS input_tokens,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.output'), 0)) AS output_tokens,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)) AS cache_read_tokens,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0)) AS cache_write_tokens,
-             SUM(COALESCE(json_extract(m.data, '$.tokens.total'), 0)) AS total_tokens
-      FROM message m
-      WHERE json_extract(m.data, '$.role') = 'assistant'
-        AND json_extract(m.data, '$.modelID') IS NOT NULL
-        AND json_extract(m.data, '$.modelID') != ''
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
-        AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
-      GROUP BY model, provider
-    `)
-    .all(...params) as Array<{
-    model: string | null;
-    provider: string | null;
-    input_tokens: number;
-    output_tokens: number;
-    cache_read_tokens: number;
-    cache_write_tokens: number;
-    total_tokens: number;
-  }>;
-
-  return rows
-    .map((row) => {
-      const inputTokens = Number(row.input_tokens) || 0;
-      const outputTokens = Number(row.output_tokens) || 0;
-      const cacheReadTokens = Number(row.cache_read_tokens) || 0;
-      const cacheWriteTokens = Number(row.cache_write_tokens) || 0;
-      const inputTotalTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
-      const derivedTotalTokens = inputTotalTokens + outputTokens;
-      const rawTotalTokens = Number(row.total_tokens) || 0;
-      const totalTokens = Math.max(rawTotalTokens, derivedTotalTokens);
+  return Array.from(aggregateModelTokenTotalsFromRollups(selectedDayRollups).values())
+    .map((value) => {
+      const inputTokens = value.inputTokens;
+      const outputTokens = value.outputTokens;
+      const cacheReadTokens = value.cacheReadTokens;
+      const cacheWriteTokens = value.cacheWriteTokens;
+      const inputTotalTokens = value.inputTotalTokens;
+      const totalTokens = Math.max(
+        value.totalTokens,
+        inputTotalTokens + outputTokens,
+      );
       return {
-        model: row.model || "(unknown)",
-        provider: row.provider || "unknown",
+        model: value.model || "(unknown)",
+        provider: value.provider || "unknown",
         inputTokens,
         outputTokens,
         cacheReadTokens,
         cacheWriteTokens,
-        nonCacheInputTokens: inputTokens,
+        nonCacheInputTokens: value.nonCacheInputTokens,
         inputTotalTokens,
         totalTokens,
       };
@@ -1265,23 +1257,12 @@ function buildModelTokenConsumptionData(
     .slice(0, 12);
 }
 
-function buildRecentYearHeatmapData(db: SqliteDatabase): DayCount[] {
-  const today = toLocalDateString(new Date());
-  const startDay = addLocalDays(today, -364);
-  const endDayExclusive = addLocalDays(today, 1);
-
-  return db
-    .prepare(`
-      SELECT date(time_created/1000, 'unixepoch', 'localtime') AS day,
-             COUNT(*) AS cnt
-      FROM session
-      WHERE parent_id IS NULL
-        AND date(time_created/1000, 'unixepoch', 'localtime') >= ?
-        AND date(time_created/1000, 'unixepoch', 'localtime') < ?
-      GROUP BY day
-      ORDER BY day
-    `)
-    .all(startDay, endDayExclusive) as DayCount[];
+function buildRecentYearHeatmapDays(
+  trailingDayRollups: DashboardProjectionSource["heatmapDays"]["trailingDayRollups"],
+): DayCount[] {
+  return trailingDayRollups
+    .filter((rollup) => rollup.rootSessionCount > 0)
+    .map((rollup) => ({ day: rollup.day, cnt: rollup.rootSessionCount }));
 }
 
 function renderErrorTrendSvg(errorTrendSeries: DashboardLineSeries[]): string {
@@ -1579,15 +1560,26 @@ function renderSubagentTrendHtml(
 }
 
 function buildRepoBreakdownData(
-  db: SqliteDatabase,
-  repoDays: Map<string, number>,
+  selectedDayRollups: DashboardProjectionSource["activeRepos"]["selectedDayRollups"],
   selection: DashboardSelectionBoundsContract,
 ): DashboardRepoBreakdownData {
   const repoSessionCounts = new Map<string, number>();
-  for (const [key, cnt] of repoDays) {
-    const [repo, day] = key.split("\t");
-    if (!isDayWithinSelection(day, selection)) continue;
-    repoSessionCounts.set(repo, (repoSessionCounts.get(repo) || 0) + cnt);
+  const repoDaySessionCountMap = new Map<string, number>();
+  const repoDayDurationMap = new Map<string, number>();
+  for (const rollup of selectedDayRollups) {
+    for (const [repo, cnt] of rollup.repoSessionCountByDay) {
+      repoSessionCounts.set(repo, (repoSessionCounts.get(repo) || 0) + cnt);
+      repoDaySessionCountMap.set(
+        `${repo}\t${rollup.day}`,
+        (repoDaySessionCountMap.get(`${repo}\t${rollup.day}`) || 0) + cnt,
+      );
+    }
+    for (const [repo, durationMs] of rollup.repoActiveDurationMsByDay) {
+      repoDayDurationMap.set(
+        `${repo}\t${rollup.day}`,
+        (repoDayDurationMap.get(`${repo}\t${rollup.day}`) || 0) + durationMs,
+      );
+    }
   }
 
   const activeRepos = Array.from(repoSessionCounts.entries())
@@ -1606,24 +1598,6 @@ function buildRepoBreakdownData(
       dayHeaders: selectedDays,
       rows: [],
     };
-  }
-
-  const repoDayDurationMap = calcRepoDayActiveDurations(
-    db,
-    activeRepos,
-    selectedDays,
-  );
-  const repoDaySessionCountMap = new Map<string, number>();
-  const activeRepoSet = new Set(activeRepos);
-  for (const [key, cnt] of repoDays) {
-    const [repo, day] = key.split("\t");
-    if (!activeRepoSet.has(repo)) continue;
-    if (!isDayWithinSelection(day, selection)) continue;
-    const repoDayKey = `${repo}\t${day}`;
-    repoDaySessionCountMap.set(
-      repoDayKey,
-      (repoDaySessionCountMap.get(repoDayKey) || 0) + cnt,
-    );
   }
 
   const rows: DashboardRepoRow[] = activeRepos.map((repo) => {
@@ -1708,39 +1682,26 @@ function renderRepoBreakdownHtml(repoData: DashboardRepoBreakdownData): string {
 }
 
 function buildDashboardData(
-  db: SqliteDatabase,
-  state: DashboardAggregateState,
+  source: DashboardProjectionSource,
   view: DashboardView,
   selection: DashboardSelectionBoundsContract,
-  window: DashboardRepositoryWindow,
   range: DashboardRange,
 ): DashboardViewModel {
-  const liveSummary = fetchDashboardLiveSummary(db, window);
-
-  const filteredToolStatusDay = new Map<string, number>();
-  for (const [key, cnt] of state.toolDayBuckets) {
-    const parts = key.split("\t");
-    if (!isDayWithinSelection(parts[2] ?? "", selection)) continue;
-    const tsKey = `${parts[0]}\t${parts[1]}`;
-    filteredToolStatusDay.set(
-      tsKey,
-      (filteredToolStatusDay.get(tsKey) || 0) + cnt,
-    );
-  }
-
-  const toolCounts = new Map<string, number>();
+  const selectedDayRollups = source.summary.selectedDayRollups;
+  const selectedSessionAtoms = source.summary.selectedSessionAtoms;
+  const toolCounts = aggregateNumberMapFromRollups(
+    source.toolUsage.selectedDayRollups,
+    (rollup) => rollup.toolUsage,
+  );
+  const toolReliabilityTotals = aggregateToolReliabilityTotalsFromRollups(
+    source.toolReliabilityMatrix.selectedDayRollups,
+  );
   const toolSuccessErrorMap = new Map<string, ToolSuccessError>();
-  let totalToolCalls = 0;
-  let toolErrors = 0;
-  for (const [tsKey, cnt] of filteredToolStatusDay) {
-    const [tool, status] = tsKey.split("\t");
-    totalToolCalls += cnt;
-    if (status === "error") toolErrors += cnt;
-    toolCounts.set(tool, (toolCounts.get(tool) || 0) + cnt);
-    const entry = toolSuccessErrorMap.get(tool) || { success: 0, error: 0 };
-    if (status === "error") entry.error += cnt;
-    else if (status === "completed") entry.success += cnt;
-    toolSuccessErrorMap.set(tool, entry);
+  for (const [tool, totals] of toolReliabilityTotals) {
+    toolSuccessErrorMap.set(tool, {
+      success: totals.success,
+      error: totals.error,
+    });
   }
 
   const toolRows: ToolCount[] = Array.from(toolCounts.entries())
@@ -1748,21 +1709,38 @@ function buildDashboardData(
     .slice(0, 10)
     .map(([tool, cnt]) => ({ tool, cnt }));
 
-  const errorPatterns = filterMap(state.errorPatternDays, selection);
-  const modelCounts = filterMap(state.modelDays, selection);
-  const agentCounts = filterMap(state.agentDays, selection);
-
-  let totalTokens = 0;
-  for (const [day, tokens] of state.tokenDays) {
-    if (!isDayWithinSelection(day, selection)) continue;
-    totalTokens += tokens;
-  }
+  const errorPatterns = aggregateNumberMapFromRollups(
+    source.errorPatterns.selectedDayRollups,
+    (rollup) => rollup.errorPatterns,
+  );
+  const modelCounts = aggregateNumberMapFromRollups(
+    source.modelUsage.selectedDayRollups,
+    (rollup) => rollup.modelCountByDay,
+  );
+  const agentCounts = aggregateNumberMapFromRollups(
+    source.agentDistribution.selectedDayRollups,
+    (rollup) => rollup.agentDistribution,
+  );
+  const totalTokens = selectedDayRollups.reduce(
+    (sum, rollup) => sum + rollup.tokenTotals.total,
+    0,
+  );
+  const totalToolCalls = selectedDayRollups.reduce(
+    (sum, rollup) => sum + rollup.toolStatus.calls,
+    0,
+  );
+  const toolErrors = selectedDayRollups.reduce(
+    (sum, rollup) => sum + rollup.toolStatus.errors,
+    0,
+  );
 
   const modelRows: ModelCount[] = Array.from(modelCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([model, cnt]) => ({ model, cnt }));
-  const modelTokenConsumption = buildModelTokenConsumptionData(db, window);
+  const modelTokenConsumption = buildModelTokenConsumptionRows(
+    source.modelTokenConsumption.selectedDayRollups,
+  );
   const agentRows: AgentCount[] = Array.from(agentCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
@@ -1773,29 +1751,53 @@ function buildDashboardData(
       ? `${((toolErrors / totalToolCalls) * 100).toFixed(1)}%`
       : "0.0%";
 
-  const recentTokenMap = new Map(
-    liveSummary.recentTokenRows.map((row) => [
-      row.session_id,
-      row.total_tokens,
-    ]),
-  );
-  const recentSessionsWithTokens: RecentSession[] =
-    liveSummary.recentSessions.map((session) => ({
-      ...session,
-      total_tokens: recentTokenMap.get(session.id) || 0,
+  const recentSessions = selectedSessionAtoms
+    .map((atom) => atom.recentMeta)
+    .sort((a, b) => b.timeUpdated - a.timeUpdated)
+    .slice(0, 5)
+    .map((session) => ({
+      id: session.id,
+      title: session.title,
+      directory: session.directory,
+      time_created: 0,
+      time_updated: session.timeUpdated,
+      total_tokens: session.totalTokens,
     }));
 
+  const tokenInputDays = new Map(
+    selectedDayRollups.map((rollup) => [rollup.day, rollup.tokenInputByDay] as const),
+  );
+  const tokenOutputDays = new Map(
+    selectedDayRollups.map((rollup) => [rollup.day, rollup.tokenOutputByDay] as const),
+  );
+  const tokenInputHours = new Map<string, number>();
+  const tokenOutputHours = new Map<string, number>();
+  const subagentDays = new Map<string, number>();
+  const subagentHours = new Map<string, number>();
+
+  for (const rollup of selectedDayRollups) {
+    for (const [hour, count] of rollup.tokenInputByHour) {
+      tokenInputHours.set(`${rollup.day}\t${hour}`, count);
+    }
+    for (const [hour, count] of rollup.tokenOutputByHour) {
+      tokenOutputHours.set(`${rollup.day}\t${hour}`, count);
+    }
+    for (const [agent, count] of rollup.subagentByDay) {
+      subagentDays.set(`${agent}\t${rollup.day}`, count);
+    }
+    for (const [agentHour, count] of rollup.subagentByHour) {
+      const [agent, hour] = agentHour.split("\t");
+      subagentHours.set(`${agent}\t${rollup.day}\t${hour}`, count);
+    }
+  }
+
   const errorTrendSeries = buildErrorTrendData(
-    state.toolErrorDetails,
+    source.errorTrend.selectedDayRollups,
     selection,
   );
   const errorTrendHourlyBars =
     view === "hourly"
-      ? buildErrorTrendHourlyBars(
-          db,
-          window,
-          errorTrendSeries.map((series) => series.label),
-        )
+      ? buildHourlyErrorBars(source.errorTrend.selectedDayRollups)
       : [];
 
   return {
@@ -1803,37 +1805,45 @@ function buildDashboardData(
     view,
     selection,
     summary: {
-      totalSessions: liveSummary.totalSessions,
+      totalSessions: selectedDayRollups.reduce(
+        (sum, rollup) => sum + rollup.rootSessionCount,
+        0,
+      ),
       totalTokens,
       totalToolCalls,
       toolErrors,
       toolErrorRate,
-      activeProjects: liveSummary.activeProjects,
+      activeProjects: source.summary.projectIds.size,
     },
-    recentSessions: buildRecentSessionsData(recentSessionsWithTokens),
-    heatmapDays: buildRecentYearHeatmapData(db),
+    recentSessions: buildRecentSessionsData(recentSessions),
+    heatmapDays: buildRecentYearHeatmapDays(source.heatmapDays.trailingDayRollups),
     errorTrendSeries: view === "hourly" ? [] : errorTrendSeries,
     errorTrendHourlyBars,
     tokenTrend: buildTokenTrendData(
-      state.tokenInputDays,
-      state.tokenOutputDays,
-      state.tokenInputHours,
-      state.tokenOutputHours,
+      tokenInputDays,
+      tokenOutputDays,
+      tokenInputHours,
+      tokenOutputHours,
       selection,
       view,
     ),
     subagentTrend: buildSubagentTrendData(
-      state.subagentDays,
-      state.subagentHours,
+      subagentDays,
+      subagentHours,
       selection,
       view,
     ),
-    activeRepos: buildRepoBreakdownData(db, state.repoDays, selection),
+    activeRepos: buildRepoBreakdownData(
+      source.activeRepos.selectedDayRollups,
+      selection,
+    ),
     modelUsage: modelRows.map((row) => ({
       label: row.model ?? "(unknown)",
       count: row.cnt,
     })),
-    modelPerformanceStats: buildModelPerformanceStatsData(db, window),
+    modelPerformanceStats: buildModelPerformanceStatsRows(
+      source.modelPerformanceStats.selectedSessionAtoms,
+    ),
     modelTokenConsumption,
     toolUsage: toolRows.map((row) => ({
       label: row.tool ?? "(unknown)",
@@ -1843,7 +1853,9 @@ function buildDashboardData(
       label: row.agent ?? "(unknown)",
       count: row.cnt,
     })),
-    mcpUsage: buildMcpUsageData(state.mcpServerBuckets, selection),
+    mcpUsage: buildMcpUsageData(
+      aggregateMcpUsageTotalsFromRollups(source.mcpUsage.selectedDayRollups),
+    ),
     toolReliabilityMatrix: buildToolReliabilityMatrixData(toolSuccessErrorMap),
     errorPatterns: Array.from(errorPatterns.entries())
       .sort((a, b) => b[1] - a[1])
@@ -1851,7 +1863,7 @@ function buildDashboardData(
   };
 }
 
-export function buildDashboardAggregateStateForWindow(
+function buildDashboardAggregateStateForWindow(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
 ): DashboardAggregateState {
@@ -1862,7 +1874,7 @@ export function buildDashboardAggregateStateForWindow(
   return state;
 }
 
-export function buildDashboardAggregateState(
+function buildDashboardAggregateState(
   db: SqliteDatabase,
   range: DashboardRange,
 ): DashboardAggregateState {
@@ -1872,7 +1884,7 @@ export function buildDashboardAggregateState(
   );
 }
 
-export function updateDashboardAggregateStateForWindow(
+function updateDashboardAggregateStateForWindow(
   db: SqliteDatabase,
   state: DashboardAggregateState,
   window: DashboardRepositoryWindow,
@@ -1911,7 +1923,7 @@ export function updateDashboardAggregateStateForWindow(
   return state;
 }
 
-export function updateDashboardAggregateState(
+function updateDashboardAggregateState(
   db: SqliteDatabase,
   state: DashboardAggregateState,
   range: DashboardRange,
@@ -1924,25 +1936,22 @@ export function updateDashboardAggregateState(
 }
 
 export function buildDashboardViewModelForWindow(
-  db: SqliteDatabase,
-  state: DashboardAggregateState,
+  source: DashboardProjectionSource,
   window: DashboardRepositoryWindow,
   range: DashboardRange,
   view: DashboardView,
 ): DashboardViewModel {
   const selection = buildBoundedSelection(window);
-  return buildDashboardData(db, state, view, selection, window, range);
+  return buildDashboardData(source, view, selection, range);
 }
 
 export function buildDashboardViewModel(
-  db: SqliteDatabase,
-  state: DashboardAggregateState,
+  source: DashboardProjectionSource,
   range: DashboardRange,
   view: DashboardView,
 ): DashboardViewModel {
   return buildDashboardViewModelForWindow(
-    db,
-    state,
+    source,
     materializeDashboardCacheWindow(range),
     range,
     view,

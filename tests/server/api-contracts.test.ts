@@ -16,7 +16,6 @@ import {
 } from "../../src/server/dashboard-api.js";
 import { MONITOR_SSE_HEARTBEAT_INTERVAL_MS } from "../../src/server/monitor-api.js";
 import { resetMonitorRuntimeStoreForTest } from "../../src/server/monitor-runtime-store.js";
-import * as dashboardService from "../../src/services/dashboard/dashboard-service.js";
 import {
   ALERT_SESSION_ID,
   CHILD_SESSION_ID,
@@ -140,6 +139,21 @@ async function readSseMessages(
   throw new Error(
     `expected ${expectedCount} SSE messages, received ${messages.length}`,
   );
+}
+
+const TODAY_WINDOW = {
+  startDayInclusive: "2024-01-11",
+  endDayExclusive: "2024-01-12",
+};
+
+const HISTORICAL_WINDOW = {
+  startDayInclusive: "2024-01-04",
+  endDayExclusive: "2024-01-05",
+};
+
+function withoutGeneratedAt<T extends { generatedAt: string }>(value: T) {
+  const { generatedAt: _generatedAt, ...rest } = value;
+  return rest;
 }
 
 describe("server api contracts", () => {
@@ -1231,6 +1245,126 @@ describe("server api contracts", () => {
     expect(serialized).not.toContain("part-root-1-tool-read");
   });
 
+  test("DELETE /api/session invalidates dashboard aggregates for the deleted root session", async () => {
+    useFixtureDb();
+
+    const app = createApiApp();
+    const beforeDb = getWritableDb();
+
+    try {
+      const before = readDashboardSnapshot(beforeDb, {
+        range: "all",
+        view: "daily",
+      });
+      expect(before.summary.totalSessions).toBe(3);
+      expect(before.recentSessions.map((session) => session.id)).toContain(
+        ROOT_SESSION_ID,
+      );
+    } finally {
+      beforeDb.close();
+    }
+
+    const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+    expect(beforeSnapshot.sessionKeys).toEqual([
+      OLD_SESSION_ID,
+      ROOT_SESSION_ID,
+      ALERT_SESSION_ID,
+    ]);
+    expect(beforeSnapshot.dayKeys).toEqual([
+      "2024-01-04",
+      "2024-01-10",
+      "2024-01-11",
+    ]);
+
+    try {
+      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
+        method: "DELETE",
+        headers: {
+          "x-opencode-confirm-delete": ROOT_SESSION_ID,
+        },
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ deleted: 2 });
+
+      const afterDeleteSnapshot = getDashboardApiCacheSnapshotForTests();
+      expect(afterDeleteSnapshot.generation).toBe(beforeSnapshot.generation + 1);
+      expect(afterDeleteSnapshot.sessionKeys).toEqual([
+        OLD_SESSION_ID,
+        ALERT_SESSION_ID,
+      ]);
+      expect(afterDeleteSnapshot.dayKeys).toEqual([
+        "2024-01-04",
+        "2024-01-10",
+      ]);
+
+      const afterDb = getWritableDb();
+      try {
+        const after = readDashboardSnapshot(afterDb, {
+          range: "all",
+          view: "daily",
+        });
+        expect(after.summary.totalSessions).toBe(2);
+        expect(after.recentSessions.map((session) => session.id)).not.toContain(
+          ROOT_SESSION_ID,
+        );
+      } finally {
+        afterDb.close();
+      }
+    } finally {
+      useFixtureDb();
+    }
+  });
+
+  test("DELETE /api/session rejects missing confirmation without touching dashboard aggregates", async () => {
+    useFixtureDb();
+
+    const app = createApiApp();
+    const beforeDb = getWritableDb();
+
+    let beforeGeneratedAt = "";
+    try {
+      const before = readDashboardSnapshot(beforeDb, {
+        range: "all",
+        view: "daily",
+      });
+      beforeGeneratedAt = before.generatedAt;
+      expect(before.summary.totalSessions).toBe(3);
+    } finally {
+      beforeDb.close();
+    }
+
+    const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+
+    try {
+      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
+        method: "DELETE",
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "delete confirmation required",
+        sessionId: ROOT_SESSION_ID,
+      });
+
+      expect(getDashboardApiCacheSnapshotForTests()).toEqual(beforeSnapshot);
+
+      const afterDb = getWritableDb();
+      try {
+        const after = readDashboardSnapshot(afterDb, {
+          range: "all",
+          view: "daily",
+        });
+        expect(after.generatedAt).toBe(beforeGeneratedAt);
+        expect(after.summary.totalSessions).toBe(3);
+      } finally {
+        afterDb.close();
+      }
+    } finally {
+      useFixtureDb();
+    }
+  });
+
   test("GET /api/dashboard returns bounded all-window dashboard data", async () => {
     const app = createApiApp();
     const response = await app.request(
@@ -1279,7 +1413,13 @@ describe("server api contracts", () => {
         avgTps: number | null;
         tpsP10: number | null;
         tpsP50: number | null;
+        tpsP90: number | null;
+        tpsP99: number | null;
+        latencyP50Ms: number | null;
+        latencyP90Ms: number | null;
+        latencyP99Ms: number | null;
         validTpsMessages: number;
+        validLatencyMessages: number;
         totalMessages: number;
         validityRatio: number;
       }>;
@@ -1368,7 +1508,23 @@ describe("server api contracts", () => {
     ).toBe(true);
     expect(
       body.modelPerformanceStats.every(
-        (entry) => entry.tpsP10 == null || entry.tpsP10 >= 0,
+        (entry) =>
+          entry.tpsP10 === null &&
+          entry.tpsP90 === null &&
+          entry.tpsP99 === null &&
+          entry.latencyP50Ms === null &&
+          entry.latencyP90Ms === null &&
+          entry.latencyP99Ms === null,
+      ),
+    ).toBe(true);
+    expect(
+      body.modelPerformanceStats.every(
+        (entry) => entry.avgTps == null || entry.validTpsMessages >= 5,
+      ),
+    ).toBe(true);
+    expect(
+      body.modelPerformanceStats.every(
+        (entry) => entry.tpsP50 == null || entry.validTpsMessages >= 20,
       ),
     ).toBe(true);
     const sortKeys = body.modelPerformanceStats.map((entry) => ({
@@ -1770,181 +1926,247 @@ describe("server api contracts", () => {
     });
   });
 
-  test("dashboard cache hydrates bounded all-window day buckets on first load", () => {
+  test("dashboard cache reuses generation across unchanged reads", () => {
     useFixtureDb();
 
     const db = getWritableDb();
-    const buildSpy = vi.spyOn(
-      dashboardService,
-      "buildDashboardAggregateStateForWindow",
-    );
 
     try {
-      const body = readDashboardSnapshot(db, { range: "all", view: "daily" });
+      const first = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const firstSnapshot = getDashboardApiCacheSnapshotForTests();
 
-      expect(body.summary.totalSessions).toBe(3);
-      expect(buildSpy).toHaveBeenCalledTimes(1);
-      expect(buildSpy).toHaveBeenCalledWith(
-        db,
-        expect.objectContaining({
-          startDayInclusive: "2023-10-14",
-          endDayExclusive: "2024-01-12",
-        }),
-      );
-      const snapshot = getDashboardApiCacheSnapshotForTests();
-      expect(snapshot.rawKeys).toHaveLength(90);
-      expect(snapshot.rawKeys[0]).toBe("2023-10-14");
-      expect(snapshot.rawKeys.at(-1)).toBe("2024-01-11");
+      vi.advanceTimersByTime(60_000);
+
+      const second = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const secondSnapshot = getDashboardApiCacheSnapshotForTests();
+
+      expect(firstSnapshot.generation).toBeGreaterThanOrEqual(1);
+      expect(firstSnapshot.sessionKeys).toEqual([
+        OLD_SESSION_ID,
+        ROOT_SESSION_ID,
+        ALERT_SESSION_ID,
+      ]);
+      expect(firstSnapshot.dayKeys).toEqual([
+        "2024-01-04",
+        "2024-01-10",
+        "2024-01-11",
+      ]);
+      expect(second.generatedAt).toBe(first.generatedAt);
+      expect(withoutGeneratedAt(second)).toEqual(withoutGeneratedAt(first));
+      expect(secondSnapshot.generation).toBe(firstSnapshot.generation);
+      expect(secondSnapshot.sessionKeys).toEqual(firstSnapshot.sessionKeys);
+      expect(secondSnapshot.dayKeys).toEqual(firstSnapshot.dayKeys);
     } finally {
-      buildSpy.mockRestore();
       db.close();
     }
   });
 
-  test("dashboard cache reuses day buckets across overlapping bounded windows", () => {
-    useFixtureDb();
-
-    const db = getWritableDb();
-    const buildSpy = vi.spyOn(
-      dashboardService,
-      "buildDashboardAggregateStateForWindow",
-    );
-
-    try {
-      const weekBody = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-      });
-      const allBody = readDashboardSnapshot(db, {
-        range: "all",
-        view: "daily",
-      });
-
-      expect(weekBody.summary.totalSessions).toBe(2);
-      expect(allBody.summary.totalSessions).toBe(3);
-      expect(buildSpy).toHaveBeenCalledTimes(84);
-      expect(buildSpy).toHaveBeenCalledWith(
-        db,
-        expect.objectContaining({
-          startDayInclusive: "2024-01-05",
-          endDayExclusive: "2024-01-12",
-        }),
-      );
-      const weekDayBuilds = buildSpy.mock.calls.filter(([, windowArg]) => {
-        const window = windowArg as {
-          startDayInclusive: string;
-          endDayExclusive: string;
-        };
-        return (
-          window.startDayInclusive === "2024-01-05" &&
-          window.endDayExclusive === "2024-01-06"
-        );
-      });
-      expect(weekDayBuilds).toHaveLength(0);
-
-      const snapshot = getDashboardApiCacheSnapshotForTests();
-      expect(snapshot.rawKeys).toHaveLength(90);
-      expect(snapshot.rawKeys[0]).toBe("2023-10-14");
-      expect(snapshot.rawKeys.at(-1)).toBe("2024-01-11");
-    } finally {
-      buildSpy.mockRestore();
-      db.close();
-    }
-  });
-
-  test("dashboard cache refreshes live windows every 30 seconds but keeps fixed historical windows stable", () => {
-    useFixtureDb();
-
-    const db = getWritableDb();
-    const updateSpy = vi.spyOn(
-      dashboardService,
-      "updateDashboardAggregateStateForWindow",
-    );
-
-    try {
-      const liveFirst = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-      });
-      vi.advanceTimersByTime(29_000);
-      const liveSecond = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-      });
-      vi.advanceTimersByTime(2_000);
-      const liveThird = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-      });
-
-      const historicalWindow = {
-        startDayInclusive: "2024-01-04",
-        endDayExclusive: "2024-01-05",
-      };
-      const historicalFirst = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-        window: historicalWindow,
-      });
-      vi.advanceTimersByTime(31_000);
-      const historicalSecond = readDashboardSnapshot(db, {
-        range: "week",
-        view: "daily",
-        window: historicalWindow,
-      });
-
-      expect(liveFirst.generatedAt).toBe(liveSecond.generatedAt);
-      expect(liveThird.generatedAt).not.toBe(liveSecond.generatedAt);
-      expect(updateSpy).toHaveBeenCalledTimes(1);
-      expect(updateSpy).toHaveBeenCalledWith(
-        db,
-        expect.any(Object),
-        expect.objectContaining({
-          startDayInclusive: "2024-01-11",
-          endDayExclusive: "2024-01-12",
-        }),
-      );
-
-      expect(historicalFirst.generatedAt).toBe(historicalSecond.generatedAt);
-    } finally {
-      updateSpy.mockRestore();
-      db.close();
-    }
-  });
-
-  test("dashboard cache clears when session count drops", () => {
+  test("dashboard cache rebuilds only the affected root session after append", () => {
     useFixtureDb();
 
     const db = getWritableDb();
 
     try {
-      const window = {
-        startDayInclusive: "2024-01-04",
-        endDayExclusive: "2024-01-05",
-      };
       const before = readDashboardSnapshot(db, {
         range: "week",
         view: "daily",
-        window,
       });
-      expect(before.summary.totalSessions).toBe(1);
-      expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
-        "2024-01-04",
-      ]);
+      const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+      const unaffectedRecentSessions = before.recentSessions.filter(
+        (session) => session.id !== ROOT_SESSION_ID,
+      );
+      const createdAt = new Date("2024-01-11T10:22:55.000Z").getTime();
 
-      db.prepare("DELETE FROM session WHERE id = ?").run(OLD_SESSION_ID);
+      db.prepare(
+        `
+          INSERT INTO message (id, session_id, time_created, time_updated, data)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run(
+        "msg-child-1-append-api-contracts",
+        CHILD_SESSION_ID,
+        createdAt,
+        createdAt,
+        JSON.stringify({
+          role: "assistant",
+          time: { created: createdAt, completed: createdAt + 2_000 },
+          modelID: "gpt-4.1-mini",
+          providerID: "openai",
+          agent: "subagent-code",
+          tokens: { total: 25, input: 10, output: 15 },
+        }),
+      );
+
       vi.advanceTimersByTime(1_000);
 
       const after = readDashboardSnapshot(db, {
         range: "week",
         view: "daily",
-        window,
       });
-      expect(after.summary.totalSessions).toBe(0);
-      expect(getDashboardApiCacheSnapshotForTests().rawKeys).toEqual([
-        "2024-01-04",
-      ]);
+      const afterSnapshot = getDashboardApiCacheSnapshotForTests();
+
       expect(after.generatedAt).not.toBe(before.generatedAt);
+      expect(after.summary.totalSessions).toBe(before.summary.totalSessions);
+      expect(after.summary.totalTokens).toBe(before.summary.totalTokens + 25);
+      expect(
+        after.recentSessions.filter((session) => session.id !== ROOT_SESSION_ID),
+      ).toEqual(unaffectedRecentSessions);
+      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
+      expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("dashboard cache rebuilds the affected root after updating an existing row", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+
+    try {
+      const before = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+      const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+      const beforeMiniModel = before.modelTokenConsumption.find(
+        (entry) =>
+          entry.model === "gpt-4.1-mini" && entry.provider === "openai",
+      );
+      const updatedAt = new Date("2024-01-14T11:06:00.000Z").getTime();
+
+      db.prepare("UPDATE message SET time_updated = ?, data = ? WHERE id = ?").run(
+        updatedAt,
+        JSON.stringify({
+          role: "assistant",
+          time: {
+            created: new Date("2024-01-11T10:22:38.000Z").getTime(),
+            completed: new Date("2024-01-11T10:22:44.000Z").getTime(),
+          },
+          modelID: "gpt-4.1-mini",
+          providerID: "openai",
+          agent: "subagent-code",
+          tokens: { total: 50, input: 20, output: 30, reasoning: 2 },
+        }),
+        "msg-child-1-assistant",
+      );
+
+      vi.advanceTimersByTime(1_000);
+
+      const after = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+      });
+      const afterSnapshot = getDashboardApiCacheSnapshotForTests();
+      const afterMiniModel = after.modelTokenConsumption.find(
+        (entry) =>
+          entry.model === "gpt-4.1-mini" && entry.provider === "openai",
+      );
+
+      expect(beforeMiniModel?.totalTokens).toBe(30);
+      expect(after.generatedAt).not.toBe(before.generatedAt);
+      expect(after.summary.totalTokens).toBe(before.summary.totalTokens + 20);
+      expect(afterMiniModel?.totalTokens).toBe(50);
+      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
+      expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("dashboard cache leaves unrelated historical windows unchanged", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+
+    try {
+      const before = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+      const createdAt = new Date("2024-01-11T10:23:05.000Z").getTime();
+
+      db.prepare(
+        `
+          INSERT INTO message (id, session_id, time_created, time_updated, data)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      ).run(
+        "msg-child-1-append-historical-window",
+        CHILD_SESSION_ID,
+        createdAt,
+        createdAt,
+        JSON.stringify({
+          role: "assistant",
+          time: { created: createdAt, completed: createdAt + 1_500 },
+          modelID: "gpt-4.1-mini",
+          providerID: "openai",
+          agent: "subagent-code",
+          tokens: { total: 18, input: 8, output: 10 },
+        }),
+      );
+
+      vi.advanceTimersByTime(1_000);
+
+      const after = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const afterSnapshot = getDashboardApiCacheSnapshotForTests();
+
+      expect(after.generatedAt).not.toBe(before.generatedAt);
+      expect(withoutGeneratedAt(after)).toEqual(withoutGeneratedAt(before));
+      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
+      expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("dashboard cache resets safely after a delete", () => {
+    useFixtureDb();
+
+    const db = getWritableDb();
+
+    try {
+      const before = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
+
+      db.prepare("DELETE FROM session WHERE id = ?").run(OLD_SESSION_ID);
+
+      vi.advanceTimersByTime(1_000);
+
+      const after = readDashboardSnapshot(db, {
+        range: "week",
+        view: "daily",
+        window: HISTORICAL_WINDOW,
+      });
+      const afterSnapshot = getDashboardApiCacheSnapshotForTests();
+
+      expect(before.summary.totalSessions).toBe(1);
+      expect(after.generatedAt).not.toBe(before.generatedAt);
+      expect(after.summary.totalSessions).toBe(0);
+      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.sessionKeys).toEqual([ROOT_SESSION_ID, ALERT_SESSION_ID]);
+      expect(afterSnapshot.dayKeys).toEqual(["2024-01-10", "2024-01-11"]);
     } finally {
       db.close();
     }

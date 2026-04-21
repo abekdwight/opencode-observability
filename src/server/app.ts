@@ -4,15 +4,16 @@ import { Hono } from "hono";
 import { resolveAppDistDir } from "../lib/app-dist-path.js";
 import { getWritableDb } from "../lib/db.js";
 import {
-  readDashboardAffectedDaysForSessionIds,
+  readDashboardAffectedDaysForRootSessionIds,
+  readDashboardRootSessionIdsForSessionIds,
   readSessionDeletionTargetIds,
 } from "../repositories/dashboard/dashboard-repository.js";
-import { renderAppShell } from "./app-shell.js";
 import {
-  dashboardApi,
-  invalidateDashboardApiCache,
-  invalidateDashboardApiCacheForDays,
-} from "./dashboard-api.js";
+  invalidateDashboardAggregationStore,
+  invalidateDashboardAggregationStoreForRootSessionIdsAndDays,
+} from "../services/dashboard/dashboard-aggregation-store.js";
+import { renderAppShell } from "./app-shell.js";
+import { dashboardApi } from "./dashboard-api.js";
 import { requireDeleteConfirmation } from "./delete-guard.js";
 import { directoriesApi } from "./directories-api.js";
 import { exportApi } from "./export-api.js";
@@ -52,9 +53,13 @@ export function createApiApp() {
     try {
       db.exec("PRAGMA foreign_keys = ON");
       const targetSessionIds = readSessionDeletionTargetIds(db, sessionId);
-      const affectedDays = readDashboardAffectedDaysForSessionIds(
+      const affectedRootSessionIds = readDashboardRootSessionIdsForSessionIds(
         db,
         targetSessionIds,
+      );
+      const affectedDays = readDashboardAffectedDaysForRootSessionIds(
+        db,
+        affectedRootSessionIds,
       );
       const deleteStmt = db.prepare(
         "DELETE FROM session WHERE id = ? OR parent_id = ?",
@@ -62,10 +67,14 @@ export function createApiApp() {
       const result = deleteStmt.run(sessionId, sessionId);
 
       if (result.changes > 0) {
-        if (affectedDays.length > 0) {
-          invalidateDashboardApiCacheForDays(affectedDays);
+        if (affectedRootSessionIds.length > 0 && affectedDays.length > 0) {
+          invalidateDashboardAggregationStoreForRootSessionIdsAndDays(
+            db,
+            affectedRootSessionIds,
+            affectedDays,
+          );
         } else {
-          invalidateDashboardApiCache();
+          invalidateDashboardAggregationStore();
         }
       }
 

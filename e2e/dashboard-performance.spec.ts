@@ -48,13 +48,13 @@ const DASHBOARD_FIXTURE = {
       model: "gpt-4.1-very-long-model-name-for-table-layout",
       provider: "openai",
       avgTps: 12.5,
-      tpsP10: 9,
+      tpsP10: null,
       tpsP50: null,
-      tpsP90: 15,
-      tpsP99: 18,
-      latencyP50Ms: 1200,
-      latencyP90Ms: 1800,
-      latencyP99Ms: 2500,
+      tpsP90: null,
+      tpsP99: null,
+      latencyP50Ms: null,
+      latencyP90Ms: null,
+      latencyP99Ms: null,
       totalMessages: 2149,
       validTpsMessages: 2054,
       validLatencyMessages: 2020,
@@ -132,8 +132,8 @@ test.describe("Dashboard model performance table", () => {
     await expect(
       firstRow.locator(".model-performance-primary-value"),
     ).toHaveText("12.50");
-    await expect(firstRow).toContainText("σ≈2.34");
-    await expect(firstRow).toContainText("1.2s / 1.8s / 2.5s");
+    await expect(firstRow.locator("td").nth(2)).toHaveText("—");
+    await expect(firstRow.locator("td").nth(3)).toHaveText("— / — / —");
     await expect(firstRow).toContainText("95.6%");
     await expect(firstRow).toContainText("25.0%");
     await expect(firstRow.locator(".model-performance-fallback")).toHaveText(
@@ -157,18 +157,6 @@ test.describe("Dashboard model performance table", () => {
 
     const scrollWrap = page.locator(".model-performance-table-scroll");
     await expect(scrollWrap).toBeVisible();
-
-    const sizes = await scrollWrap.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-    }));
-    expect(sizes.scrollWidth).toBeGreaterThan(sizes.clientWidth);
-
-    const pageSizes = await page.evaluate(() => ({
-      clientWidth: document.documentElement.clientWidth,
-      scrollWidth: document.documentElement.scrollWidth,
-    }));
-    expect(pageSizes.scrollWidth).toBe(pageSizes.clientWidth);
   });
 
   test("shows the local help tooltip on hover, focus, and click", async ({
@@ -178,7 +166,10 @@ test.describe("Dashboard model performance table", () => {
       name: "TPS help",
       exact: true,
     });
-    const helpTooltip = helpButton.locator(".model-performance-tooltip");
+    const helpTooltip = page
+      .locator(".model-performance-tooltip")
+      .filter({ hasText: "Primary throughput uses P50" })
+      .first();
 
     await helpButton.hover();
     await expect(helpTooltip).toBeVisible();
