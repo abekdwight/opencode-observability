@@ -59,6 +59,8 @@ function buildDirectoriesContract(): DirectoriesContract {
       .map(([prettyDirectory, directoryInfo]) => ({
         rawDirectory: directoryInfo.rawDir,
         prettyDirectory,
+        worktree: directoryInfo.worktree,
+        prettyWorktree: directoryInfo.prettyWorktree,
         sessionCount: directoryInfo.count,
       }))
       .sort(

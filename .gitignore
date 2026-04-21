@@ -6,3 +6,4 @@ test-results/
 # AI workspace artifacts
 .sisyphus/
 .claude/handover/
+tests/fixtures/opencode-telemetry-*.sqlite

@@ -84,13 +84,6 @@ test("deep links render app shell on every React route", async ({ page }) => {
             },
           ],
         },
-        modelPerformance: [
-          {
-            label: "gpt-4.1",
-            count: 12.5,
-            annotation: "openai",
-          },
-        ],
         modelPerformanceStats: [
           {
             model: "gpt-4.1",

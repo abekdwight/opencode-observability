@@ -3,7 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 export const FIXTURE_DB_PATH = path.resolve(
-  "tests/fixtures/opencode-telemetry.sqlite",
+  `tests/fixtures/opencode-telemetry-${process.pid}.sqlite`,
 );
 export const ROOT_SESSION_ID = "ses-root-1";
 export const CHILD_SESSION_ID = "ses-child-1";
@@ -417,6 +417,17 @@ function buildFixture() {
     {
       type: "text",
       text: "Planning the first response with tool usage.",
+    },
+  );
+  insertPartJson(
+    "prt_root_assistant_1_reasoning",
+    "msg-root-1-assistant-1",
+    ROOT_SESSION_ID,
+    dayOne + 10_150,
+    {
+      type: "reasoning",
+      text: "Compaction marker for the main session.",
+      time: { compacted: dayOne + 9_000 },
     },
   );
   insertPartJson(

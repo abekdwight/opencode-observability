@@ -170,7 +170,6 @@ export interface DashboardContract {
   subagentTrend: DashboardSubagentTrendContract;
   activeRepos: DashboardRepoBreakdownContract;
   modelUsage: DashboardBarItemContract[];
-  modelPerformance: DashboardBarItemContract[];
   modelPerformanceStats: DashboardModelPerformanceStatsRowContract[];
   modelTokenConsumption: DashboardModelTokenConsumptionRowContract[];
   toolUsage: DashboardBarItemContract[];

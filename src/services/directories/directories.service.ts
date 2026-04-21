@@ -7,7 +7,15 @@ export interface RepoGroup {
   rawWorktree: string;
   prettyWorktree: string;
   iconColor: string | null;
-  dirs: Map<string, { count: number; rawDir: string }>;
+  dirs: Map<
+    string,
+    {
+      count: number;
+      rawDir: string;
+      worktree: string;
+      prettyWorktree: string;
+    }
+  >;
   totalCount: number;
   latestTime: number;
 }
@@ -74,6 +82,8 @@ export function listRepoGroups(): RepoGroup[] {
       group.dirs.set(prettyDir, {
         count: row.session_count,
         rawDir: row.directory,
+        worktree: row.repo_root,
+        prettyWorktree: prettifyPath(row.repo_root),
       });
       group.totalCount += row.session_count;
       const ts =

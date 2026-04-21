@@ -15,6 +15,8 @@ import {
 } from "./dashboard-api.js";
 import { requireDeleteConfirmation } from "./delete-guard.js";
 import { directoriesApi } from "./directories-api.js";
+import { exportApi } from "./export-api.js";
+import { mcpApi } from "./mcp-api.js";
 import { monitorApi } from "./monitor-api.js";
 import { searchApi } from "./search-api.js";
 import { sessionApi } from "./session-api.js";
@@ -24,8 +26,10 @@ export function createApiApp() {
   const apiApp = new Hono().basePath("/api");
 
   apiApp.route("/monitor", monitorApi);
+  apiApp.route("/mcp", mcpApi);
   apiApp.route("/session", sessionApi);
   apiApp.route("/dashboard", dashboardApi);
+  apiApp.route("/export", exportApi);
   apiApp.route("/", directoriesApi);
   apiApp.route("/", searchApi);
   apiApp.route("/tool-errors", toolErrorsApi);

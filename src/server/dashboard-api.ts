@@ -485,7 +485,6 @@ export function readDashboardSnapshot(
     subagentTrend: vm.subagentTrend,
     activeRepos: vm.activeRepos,
     modelUsage: vm.modelUsage,
-    modelPerformance: vm.modelPerformance,
     modelPerformanceStats: vm.modelPerformanceStats,
     modelTokenConsumption: vm.modelTokenConsumption,
     toolUsage: vm.toolUsage,

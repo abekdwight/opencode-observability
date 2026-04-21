@@ -234,6 +234,399 @@ describe("server api contracts", () => {
     expect(serialized).not.toContain('"data"');
   });
 
+  test("GET /api/export/sessions returns thin root session summaries with exportable message counts", async () => {
+    const app = createApiApp();
+
+    const response = await app.request("/api/export/sessions");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      schemaVersion: string;
+      cursor: string | null;
+      nextCursor: string | null;
+      items: Array<{
+        sessionId: string;
+        parentSessionId: string | null;
+        title: string;
+        directory: string;
+        worktree: string;
+        createdAt: string;
+        updatedAt: string;
+        messageCount: number;
+      }>;
+    };
+
+    expect(body.kind).toBe("export.sessions");
+    expect(body.schemaVersion).toBe("v1");
+    expect(body.cursor).toBeNull();
+    expect(body.nextCursor).toBeNull();
+    expect(body.items.map((item) => item.sessionId)).toEqual([
+      FUTURE_SESSION_ID,
+      ROOT_SESSION_ID,
+      ALERT_SESSION_ID,
+      OLD_SESSION_ID,
+    ]);
+    expect(
+      body.items.find((item) => item.sessionId === ROOT_SESSION_ID)
+        ?.messageCount,
+    ).toBe(3);
+    expect(
+      body.items.find((item) => item.sessionId === ALERT_SESSION_ID)
+        ?.messageCount,
+    ).toBe(2);
+    expect(
+      body.items.find((item) => item.sessionId === ROOT_SESSION_ID)?.worktree,
+    ).toBe("/workspace/repo-alpha");
+    expect(
+      body.items.find((item) => item.sessionId === ALERT_SESSION_ID)?.worktree,
+    ).toBe("/workspace/repo-beta");
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('"parts"');
+    expect(serialized).not.toContain('"tool"');
+    expect(serialized).not.toContain('"summary"');
+  });
+
+  test("GET /api/export/sessions supports exact worktree filtering", async () => {
+    useFixtureDb();
+    const db = getWritableDb();
+    const now = Date.now();
+
+    try {
+      db.prepare(
+        `INSERT INTO project (
+          id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated, time_initialized, sandboxes, commands
+        ) VALUES (
+          @id, @worktree, @vcs, @name, @icon_url, @icon_color, @time_created, @time_updated, @time_initialized, @sandboxes, @commands
+        )`,
+      ).run({
+        id: "proj-alpha-worktree",
+        worktree: "/Users/me/wt/repo-alpha-fix",
+        vcs: "git",
+        name: "repo-alpha",
+        icon_url: null,
+        icon_color: "#0f766e",
+        time_created: now,
+        time_updated: now,
+        time_initialized: now,
+        sandboxes: "[]",
+        commands: null,
+      });
+
+      db.prepare(
+        `INSERT INTO session (
+          id, project_id, parent_id, slug, directory, title, version, share_url,
+          summary_additions, summary_deletions, summary_files, summary_diffs,
+          revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id
+        ) VALUES (
+          @id, @project_id, @parent_id, @slug, @directory, @title, @version, NULL,
+          @summary_additions, @summary_deletions, @summary_files, @summary_diffs,
+          NULL, NULL, @time_created, @time_updated, @time_compacting, NULL, NULL
+        )`,
+      ).run({
+        id: "ses-root-worktree-alpha",
+        project_id: "proj-alpha-worktree",
+        parent_id: null,
+        slug: "root-worktree-alpha",
+        directory: "/Users/me/wt/repo-alpha-fix/packages/api",
+        title: "Worktree scoped session",
+        version: "1",
+        summary_additions: 0,
+        summary_deletions: 0,
+        summary_files: 0,
+        summary_diffs: null,
+        time_created: now + 1_000,
+        time_updated: now + 2_000,
+        time_compacting: null,
+      });
+
+      db.prepare(
+        `INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES (@id, @session_id, @time_created, @time_updated, @data)`,
+      ).run({
+        id: "msg-root-worktree-alpha-user",
+        session_id: "ses-root-worktree-alpha",
+        time_created: now + 1_100,
+        time_updated: now + 1_100,
+        data: JSON.stringify({
+          role: "user",
+          time: { created: now + 1_100 },
+        }),
+      });
+    } finally {
+      db.close();
+    }
+
+    try {
+      const app = createApiApp();
+
+      const filtered = await app.request(
+        "/api/export/sessions?worktree=%2FUsers%2Fme%2Fwt%2Frepo-alpha-fix",
+      );
+      expect(filtered.status).toBe(200);
+      const filteredBody = (await filtered.json()) as {
+        items: Array<{ sessionId: string; worktree: string }>;
+      };
+      expect(filteredBody.items).toHaveLength(1);
+      expect(filteredBody.items[0]).toMatchObject({
+        sessionId: "ses-root-worktree-alpha",
+        worktree: "/Users/me/wt/repo-alpha-fix",
+      });
+
+      const blank = await app.request("/api/export/sessions?worktree=%20%20");
+      expect(blank.status).toBe(200);
+      const blankBody = (await blank.json()) as {
+        items: Array<{ sessionId: string }>;
+      };
+      expect(blankBody.items.map((item) => item.sessionId)).toContain(
+        ROOT_SESSION_ID,
+      );
+      expect(blankBody.items.map((item) => item.sessionId)).toContain(
+        "ses-root-worktree-alpha",
+      );
+
+      const missing = await app.request(
+        "/api/export/sessions?worktree=%2FUsers%2Fme%2Fwt%2Fmissing",
+      );
+      expect(missing.status).toBe(200);
+      const missingBody = (await missing.json()) as { items: unknown[] };
+      expect(missingBody.items).toEqual([]);
+    } finally {
+      useFixtureDb();
+    }
+  });
+
+  test("GET /api/export/sessions/:sessionId/messages returns canonical bundles without compaction messages", async () => {
+    const app = createApiApp();
+
+    const response = await app.request(
+      `/api/export/sessions/${ROOT_SESSION_ID}/messages`,
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      schemaVersion: string;
+      items: Array<{
+        bundleId: string;
+        sessionId: string;
+        messageId: string;
+        parentSessionId: string | null;
+        role: string;
+        ordering: { sessionMessageIndex: number };
+        source: { instanceId: string; exportNamespace: string };
+        lineage: { triggerMessageId: string | null; childSessionIds: string[] };
+        parts: Array<Record<string, unknown>>;
+      }>;
+    };
+
+    expect(body.kind).toBe("export.message_bundles");
+    expect(body.schemaVersion).toBe("v1");
+    expect(body.items).toHaveLength(3);
+    expect(body.items.map((item) => item.messageId)).toEqual([
+      "msg-root-1-user",
+      "msg-root-1-assistant-1",
+      "msg-root-1-assistant-2",
+    ]);
+    expect(body.items.map((item) => item.ordering.sessionMessageIndex)).toEqual(
+      [1, 2, 3],
+    );
+    expect(body.items.every((item) => item.bundleId === item.messageId)).toBe(
+      true,
+    );
+    expect(
+      body.items.every(
+        (item) => item.source.instanceId === "opencode-observability",
+      ),
+    ).toBe(true);
+    expect(
+      body.items.every((item) => item.source.exportNamespace === "db"),
+    ).toBe(true);
+
+    const assistant = body.items.find(
+      (item) => item.messageId === "msg-root-1-assistant-1",
+    );
+    expect(assistant?.lineage.childSessionIds).toEqual([CHILD_SESSION_ID]);
+    expect(assistant?.parts).toHaveLength(4);
+    expect(assistant?.parts.map((part) => part.partIndex)).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(JSON.stringify(body)).not.toContain("msg-child-1-compaction");
+    expect(JSON.stringify(body)).not.toContain('"retrievalScore"');
+    expect(JSON.stringify(body)).not.toContain('"embeddingId"');
+  });
+
+  test("GET /api/export/messages/:messageId returns one bundle and 404s for unknown ids", async () => {
+    const app = createApiApp();
+
+    const response = await app.request(
+      "/api/export/messages/msg-child-1-assistant",
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      schemaVersion: string;
+      cursor: string | null;
+      nextCursor: string | null;
+      items: Array<{
+        messageId: string;
+        parentSessionId: string | null;
+        lineage: { triggerMessageId: string | null; childSessionIds: string[] };
+      }>;
+    };
+
+    expect(body.kind).toBe("export.message_bundles");
+    expect(body.schemaVersion).toBe("v1");
+    expect(body.cursor).toBeNull();
+    expect(body.nextCursor).toBeNull();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]?.messageId).toBe("msg-child-1-assistant");
+    expect(body.items[0]?.parentSessionId).toBe(ROOT_SESSION_ID);
+    expect(body.items[0]?.lineage.triggerMessageId).toBe(
+      "msg-root-1-assistant-1",
+    );
+
+    const missing = await app.request("/api/export/messages/msg-missing");
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({
+      kind: "export.message-not-found",
+      messageId: "msg-missing",
+    });
+  });
+
+  test("GET /api/export/parts/:partId returns a single part and preserves reasoning parts", async () => {
+    const app = createApiApp();
+
+    const response = await app.request(
+      "/api/export/parts/prt_root_assistant_1_reasoning",
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      items: Array<{
+        sessionId: string;
+        messageId: string;
+        part: {
+          type: string;
+          partIndex: number;
+          text?: string;
+          compactedAt?: string;
+        };
+      }>;
+    };
+
+    expect(body.kind).toBe("export.parts");
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]?.messageId).toBe("msg-root-1-assistant-1");
+    expect(body.items[0]?.part.type).toBe("reasoning");
+    expect(body.items[0]?.part.partIndex).toBe(1);
+    expect(body.items[0]?.part.text).toContain("Compaction marker");
+    expect(body.items[0]?.part.compactedAt).toBeDefined();
+
+    const missing = await app.request("/api/export/parts/prt_missing");
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({
+      kind: "export.part-not-found",
+      partId: "prt_missing",
+    });
+  });
+
+  test("part-by-id preserves the same partIndex as the parent bundle", async () => {
+    const app = createApiApp();
+
+    const bundleResponse = await app.request(
+      `/api/export/sessions/${ROOT_SESSION_ID}/messages`,
+    );
+    const partResponse = await app.request(
+      "/api/export/parts/prt_root_assistant_1_reasoning",
+    );
+
+    const bundleBody = (await bundleResponse.json()) as {
+      items: Array<{
+        messageId: string;
+        parts: Array<{ partId: string; partIndex: number }>;
+      }>;
+    };
+    const partBody = (await partResponse.json()) as {
+      items: Array<{ part: { partId: string; partIndex: number } }>;
+    };
+
+    const bundlePart = bundleBody.items
+      .find((item) => item.messageId === "msg-root-1-assistant-1")
+      ?.parts.find((part) => part.partId === "prt_root_assistant_1_reasoning");
+
+    expect(bundlePart?.partIndex).toBe(1);
+    expect(partBody.items[0]?.part.partIndex).toBe(bundlePart?.partIndex);
+  });
+
+  test("GET /api/export/parts/:partId rejects compaction-only parts", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/export/parts/part-child-1-compaction-text",
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      kind: "export.part-not-found",
+      partId: "part-child-1-compaction-text",
+    });
+  });
+
+  test("GET /api/export/events returns an empty export events envelope", async () => {
+    const app = createApiApp();
+    const response = await app.request("/api/export/events");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      schemaVersion: string;
+      items: unknown[];
+    };
+    expect(body.kind).toBe("export.events");
+    expect(body.schemaVersion).toBe("v1");
+    expect(body.items).toEqual([]);
+  });
+
+  test("GET /api/export/sessions/:sessionId/context-window returns neighboring previews", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      `/api/export/sessions/${ROOT_SESSION_ID}/context-window?aroundMessageId=msg-root-1-assistant-1&before=1&after=1`,
+    );
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      kind: string;
+      aroundMessageId: string;
+      items: Array<{ messageId: string; role: string; preview: string | null }>;
+    };
+
+    expect(body.kind).toBe("export.context_window");
+    expect(body.aroundMessageId).toBe("msg-root-1-assistant-1");
+    expect(body.items.map((item) => item.messageId)).toEqual([
+      "msg-root-1-user",
+      "msg-root-1-assistant-1",
+      "msg-root-1-assistant-2",
+    ]);
+    expect(body.items[1]?.preview).toContain(
+      "Planning the first response with tool usage.",
+    );
+  });
+
+  test("GET /api/export/sessions/:sessionId/messages returns 404 for unknown sessions", async () => {
+    const app = createApiApp();
+    const response = await app.request(
+      "/api/export/sessions/ses-missing/messages",
+    );
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      kind: "export.session-not-found",
+      sessionId: "ses-missing",
+    });
+  });
+
   test("active session is determined by heartbeat even when session status is idle", async () => {
     const app = createApiApp();
     const ingest = await app.request("/api/monitor/ingest", {
@@ -556,6 +949,8 @@ describe("server api contracts", () => {
         directories: Array<{
           rawDirectory: string;
           prettyDirectory: string;
+          worktree: string;
+          prettyWorktree: string;
           sessionCount: number;
         }>;
       }>;
@@ -570,11 +965,15 @@ describe("server api contracts", () => {
       {
         rawDirectory: "/workspace/repo-alpha",
         prettyDirectory: "/workspace/repo-alpha",
+        worktree: "/workspace/repo-alpha",
+        prettyWorktree: "/workspace/repo-alpha",
         sessionCount: 1,
       },
       {
         rawDirectory: "/workspace/repo-alpha/future",
         prettyDirectory: "/workspace/repo-alpha/future",
+        worktree: "/workspace/repo-alpha",
+        prettyWorktree: "/workspace/repo-alpha",
         sessionCount: 1,
       },
     ]);
@@ -875,7 +1274,6 @@ describe("server api contracts", () => {
         dailySeries: Array<{ points: Array<{ day: string; value: number }> }>;
         hourlyBars: Array<unknown>;
       };
-      modelPerformance: Array<{ label: string; count: number }>;
       modelPerformanceStats: Array<{
         model: string;
         avgTps: number | null;
@@ -958,10 +1356,6 @@ describe("server api contracts", () => {
     ]);
     expect(body.modelUsage).toEqual(
       expect.arrayContaining([{ label: "gpt-4.1", count: 3 }]),
-    );
-    expect(body.modelPerformance.length).toBeGreaterThan(0);
-    expect(body.modelPerformance.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(["gpt-4.1", "claude-3.5-sonnet"]),
     );
     expect(body.modelPerformanceStats.length).toBeGreaterThan(0);
     expect(body.modelPerformanceStats.map((entry) => entry.model)).toEqual(
@@ -1064,7 +1458,6 @@ describe("server api contracts", () => {
         rows: Array<{ repo: string }>;
       };
       modelUsage: Array<{ label: string; count: number }>;
-      modelPerformance: Array<{ label: string }>;
       modelPerformanceStats: Array<{ model: string }>;
       toolUsage: Array<{ label: string; count: number }>;
       agentDistribution: Array<{ label: string; count: number }>;
@@ -1108,9 +1501,6 @@ describe("server api contracts", () => {
     ]);
     expect(body.modelUsage).toEqual(
       expect.arrayContaining([{ label: "gpt-4.1", count: 2 }]),
-    );
-    expect(body.modelPerformance.map((entry) => entry.label)).not.toContain(
-      "claude-3.5-sonnet",
     );
     expect(
       body.modelPerformanceStats.map((entry) => entry.model),
@@ -1181,7 +1571,6 @@ describe("server api contracts", () => {
         rows: Array<{ repo: string }>;
       };
       modelUsage: Array<{ label: string; count: number }>;
-      modelPerformance: Array<{ label: string }>;
       modelPerformanceStats: Array<{ model: string }>;
       toolUsage: Array<{ label: string; count: number }>;
       agentDistribution: Array<{ label: string; count: number }>;
@@ -1226,9 +1615,6 @@ describe("server api contracts", () => {
     ]);
     expect(body.modelUsage).toEqual(
       expect.arrayContaining([{ label: "claude-3.5-sonnet", count: 1 }]),
-    );
-    expect(body.modelPerformance.map((entry) => entry.label)).toContain(
-      "claude-3.5-sonnet",
     );
     expect(body.modelPerformanceStats.map((entry) => entry.model)).toContain(
       "claude-3.5-sonnet",
@@ -1642,5 +2028,340 @@ describe("server api contracts", () => {
       true,
     );
     expect(body.latestErrors).toEqual([]);
+  });
+
+  test("POST /mcp initializes an MCP session", async () => {
+    const app = createApiApp();
+    const response = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "vitest", version: "1.0.0" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      jsonrpc: string;
+      id: number;
+      result: {
+        protocolVersion: string;
+        serverInfo: { name: string; version: string };
+        capabilities: Record<string, unknown>;
+      };
+    };
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(1);
+    expect(body.result.protocolVersion).toBe("2025-06-18");
+    expect(body.result.serverInfo.name).toBe("opencode-observability");
+    expect(body.result.capabilities.tools).toBeTruthy();
+    expect(body.result.capabilities.resources).toBeTruthy();
+  });
+
+  test("POST /mcp supports tools/list and resources/list", async () => {
+    const app = createApiApp();
+
+    const toolsResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      }),
+    });
+
+    expect(toolsResponse.status).toBe(200);
+    const toolsBody = (await toolsResponse.json()) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(toolsBody.result.tools.map((tool) => tool.name)).toEqual([
+      "list_repo_groups",
+      "list_sessions",
+      "search_sessions",
+      "get_context_window",
+    ]);
+
+    const resourcesResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "resources/list",
+        params: {},
+      }),
+    });
+
+    expect(resourcesResponse.status).toBe(200);
+    const resourcesBody = (await resourcesResponse.json()) as {
+      result: { resources: Array<{ uri: string }> };
+    };
+    expect(
+      resourcesBody.result.resources.map((resource) => resource.uri),
+    ).toEqual(["opencode://directories"]);
+  });
+
+  test("POST /api/mcp supports resources/templates/list for dynamic readable URIs", async () => {
+    const app = createApiApp();
+    const response = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3.1,
+        method: "resources/templates/list",
+        params: {},
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: { resourceTemplates: Array<{ uriTemplate: string }> };
+    };
+    expect(
+      body.result.resourceTemplates.map((template) => template.uriTemplate),
+    ).toEqual([
+      "opencode://sessions?worktree={worktree}",
+      "opencode://sessions/{sessionId}/messages",
+      "opencode://messages/{messageId}",
+      "opencode://parts/{partId}",
+    ]);
+  });
+
+  test("POST /mcp supports tool calls over existing directories/export services", async () => {
+    const app = createApiApp();
+    const response = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "list_sessions",
+          arguments: { worktree: "/workspace/repo-alpha" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: {
+        isError: boolean;
+        structuredContent: {
+          items: Array<{ sessionId: string; worktree: string }>;
+        };
+      };
+    };
+    expect(body.result.isError).toBe(false);
+    expect(
+      body.result.structuredContent.items.map((item) => item.sessionId),
+    ).toEqual([FUTURE_SESSION_ID, ROOT_SESSION_ID]);
+    expect(
+      body.result.structuredContent.items.every(
+        (item) => item.worktree === "/workspace/repo-alpha",
+      ),
+    ).toBe(true);
+  });
+
+  test("POST /mcp supports resources/read for directories and session messages", async () => {
+    const app = createApiApp();
+
+    const directoriesResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 5,
+        method: "resources/read",
+        params: { uri: "opencode://directories" },
+      }),
+    });
+
+    expect(directoriesResponse.status).toBe(200);
+    const directoriesBody = (await directoriesResponse.json()) as {
+      result: {
+        contents: Array<{ uri: string; mimeType: string; text: string }>;
+      };
+    };
+    expect(directoriesBody.result.contents[0]?.uri).toBe(
+      "opencode://directories",
+    );
+    expect(directoriesBody.result.contents[0]?.mimeType).toBe(
+      "application/json",
+    );
+    expect(directoriesBody.result.contents[0]?.text).toContain(
+      "directories.list",
+    );
+
+    const messagesResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 6,
+        method: "resources/read",
+        params: { uri: `opencode://sessions/${ROOT_SESSION_ID}/messages` },
+      }),
+    });
+
+    expect(messagesResponse.status).toBe(200);
+    const messagesBody = (await messagesResponse.json()) as {
+      result: {
+        contents: Array<{ uri: string; mimeType: string; text: string }>;
+      };
+    };
+    expect(messagesBody.result.contents[0]?.uri).toBe(
+      `opencode://sessions/${ROOT_SESSION_ID}/messages`,
+    );
+    expect(messagesBody.result.contents[0]?.text).toContain(
+      "msg-root-1-assistant-1",
+    );
+  });
+
+  test("POST /api/mcp supports additional readable resource URIs", async () => {
+    const app = createApiApp();
+
+    const messageResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "resources/read",
+        params: { uri: "opencode://messages/msg-root-1-assistant-1" },
+      }),
+    });
+
+    expect(messageResponse.status).toBe(200);
+    const messageBody = (await messageResponse.json()) as {
+      result: { contents: Array<{ uri: string; text: string }> };
+    };
+    expect(messageBody.result.contents[0]?.uri).toBe(
+      "opencode://messages/msg-root-1-assistant-1",
+    );
+    expect(messageBody.result.contents[0]?.text).toContain(
+      "msg-root-1-assistant-1",
+    );
+
+    const partResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 8,
+        method: "resources/read",
+        params: { uri: "opencode://parts/prt_root_assistant_1_reasoning" },
+      }),
+    });
+
+    expect(partResponse.status).toBe(200);
+    const partBody = (await partResponse.json()) as {
+      result: { contents: Array<{ uri: string; text: string }> };
+    };
+    expect(partBody.result.contents[0]?.uri).toBe(
+      "opencode://parts/prt_root_assistant_1_reasoning",
+    );
+    expect(partBody.result.contents[0]?.text).toContain(
+      "prt_root_assistant_1_reasoning",
+    );
+  });
+
+  test("POST /api/mcp search_sessions uses only the implemented query argument", async () => {
+    const app = createApiApp();
+    const toolsResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/list",
+        params: {},
+      }),
+    });
+
+    const toolsBody = (await toolsResponse.json()) as {
+      result: {
+        tools: Array<{
+          name: string;
+          inputSchema: { properties: Record<string, unknown> };
+        }>;
+      };
+    };
+    const searchTool = toolsBody.result.tools.find(
+      (tool) => tool.name === "search_sessions",
+    );
+    expect(searchTool).toBeTruthy();
+    expect(Object.keys(searchTool?.inputSchema.properties ?? {})).toEqual([
+      "q",
+    ]);
+
+    const searchResponse = await app.request("/api/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: {
+          name: "search_sessions",
+          arguments: { q: "alerting" },
+        },
+      }),
+    });
+
+    expect(searchResponse.status).toBe(200);
+    const searchBody = (await searchResponse.json()) as {
+      result: {
+        isError: boolean;
+        structuredContent: { results: Array<{ id: string }> };
+      };
+    };
+    expect(searchBody.result.isError).toBe(false);
+    expect(
+      searchBody.result.structuredContent.results.map((row) => row.id),
+    ).toContain(ALERT_SESSION_ID);
   });
 });

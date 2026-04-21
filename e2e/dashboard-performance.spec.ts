@@ -43,7 +43,6 @@ const DASHBOARD_FIXTURE = {
     rows: [],
   },
   modelUsage: [],
-  modelPerformance: [],
   modelPerformanceStats: [
     {
       model: "gpt-4.1-very-long-model-name-for-table-layout",

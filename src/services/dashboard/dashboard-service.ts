@@ -228,7 +228,6 @@ export interface DashboardViewModel {
   subagentTrend: DashboardSubagentTrendData;
   activeRepos: DashboardRepoBreakdownData;
   modelUsage: DashboardBarItem[];
-  modelPerformance: DashboardBarItem[];
   modelPerformanceStats: DashboardModelPerformanceStatsRow[];
   modelTokenConsumption: DashboardModelTokenConsumptionRow[];
   toolUsage: DashboardBarItem[];
@@ -1015,61 +1014,6 @@ const TPS_P99_MIN_SAMPLES = 200;
 const LATENCY_P50_MIN_SAMPLES = 20;
 const LATENCY_P90_MIN_SAMPLES = 50;
 const LATENCY_P99_MIN_SAMPLES = 200;
-
-function buildModelPerformanceData(
-  db: SqliteDatabase,
-  window: DashboardRepositoryWindow,
-): DashboardBarItem[] {
-  const params = [window.startDayInclusive, window.endDayExclusive];
-  const rows = db
-    .prepare(`
-      SELECT model,
-             provider,
-             SUM(output_tokens) AS output_tokens,
-             SUM(duration_ms) AS duration_ms
-      FROM (
-        SELECT json_extract(m.data, '$.modelID') AS model,
-               json_extract(m.data, '$.providerID') AS provider,
-               COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS output_tokens,
-               CASE
-                 WHEN json_extract(m.data, '$.time.created') IS NOT NULL
-                  AND json_extract(m.data, '$.time.completed') IS NOT NULL
-                  AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
-                 THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
-                 ELSE 0
-               END AS duration_ms
-        FROM message m
-        WHERE json_extract(m.data, '$.role') = 'assistant'
-          AND json_extract(m.data, '$.modelID') IS NOT NULL
-          AND json_extract(m.data, '$.modelID') != ''
-          AND date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
-          AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
-      )
-      WHERE output_tokens > 0
-        AND duration_ms > 0
-      GROUP BY model, provider
-    `)
-    .all(...params) as Array<{
-    model: string | null;
-    provider: string | null;
-    output_tokens: number;
-    duration_ms: number;
-  }>;
-
-  return rows
-    .map((row) => {
-      const outputTokens = Number(row.output_tokens) || 0;
-      const durationMs = Number(row.duration_ms) || 0;
-      const tps = durationMs > 0 ? (outputTokens * 1000) / durationMs : 0;
-      return {
-        label: row.model || "(unknown)",
-        count: Number(tps.toFixed(2)),
-        annotation: row.provider || undefined,
-      };
-    })
-    .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count);
-}
 
 function interpolateQuantile(values: number[], quantile: number): number {
   if (values.length === 0) return 0;
@@ -1889,7 +1833,6 @@ function buildDashboardData(
       label: row.model ?? "(unknown)",
       count: row.cnt,
     })),
-    modelPerformance: buildModelPerformanceData(db, window),
     modelPerformanceStats: buildModelPerformanceStatsData(db, window),
     modelTokenConsumption,
     toolUsage: toolRows.map((row) => ({

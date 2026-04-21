@@ -3,6 +3,8 @@ export type DirectorySessionsSort = "date" | "tokens" | "messages";
 export interface DirectoryEntryContract {
   rawDirectory: string;
   prettyDirectory: string;
+  worktree: string;
+  prettyWorktree: string;
   sessionCount: number;
 }
 

@@ -42,7 +42,6 @@ const DASHBOARD_FIXTURE = {
     dayHeaders: [],
     rows: [],
   },
-  modelPerformance: [],
   modelPerformanceStats: [],
   modelTokenConsumption: [],
   modelUsage: [],
