@@ -1,6 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
+import { useMermaidPreferences } from "../mermaid-preferences-provider";
 import { useTheme } from "../../hooks/use-theme";
 import { cn } from "../../lib/cn";
 import { actionCommands, navigationCommands } from "./commands";
@@ -13,6 +14,7 @@ interface CommandPaletteProps {
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { setTheme, resolvedTheme } = useTheme();
+  const { toggleMermaidTheme } = useMermaidPreferences();
 
   const handleSelect = (commandId: string) => {
     switch (commandId) {
@@ -33,6 +35,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         break;
       case "toggle-theme":
         setTheme(resolvedTheme === "dark" ? "light" : "dark");
+        break;
+      case "toggle-mermaid-theme":
+        toggleMermaidTheme();
         break;
     }
     onOpenChange(false);

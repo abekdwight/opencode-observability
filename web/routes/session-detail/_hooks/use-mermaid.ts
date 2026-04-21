@@ -1,4 +1,5 @@
 import React from "react";
+import { useMermaidPreferences } from "../../../components/mermaid-preferences-provider";
 import {
   getMermaidClient,
   nextMermaidRenderId,
@@ -13,6 +14,7 @@ export function useMermaid(source: string): {
   error: string | null;
   loading: boolean;
 } {
+  const { mermaidPreference, mermaidConfigKey } = useMermaidPreferences();
   const [svg, setSvg] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -30,7 +32,7 @@ export function useMermaid(source: string): {
 
     const renderDiagram = async () => {
       try {
-        const mermaidClient = await getMermaidClient();
+        const mermaidClient = await getMermaidClient(mermaidPreference);
         if (disposed) return;
         const result = await mermaidClient.render(
           nextMermaidRenderId("hook-mermaid"),
@@ -59,7 +61,7 @@ export function useMermaid(source: string): {
     return () => {
       disposed = true;
     };
-  }, [source]);
+  }, [source, mermaidConfigKey, mermaidPreference]);
 
   return { svg, error, loading };
 }

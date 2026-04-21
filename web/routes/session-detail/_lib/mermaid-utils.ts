@@ -1,37 +1,33 @@
+import {
+  buildMermaidInitConfig,
+  getMermaidConfigCacheKey,
+  type MermaidRenderPreference,
+} from "../../../lib/mermaid-config";
+
 // ---------------------------------------------------------------------------
 // Mermaid-related module-level state and functions
 // ---------------------------------------------------------------------------
 
 let mermaidLoader: Promise<typeof import("mermaid")["default"]> | null = null;
-let mermaidThemeCache: "default" | "dark" | null = null;
+let mermaidConfigCacheKey: string | null = null;
 let mermaidRenderCounter = 0;
 
-export function resolveMermaidTheme(): "default" | "dark" {
-  if (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-  return "default";
-}
-
-export async function getMermaidClient() {
+export async function getMermaidClient(preference: MermaidRenderPreference) {
   if (!mermaidLoader) {
-    mermaidLoader = import("mermaid").then((mod) => mod.default);
+    mermaidLoader = Promise.all([
+      import("mermaid").then((mod) => mod.default),
+      import("@mermaid-js/layout-elk").then((mod) => mod.default),
+    ]).then(async ([mermaidClient, elkLayouts]) => {
+      await mermaidClient.registerLayoutLoaders(elkLayouts);
+      return mermaidClient;
+    });
   }
 
   const mermaidClient = await mermaidLoader;
-  const theme = resolveMermaidTheme();
-  if (mermaidThemeCache !== theme) {
-    mermaidClient.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      suppressErrorRendering: true,
-      theme,
-    });
-    mermaidThemeCache = theme;
+  const configCacheKey = getMermaidConfigCacheKey(preference);
+  if (mermaidConfigCacheKey !== configCacheKey) {
+    mermaidClient.initialize(buildMermaidInitConfig(preference));
+    mermaidConfigCacheKey = configCacheKey;
   }
 
   return mermaidClient;

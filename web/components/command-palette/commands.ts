@@ -43,4 +43,10 @@ export const actionCommands: Command[] = [
     category: "action",
     keywords: ["dark", "light"],
   },
+  {
+    id: "toggle-mermaid-theme",
+    label: "Toggle Mermaid Theme",
+    category: "action",
+    keywords: ["diagram", "elk", "layout", "readability"],
+  },
 ];

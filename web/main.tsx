@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/app-shell";
+import { MermaidPreferencesProvider } from "./components/mermaid-preferences-provider";
 import { ThemeProvider } from "./components/theme-provider";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Dashboard } from "./routes/dashboard";
@@ -16,23 +17,25 @@ import "./styles/tailwind.css";
 ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <TooltipProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<Dashboard />} />
-              <Route path="monitor" element={<Monitor />} />
-              <Route path="session/:sessionId" element={<SessionDetail />} />
-              <Route path="directories" element={<Directories />} />
-              <Route path="dir/:directory" element={<DirectorySessions />} />
-              <Route path="search" element={<Search />} />
-              <Route path="tool-errors" element={<ToolErrors />} />
-              <Route path="tool-errors/:tool" element={<ToolErrors />} />
-              <Route path="*" element={<Navigate replace to="/" />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <MermaidPreferencesProvider>
+        <TooltipProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route index element={<Dashboard />} />
+                <Route path="monitor" element={<Monitor />} />
+                <Route path="session/:sessionId" element={<SessionDetail />} />
+                <Route path="directories" element={<Directories />} />
+                <Route path="dir/:directory" element={<DirectorySessions />} />
+                <Route path="search" element={<Search />} />
+                <Route path="tool-errors" element={<ToolErrors />} />
+                <Route path="tool-errors/:tool" element={<ToolErrors />} />
+                <Route path="*" element={<Navigate replace to="/" />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </MermaidPreferencesProvider>
     </ThemeProvider>
   </React.StrictMode>,
 );

@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import { renderSafeMarkdown as renderSharedMarkdown } from "../../../../src/lib/rendering.js";
+import { useMermaidPreferences } from "../../../components/mermaid-preferences-provider";
 import { cn } from "../../../lib/cn";
 import { formatDurationShort, formatTimestampShort } from "../../../lib/format";
 import { COLLAPSE_HEIGHT, MERMAID_SELECTOR } from "../_lib/constants";
@@ -40,6 +41,7 @@ export const MessageRow = React.memo(function MessageRow({
   openDetails,
   onToggleDetail,
 }: MessageRowProps) {
+  const { mermaidPreference, mermaidConfigKey } = useMermaidPreferences();
   const isUser = msg.role === "user";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
@@ -68,7 +70,7 @@ export const MessageRow = React.memo(function MessageRow({
     if (contentRef.current) {
       contentRef.current.innerHTML = markdownHtml;
     }
-  }, [markdownHtml]);
+  }, [markdownHtml, mermaidConfigKey]);
 
   // Sync collapse state when collapseEnabled preference changes
   React.useEffect(() => {
@@ -136,7 +138,7 @@ export const MessageRow = React.memo(function MessageRow({
     let disposed = false;
 
     const enhanceMermaidBlocks = async () => {
-      const mermaidClient = await getMermaidClient();
+      const mermaidClient = await getMermaidClient(mermaidPreference);
       if (disposed) return;
 
       // Re-query DOM after await -- nodes captured before the await may have
@@ -219,7 +221,7 @@ export const MessageRow = React.memo(function MessageRow({
         detach();
       }
     };
-  }, [msg.text, msgIdx]);
+  }, [msg.text, msgIdx, mermaidConfigKey, mermaidPreference]);
 
   // Meta chips (assistant only)
   const metaChips: React.ReactNode[] = [];

@@ -1,5 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
+import { useMermaidPreferences } from "../../../components/mermaid-preferences-provider";
 import { cn } from "../../../lib/cn";
 import {
   getMermaidClient,
@@ -27,6 +28,7 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
   returnFocusTo,
   onClose,
 }: MermaidLightboxProps) {
+  const { mermaidPreference, mermaidConfigKey } = useMermaidPreferences();
   const canvasRef = React.useRef<HTMLDivElement>(null);
   const viewportRef = React.useRef<HTMLDivElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -277,7 +279,7 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
 
     const renderExpandedDiagram = async () => {
       try {
-        const mermaidClient = await getMermaidClient();
+        const mermaidClient = await getMermaidClient(mermaidPreference);
         if (disposed) return;
         const { svg } = await mermaidClient.render(
           nextMermaidRenderId("session-mermaid-modal"),
@@ -306,7 +308,7 @@ export const MermaidLightbox = React.memo(function MermaidLightbox({
     return () => {
       disposed = true;
     };
-  }, [resetViewport, source]);
+  }, [resetViewport, source, mermaidConfigKey, mermaidPreference]);
 
   if (typeof document === "undefined") {
     return null;
