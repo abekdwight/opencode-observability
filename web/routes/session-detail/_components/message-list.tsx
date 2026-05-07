@@ -2,6 +2,7 @@ import React from "react";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import type { FilterMode } from "../_lib/constants";
 import { applyOmoFilter } from "../_lib/omo-filter";
+import { cn } from "../../../lib/cn";
 import { MessageRow } from "./message-row";
 
 export interface MessageListProps {
@@ -90,7 +91,12 @@ export function MessageList({
       {filteredMessages.map((item) => (
         <div
           key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
-          className="py-[var(--space-sm)] px-[var(--space-2xl)] pb-[var(--space-xl)] max-w-[960px] mx-auto w-full"
+          className={cn(
+            "px-[var(--space-2xl)] max-w-[960px] mx-auto w-full",
+            item.msg.text.length > 0
+              ? "py-[var(--space-sm)] pb-[var(--space-xl)]"
+              : "py-[var(--space-xs)] pb-[var(--space-sm)]",
+          )}
         >
           <MessageRow
             msg={item.msg}

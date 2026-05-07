@@ -237,6 +237,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const prettyDir = data.session.directory;
   const todos = data.todos ?? [];
   const doneCount = todos.filter((t) => t.status === "completed").length;
+  const toolEvents = Array.isArray(data.toolEvents)
+    ? data.toolEvents
+    : data.messages.flatMap((message) => message.toolCalls);
 
   // Compute loaded skills
   const {
@@ -251,31 +254,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     const toolNames: string[] = [];
     const seen = new Set<string>();
     const seenTools = new Set<string>();
-    for (const msg of data.messages) {
-      for (const tc of msg.toolCalls) {
-        if ((tc.tool === "skill" || tc.tool === "skill_mcp") && tc.input) {
-          if (!seen.has(tc.input)) {
-            seen.add(tc.input);
-            names.push(tc.input);
-          }
-          invocations.push({
-            name: tc.input,
-            tool: tc.tool,
-            durationMs: tc.durationMs,
-            status: tc.status,
-            fullInput: tc.fullInput,
-            fullOutput: tc.fullOutput,
-            error: tc.error,
-          });
-          continue;
+    for (const tc of toolEvents) {
+      if ((tc.tool === "skill" || tc.tool === "skill_mcp") && tc.input) {
+        if (!seen.has(tc.input)) {
+          seen.add(tc.input);
+          names.push(tc.input);
         }
-        const toolName = tc.tool || "unknown";
-        if (!seenTools.has(toolName)) {
-          seenTools.add(toolName);
-          toolNames.push(toolName);
-        }
-        nonSkillInvocations.push({
-          name: toolName,
+        invocations.push({
+          name: tc.input,
           tool: tc.tool,
           durationMs: tc.durationMs,
           status: tc.status,
@@ -283,7 +269,22 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           fullOutput: tc.fullOutput,
           error: tc.error,
         });
+        continue;
       }
+      const toolName = tc.tool || "unknown";
+      if (!seenTools.has(toolName)) {
+        seenTools.add(toolName);
+        toolNames.push(toolName);
+      }
+      nonSkillInvocations.push({
+        name: toolName,
+        tool: tc.tool,
+        durationMs: tc.durationMs,
+        status: tc.status,
+        fullInput: tc.fullInput,
+        fullOutput: tc.fullOutput,
+        error: tc.error,
+      });
     }
     return {
       loadedSkillNames: names,
@@ -291,7 +292,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       loadedToolNames: toolNames,
       toolInvocations: nonSkillInvocations,
     };
-  }, [data.messages]);
+  }, [toolEvents]);
 
   return (
     <aside
@@ -354,10 +355,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
               <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Tool Calls</span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
-                {data.messages.reduce(
-                  (sum, m) => sum + m.toolCalls.length,
-                  0,
-                )}
+                {toolEvents.length}
                 {data.subagents.length > 0 ? (
                   <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                     Subagents {data.subagents.length}

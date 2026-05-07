@@ -47,11 +47,21 @@
   --color-info: #6b6b6f;
   --color-delete-hover: #cf222e;
 
-  /* Role chips — user messages have visible tint for contrast with assistant */
-  --color-user-bg: rgba(0, 0, 0, 0.04);
-  --color-user-border: rgba(0, 0, 0, 0.10);
-  --color-user-badge: #444448;
+  /* Role chips — user and assistant must be clearly distinguishable */
+  --color-user-bg: #edf2ff;
+  --color-user-border: #d4e0ff;
+  --color-user-badge: #244bdb;
   --color-assistant-badge-bg: #333336;
+  --color-assistant-bg: var(--color-bg-surface);
+  --color-assistant-border: var(--color-border-default);
+  --color-tool-bg: #e5e5e8;
+  --color-tool-border: rgba(0, 0, 0, 0.08);
+  --color-tool-pill-bg: #f4f4f5;
+  --color-tool-pill-border: rgba(0, 0, 0, 0.12);
+  --color-tool-pill-text: #57575d;
+  --color-tool-pill-strong-text: #2f2f34;
+  --color-tool-pill-muted-text: #77777e;
+  --color-tool-pill-hover-border: rgba(0, 0, 0, 0.24);
   --color-model-chip-bg: rgba(120, 87, 195, 0.07);
   --color-model-chip-text: #6e40c9;
   --color-agent-chip-bg: rgba(26, 127, 55, 0.07);
@@ -164,11 +174,21 @@
   --color-error-bg: rgba(242, 112, 104, 0.10);
   --color-error-border: rgba(242, 112, 104, 0.22);
 
-  /* Role — user messages get a visible tinted bg to contrast with assistant */
-  --color-user-bg: rgba(255, 255, 255, 0.08);
-  --color-user-border: rgba(255, 255, 255, 0.14);
-  --color-user-badge: #a0a0a5;
+  /* Role — user and assistant must be clearly distinguishable */
+  --color-user-bg: rgba(72, 124, 255, 0.18);
+  --color-user-border: rgba(72, 124, 255, 0.42);
+  --color-user-badge: #9cb7ff;
   --color-assistant-badge-bg: #a0a0a5;
+  --color-assistant-bg: var(--color-bg-surface);
+  --color-assistant-border: var(--color-border-default);
+  --color-tool-bg: #25252a;
+  --color-tool-border: rgba(255, 255, 255, 0.09);
+  --color-tool-pill-bg: #303037;
+  --color-tool-pill-border: rgba(255, 255, 255, 0.12);
+  --color-tool-pill-text: #b3b3b8;
+  --color-tool-pill-strong-text: #e4e4e7;
+  --color-tool-pill-muted-text: #8a8a91;
+  --color-tool-pill-hover-border: rgba(255, 255, 255, 0.28);
   --color-model-chip-bg: rgba(180, 150, 240, 0.10);
   --color-model-chip-text: #b8a0f0;
   --color-agent-chip-bg: rgba(88, 211, 114, 0.10);

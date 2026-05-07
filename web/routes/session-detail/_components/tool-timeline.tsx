@@ -10,6 +10,7 @@ export interface ToolTimelineProps {
   visible: boolean;
   openDetails: Set<string>;
   onToggleDetail: (id: string) => void;
+  compact?: boolean;
 }
 
 function buildDetailId(
@@ -40,14 +41,17 @@ export const ToolTimeline = React.memo(function ToolTimeline({
   visible,
   openDetails,
   onToggleDetail,
+  compact,
 }: ToolTimelineProps) {
   return (
     <div
       className={cn(
         "flex flex-wrap gap-[var(--space-xs)]",
-        "mb-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)]",
-        "bg-[var(--color-bg-muted)] rounded-[var(--radius-md)]",
-        "border border-dashed border-[var(--color-border-subtle)]",
+        compact
+          ? "mb-[var(--space-xs)] px-[var(--space-sm)] py-[var(--space-xs)]"
+          : "mb-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)]",
+        "bg-[var(--color-tool-bg)] rounded-[var(--radius-md)]",
+        "border border-dashed border-[var(--color-tool-border)]",
         !visible && "hidden",
       )}
     >
@@ -78,22 +82,22 @@ export const ToolTimeline = React.memo(function ToolTimeline({
           "font-[inherit] leading-[inherit]",
           isError
             ? "bg-[var(--color-error-bg)] border-[var(--color-error-border)] text-[var(--color-error-text)]"
-            : "bg-[var(--color-bg-page)] border-[var(--color-border-subtle)] text-[var(--color-text-secondary)]",
+            : "bg-[var(--color-tool-pill-bg)] border-[var(--color-tool-pill-border)] text-[var(--color-tool-pill-text)]",
         );
 
         const content = (
           <>
             {icon}{" "}
-            <span className="font-semibold text-[var(--color-text-primary)]">
+            <span className="font-semibold text-[var(--color-tool-pill-strong-text)]">
               {displayName}
             </span>
             {!isSkillTool && tc.input ? (
-              <span className="text-[var(--color-text-secondary)] max-w-[200px] overflow-hidden text-ellipsis">
+              <span className="text-[var(--color-tool-pill-text)] max-w-[200px] overflow-hidden text-ellipsis">
                 {tc.input}
               </span>
             ) : null}
             {durStr ? (
-              <span className="text-[var(--color-text-tertiary)] text-[0.9em]">
+              <span className="text-[var(--color-tool-pill-muted-text)] text-[0.9em]">
                 {durStr}
               </span>
             ) : null}
@@ -110,7 +114,7 @@ export const ToolTimeline = React.memo(function ToolTimeline({
             {hasDetail ? (
               <button
                 type="button"
-                className={cn(lineClasses, "cursor-pointer hover:border-[var(--color-accent)]")}
+                className={cn(lineClasses, "cursor-pointer hover:border-[var(--color-tool-pill-hover-border)]")}
                 onClick={() => onToggleDetail(detailId)}
               >
                 {content}

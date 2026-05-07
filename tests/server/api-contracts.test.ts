@@ -1147,6 +1147,16 @@ describe("server api contracts", () => {
           durationMs: number;
         }>;
       }>;
+      toolEvents: Array<{
+        tool: string;
+        input: string;
+        status: string;
+        error: string;
+        fullInput: string;
+        fullOutput: string;
+        durationMs: number;
+        createdAt: string;
+      }>;
       todos: Array<{
         content: string;
         status: string;
@@ -1225,6 +1235,12 @@ describe("server api contracts", () => {
         durationMs: 15_000,
       },
     ]);
+    expect(body.toolEvents).toHaveLength(3);
+    expect(body.toolEvents.map((event) => event.tool)).toEqual([
+      "read",
+      "github_search",
+      "bash",
+    ]);
 
     expect(body.todos).toEqual([
       {
@@ -1243,6 +1259,83 @@ describe("server api contracts", () => {
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("msg-root-1-user");
     expect(serialized).not.toContain("part-root-1-tool-read");
+  });
+
+  test("GET /api/session/:id renders tool-only messages as empty-text message shells", async () => {
+    useFixtureDb();
+    let db: ReturnType<typeof getWritableDb> | null = null;
+
+    try {
+      db = getWritableDb();
+      const createdAt = Date.parse("2024-01-11T10:30:30.000Z");
+      db.prepare(
+        `INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        "msg-root-1-tool-only-skill",
+        ROOT_SESSION_ID,
+        createdAt,
+        createdAt + 100,
+        JSON.stringify({
+          role: "assistant",
+          time: { created: createdAt, completed: createdAt + 100 },
+        }),
+      );
+      db.prepare(
+        `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "part-root-1-tool-only-skill",
+        "msg-root-1-tool-only-skill",
+        ROOT_SESSION_ID,
+        createdAt + 50,
+        createdAt + 100,
+        JSON.stringify({
+          type: "tool",
+          tool: "skill",
+          state: {
+            status: "completed",
+            input: { name: "create-skill" },
+            output: "skill loaded",
+            time: { start: createdAt + 50, end: createdAt + 100 },
+          },
+        }),
+      );
+      db.close();
+      db = null;
+
+      const app = createApiApp();
+      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`);
+      expect(response.status).toBe(200);
+
+      const body = (await response.json()) as {
+        messages: Array<{
+          text: string;
+          createdAt: string;
+          toolCalls: Array<{ tool: string; input: string }>;
+        }>;
+        toolEvents: Array<{ tool: string; input: string }>;
+      };
+
+      expect(body.messages).toHaveLength(4);
+      const toolOnlyMessage = body.messages.find(
+        (message) => message.createdAt === new Date(createdAt).toISOString(),
+      );
+      expect(toolOnlyMessage).toMatchObject({
+        text: "",
+        toolCalls: [
+          expect.objectContaining({ tool: "skill", input: "create-skill" }),
+        ],
+      });
+      expect(body.toolEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ tool: "skill", input: "create-skill" }),
+        ]),
+      );
+    } finally {
+      db?.close();
+      useFixtureDb();
+    }
   });
 
   test("DELETE /api/session invalidates dashboard aggregates for the deleted root session", async () => {

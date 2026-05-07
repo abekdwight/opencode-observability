@@ -88,6 +88,7 @@ const SESSION_DETAIL: SessionDetailContract = {
     { key: "compactions", label: "Compactions", level: "warning", count: 1 },
   ],
   messages: [],
+  toolEvents: [],
   todos: [],
   summaryDiffs: null,
 };
@@ -185,6 +186,48 @@ test.describe("session detail overview", () => {
     await expect(sidebar.getByText("Duration", { exact: true })).toBeVisible();
     await expect(sidebar.getByText("Tokens", { exact: true })).toBeVisible();
     await expect(sidebar.getByText(/Subagents\s+1/)).toBeVisible();
+  });
+
+  test("empty-text message shells show tools without a message body", async ({
+    page,
+  }) => {
+    const sessionWithToolOnlyMessage: SessionDetailContract = {
+      ...SESSION_DETAIL,
+      messages: [
+        {
+          role: "assistant",
+          text: "",
+          modelId: "gpt-4.1",
+          agent: "Sisyphus",
+          outputTpsLabel: null,
+          createdAt: "2024-01-10T09:00:20.000Z",
+          toolCalls: [
+            {
+              tool: "skill",
+              input: "create-skill",
+              status: "completed",
+              error: "",
+              fullInput: '{"name":"create-skill"}',
+              fullOutput: "skill loaded",
+              durationMs: 50,
+            },
+          ],
+          subagentLinks: [],
+          fileDiffs: [],
+        },
+      ],
+      toolEvents: [],
+      todos: [],
+      summaryDiffs: null,
+    };
+
+    await stubApis(page, sessionWithToolOnlyMessage);
+    await page.goto("/session/ses-root-1");
+
+    const message = page.getByTestId("message-0");
+    await expect(message.getByText("skill create-skill")).toBeVisible();
+    await expect(message.locator("[data-message-content]")).toHaveCount(0);
+    await expect(message.locator("[data-message-raw]")).toHaveCount(0);
   });
 
   test("message collapse toggle stays visible and markdown tables render as tables", async ({

@@ -68,6 +68,7 @@ export interface SessionMessageRecord {
 
 export interface SessionToolPartRecord {
   message_id: string;
+  time_created: number | string;
   data: string;
 }
 
@@ -237,17 +238,30 @@ export function listSessionMessages(
 ): SessionMessageRecord[] {
   return db
     .prepare(`
+      WITH text_parts AS (
+        SELECT message_id, group_concat(text, '') AS message_text
+        FROM (
+          SELECT p.message_id, json_extract(p.data, '$.text') AS text
+          FROM part p
+          WHERE p.session_id = ?
+            AND json_extract(p.data, '$.type') = 'text'
+            AND json_extract(p.data, '$.text') IS NOT NULL
+          ORDER BY p.message_id, p.time_created ASC, p.rowid ASC
+        )
+        GROUP BY message_id
+      )
       SELECT m.id, json_extract(m.data, '$.role') AS role, json_extract(m.data, '$.modelID') AS model_id,
              json_extract(m.data, '$.providerID') AS provider_id, json_extract(m.data, '$.agent') AS agent,
              json_extract(m.data, '$.tokens.output') AS output_tokens,
              json_extract(m.data, '$.time.created') AS response_started,
              json_extract(m.data, '$.time.completed') AS response_completed,
-             json_extract(p.data, '$.text') AS text, m.time_created
-      FROM message m JOIN part p ON p.message_id = m.id
-      WHERE m.session_id = ? AND json_extract(p.data, '$.type') = 'text' AND json_extract(p.data, '$.text') IS NOT NULL
-      ORDER BY m.time_created ASC
+             COALESCE(tp.message_text, '') AS text, m.time_created
+      FROM message m
+      LEFT JOIN text_parts tp ON tp.message_id = m.id
+      WHERE m.session_id = ? AND json_extract(m.data, '$.role') IN ('user', 'assistant')
+      ORDER BY m.time_created ASC, m.rowid ASC
     `)
-    .all(sessionId) as SessionMessageRecord[];
+    .all(sessionId, sessionId) as SessionMessageRecord[];
 }
 
 export function listSessionToolParts(
@@ -256,9 +270,9 @@ export function listSessionToolParts(
 ): SessionToolPartRecord[] {
   return db
     .prepare(`
-      SELECT p.message_id, p.data as data
+      SELECT p.message_id, p.time_created, p.data as data
       FROM part p WHERE p.session_id = ? AND json_extract(p.data, '$.type') = 'tool'
-      ORDER BY p.message_id, p.time_created ASC, p.rowid ASC
+      ORDER BY p.time_created ASC, p.rowid ASC
     `)
     .all(sessionId) as SessionToolPartRecord[];
 }

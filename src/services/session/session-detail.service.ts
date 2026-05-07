@@ -51,6 +51,10 @@ export interface ToolCallItem {
   durationMs: number;
 }
 
+export interface ToolEventItem extends ToolCallItem {
+  time_created: string | number;
+}
+
 export interface SubagentInfo {
   id: string;
   title: string;
@@ -87,6 +91,7 @@ export interface SessionRouteView {
   parentInfo: { id: string; title: string } | null;
   messages: SessionViewMessage[];
   messageDetails: SessionMessageDetail[];
+  toolEvents: ToolEventItem[];
   messageToSubagentsMap: Map<string, SubagentInfo[]>;
   messageToolCalls: Map<string, ToolCallItem[]>;
   todos: SessionTodoRecord[];
@@ -484,9 +489,10 @@ export function buildSessionRouteView(
 
   const messageToSubagentIdsMap = new Map<string, string[]>();
   const messageToolCalls = new Map<string, ToolCallItem[]>();
+  const toolEvents: ToolEventItem[] = [];
   const subagentIds = new Set<string>();
 
-  for (const { message_id, data } of allToolParts) {
+  for (const { message_id, time_created, data } of allToolParts) {
     try {
       const parsedData = JSON.parse(data) as {
         type?: string;
@@ -532,8 +538,7 @@ export function buildSessionRouteView(
       const toolDurationMs =
         timings?.start && timings?.end ? timings.end - timings.start : 0;
 
-      const calls = messageToolCalls.get(message_id) || [];
-      calls.push({
+      const toolCall = {
         tool: toolName,
         input: inputSummary,
         status: parseToolStatus(parsedData.state?.status ?? parsedData.status),
@@ -543,8 +548,12 @@ export function buildSessionRouteView(
         fullInput,
         fullOutput,
         durationMs: toolDurationMs,
-      });
+      };
+
+      const calls = messageToolCalls.get(message_id) || [];
+      calls.push(toolCall);
       messageToolCalls.set(message_id, calls);
+      toolEvents.push({ ...toolCall, time_created });
     } catch {
       /* skip malformed tool rows */
     }
@@ -635,6 +644,7 @@ export function buildSessionRouteView(
     parentInfo,
     messages: viewMessages,
     messageDetails,
+    toolEvents,
     messageToSubagentsMap,
     messageToolCalls,
     todos,

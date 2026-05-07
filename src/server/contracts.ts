@@ -384,6 +384,16 @@ export function buildSessionDetailContract(
       })),
       fileDiffs: message.fileDiffs,
     })),
+    toolEvents: routeView.toolEvents.map((event) => ({
+      tool: event.tool,
+      input: event.input,
+      status: event.status,
+      error: event.error,
+      fullInput: event.fullInput,
+      fullOutput: event.fullOutput,
+      durationMs: event.durationMs,
+      createdAt: toIsoFromUnknown(event.time_created),
+    })),
     todos: routeView.todos.map((todo) => ({
       content: todo.content,
       status: todo.status,

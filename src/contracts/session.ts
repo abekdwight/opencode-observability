@@ -55,6 +55,10 @@ export interface SessionToolCallContract {
   durationMs: number;
 }
 
+export interface SessionToolEventContract extends SessionToolCallContract {
+  createdAt: string;
+}
+
 export interface SessionMessageSubagentLinkContract {
   id: string;
   title: string;
@@ -112,6 +116,7 @@ export interface SessionDetailContract {
   subagents: SessionSubagentSummary[];
   signalBadges: SignalBadge[];
   messages: SessionMessageContract[];
+  toolEvents: SessionToolEventContract[];
   todos: SessionTodoContract[];
   summaryDiffs: string | null;
 }

@@ -45,10 +45,11 @@ export const MessageRow = React.memo(function MessageRow({
   const isUser = msg.role === "user";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
+  const hasMessageText = msg.text.length > 0;
 
   const markdownHtml = React.useMemo(
-    () => renderSharedMarkdown(msg.text),
-    [msg.text],
+    () => (hasMessageText ? renderSharedMarkdown(msg.text) : ""),
+    [hasMessageText, msg.text],
   );
 
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -83,6 +84,12 @@ export const MessageRow = React.memo(function MessageRow({
 
   // Overflow detection via ResizeObserver
   React.useEffect(() => {
+    if (!hasMessageText) {
+      setIsOverflowing(false);
+      setIsCollapsed(false);
+      return;
+    }
+
     const body = bodyRef.current;
     if (!body) return;
 
@@ -116,7 +123,7 @@ export const MessageRow = React.memo(function MessageRow({
       cancelAnimationFrame(rafId);
       observer.disconnect();
     };
-  }, [markdownHtml, plainMode]);
+  }, [hasMessageText, markdownHtml, plainMode]);
 
   // Toggle collapse for this message
   const handleToggle = React.useCallback(() => {
@@ -276,7 +283,7 @@ export const MessageRow = React.memo(function MessageRow({
   return (
     <div
       className={cn(
-        "my-3.5 flex flex-col",
+        hasMessageText ? "my-3.5 flex flex-col" : "my-1 flex flex-col",
         isUser ? "items-stretch [&_.msg-header]:justify-end" : "items-stretch",
         hidden && "!hidden",
       )}
@@ -286,20 +293,22 @@ export const MessageRow = React.memo(function MessageRow({
       {...(hidden ? { "data-hidden": "" } : {})}
     >
       {/* Header */}
-      <div className="msg-header mb-2 flex flex-wrap items-center gap-2 text-[0.8em] text-[var(--color-text-secondary)]">
-        <span
-          className={cn(
-            "rounded-[var(--radius-sm)] px-2.5 py-[2px] text-[0.85em] font-semibold",
-            isUser
-              ? "bg-[var(--color-user-bg)] text-[var(--color-user-badge)]"
-              : "bg-[var(--color-assistant-badge-bg)] text-[var(--color-text-inverse)]",
-          )}
-        >
-          {roleLabel}
-        </span>
-        <span>{dateStr}</span>
-        {metaChips}
-      </div>
+      {hasMessageText ? (
+        <div className="msg-header mb-2 flex flex-wrap items-center gap-2 text-[0.8em] text-[var(--color-text-secondary)]">
+          <span
+            className={cn(
+              "rounded-[var(--radius-sm)] px-2.5 py-[2px] text-[0.85em] font-semibold",
+              isUser
+                ? "bg-[var(--color-user-bg)] text-[var(--color-user-badge)]"
+                : "bg-[var(--color-assistant-badge-bg)] text-[var(--color-text-inverse)]",
+            )}
+          >
+            {roleLabel}
+          </span>
+          <span>{dateStr}</span>
+          {metaChips}
+        </div>
+      ) : null}
       {subagentLinks}
       {/* Tool timeline */}
       {msg.toolCalls.length > 0 ? (
@@ -309,72 +318,75 @@ export const MessageRow = React.memo(function MessageRow({
           visible={toolsVisible}
           openDetails={openDetails}
           onToggleDetail={onToggleDetail}
+          compact={!hasMessageText}
         />
       ) : null}
       {/* File diffs */}
       {msg.fileDiffs?.length > 0 ? (
         <FileDiffs diffs={msg.fileDiffs} />
       ) : null}
-      <div className="relative w-full" ref={bodyRef}>
-        {/* Rendered markdown content */}
-        <div
-          data-message-content
-          className={cn(
-            /* message-content base */
-            "w-full rounded-xl px-[18px] py-3.5 text-[0.95em] leading-[1.7] [&_img]:max-w-full [&_img]:h-auto",
-            /* message-content typography */
-            "[&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[var(--color-border-subtle)] [&_pre]:bg-[var(--color-bg-code)] [&_pre]:p-3.5",
-            "[&_code]:rounded-[var(--radius-sm)] [&_code]:bg-[var(--color-bg-code)] [&_code]:px-2 [&_code]:py-[2px] [&_code]:font-[var(--font-mono)] [&_code]:text-[0.88em]",
-            "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
-            /* message-content tables */
-            "[&_table]:w-full [&_table]:border-collapse [&_table]:my-2",
-            "[&_th]:border [&_th]:border-[var(--color-border-default)] [&_th]:bg-[var(--color-bg-root)] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
-            "[&_td]:border [&_td]:border-[var(--color-border-default)] [&_td]:px-3 [&_td]:py-2 [&_td]:text-left",
-            /* role-specific */
-            isUser
-              ? "border border-[var(--color-user-border)] bg-[var(--color-bg-elevated)]"
-              : "border border-[var(--color-border-faint)] bg-[var(--color-bg-surface)]",
-            effectiveCollapsed && "max-h-[300px] overflow-hidden",
-          )}
-          ref={contentRef}
-        />
-        {/* Raw / plain text content */}
-        <div
-          data-message-raw
-          className={cn(
-            "hidden whitespace-pre-wrap break-words font-[var(--font-sans)] text-[0.93em] leading-relaxed",
-            effectiveCollapsed && "max-h-[300px] overflow-hidden",
-          )}
-        >
-          <span className="font-bold text-[var(--color-text-primary)]">
-            {roleLabel} ({dateStr})
-          </span>
-          {"\n"}
-          {msg.text}
+      {hasMessageText ? (
+        <div className="relative w-full" ref={bodyRef}>
+          {/* Rendered markdown content */}
+          <div
+            data-message-content
+            className={cn(
+              /* message-content base */
+              "w-full rounded-xl px-[18px] py-3.5 text-[0.95em] leading-[1.7] [&_img]:max-w-full [&_img]:h-auto",
+              /* message-content typography */
+              "[&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[var(--color-border-subtle)] [&_pre]:bg-[var(--color-bg-code)] [&_pre]:p-3.5",
+              "[&_code]:rounded-[var(--radius-sm)] [&_code]:bg-[var(--color-bg-code)] [&_code]:px-2 [&_code]:py-[2px] [&_code]:font-[var(--font-mono)] [&_code]:text-[0.88em]",
+              "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
+              /* message-content tables */
+              "[&_table]:w-full [&_table]:border-collapse [&_table]:my-2",
+              "[&_th]:border [&_th]:border-[var(--color-border-default)] [&_th]:bg-[var(--color-bg-root)] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
+              "[&_td]:border [&_td]:border-[var(--color-border-default)] [&_td]:px-3 [&_td]:py-2 [&_td]:text-left",
+              /* role-specific */
+              isUser
+                ? "border border-[var(--color-user-border)] bg-[var(--color-user-bg)]"
+                : "border border-[var(--color-assistant-border)] bg-[var(--color-assistant-bg)]",
+              effectiveCollapsed && "max-h-[300px] overflow-hidden",
+            )}
+            ref={contentRef}
+          />
+          {/* Raw / plain text content */}
+          <div
+            data-message-raw
+            className={cn(
+              "hidden whitespace-pre-wrap break-words font-[var(--font-sans)] text-[0.93em] leading-relaxed",
+              effectiveCollapsed && "max-h-[300px] overflow-hidden",
+            )}
+          >
+            <span className="font-bold text-[var(--color-text-primary)]">
+              {roleLabel} ({dateStr})
+            </span>
+            {"\n"}
+            {msg.text}
+          </div>
+          {/* Fade overlay for collapsed state */}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-8 h-[60px] rounded-b-xl",
+              isUser
+                ? "bg-gradient-to-b from-transparent to-[var(--color-user-bg)]"
+                : "bg-gradient-to-b from-transparent to-[var(--color-assistant-bg)]",
+              !showFade && "!hidden",
+            )}
+          />
+          {/* Expand/collapse button */}
+          <button
+            type="button"
+            className={cn(
+              "block w-full rounded-b-xl border-none bg-transparent p-2 text-center text-[0.82em] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]",
+              !showExpandBtn && "!hidden",
+              !isCollapsed && isOverflowing && "!block text-[var(--color-text-secondary)]",
+            )}
+            onClick={handleToggle}
+          >
+            {expandText}
+          </button>
         </div>
-        {/* Fade overlay for collapsed state */}
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-8 h-[60px] rounded-b-xl",
-            isUser
-              ? "bg-gradient-to-b from-transparent to-[var(--color-bg-elevated)]"
-              : "bg-gradient-to-b from-transparent to-[var(--color-bg-surface)]",
-            !showFade && "!hidden",
-          )}
-        />
-        {/* Expand/collapse button */}
-        <button
-          type="button"
-          className={cn(
-            "block w-full rounded-b-xl border-none bg-transparent p-2 text-center text-[0.82em] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]",
-            !showExpandBtn && "!hidden",
-            !isCollapsed && isOverflowing && "!block text-[var(--color-text-secondary)]",
-          )}
-          onClick={handleToggle}
-        >
-          {expandText}
-        </button>
-      </div>
+      ) : null}
       {zoomState ? (
         <MermaidLightbox
           source={zoomState.source}
