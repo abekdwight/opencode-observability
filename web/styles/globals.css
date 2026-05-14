@@ -226,3 +226,47 @@ body.plain-mode [data-message-role]:last-child [data-plain-sep] {
 [data-message-role].nav-highlight .msg-header > span:first-child {
   box-shadow: 0 0 0 2px var(--color-accent);
 }
+
+/* ---------------------------------------------------------------------------
+ * Code block presentation (CodeBlock component)
+ *
+ * The CodeBlock wrapper (`[data-code-block]`) is the single source of truth
+ * for background, border, padding, font, and scroll. Inner elements — the
+ * plain loading fallback `<pre><code>` or Shiki's highlighted
+ * `<pre class="shiki">` output — are reset to transparent and inherit
+ * typography from the wrapper so loading and highlighted states are
+ * visually indistinguishable in geometry.
+ *
+ * Shiki contributes only token colors via inline `--shiki-light` /
+ * `--shiki-dark` CSS variables on each `<span>`. Shiki's own background
+ * tokens (`--shiki-*-bg`) are deliberately ignored so the project's
+ * `--color-bg-code` is the single backdrop across themes.
+ * --------------------------------------------------------------------------- */
+
+[data-code-block] pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  color: inherit;
+  white-space: pre;
+}
+
+[data-code-block] pre code {
+  background: transparent;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  color: inherit;
+}
+
+[data-code-block] .shiki span {
+  color: var(--shiki-light, inherit);
+}
+
+[data-theme="dark"] [data-code-block] .shiki span {
+  color: var(--shiki-dark, inherit);
+}

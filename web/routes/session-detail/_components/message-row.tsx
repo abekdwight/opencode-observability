@@ -1,26 +1,18 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
-import { renderSafeMarkdown as renderSharedMarkdown } from "../../../../src/lib/rendering.js";
-import { useMermaidPreferences } from "../../../components/mermaid-preferences-provider";
+import { MarkdownContent } from "../../../components/markdown-content";
 import { cn } from "../../../lib/cn";
 import { formatDurationShort, formatTimestampShort } from "../../../lib/format";
-import { COLLAPSE_HEIGHT, MERMAID_SELECTOR } from "../_lib/constants";
-import {
-  getMermaidClient,
-  nextMermaidRenderId,
-  decodeHtmlEntities,
-  normalizeMermaidSvg,
-} from "../_lib/mermaid-utils";
+import { COLLAPSE_HEIGHT } from "../_lib/constants";
 import { FileDiffs } from "./file-diffs";
+import { MermaidCodeBlock } from "./mermaid-code-block";
 import { ToolTimeline } from "./tool-timeline";
-import { MermaidLightbox } from "./mermaid-lightbox";
 
 export interface MessageRowProps {
   msg: SessionMessageContract;
   msgIdx: number;
   hidden: boolean;
-  toolsVisible: boolean;
   plainMode: boolean;
   collapseEnabled: boolean;
   openDetails: Set<string>;
@@ -35,43 +27,21 @@ export const MessageRow = React.memo(function MessageRow({
   msg,
   msgIdx,
   hidden,
-  toolsVisible,
   plainMode,
   collapseEnabled,
   openDetails,
   onToggleDetail,
 }: MessageRowProps) {
-  const { mermaidPreference, mermaidConfigKey } = useMermaidPreferences();
   const isUser = msg.role === "user";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
   const hasMessageText = msg.text.length > 0;
 
-  const markdownHtml = React.useMemo(
-    () => (hasMessageText ? renderSharedMarkdown(msg.text) : ""),
-    [hasMessageText, msg.text],
-  );
-
-  const contentRef = React.useRef<HTMLDivElement>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
 
   // Local collapse state
   const [isOverflowing, setIsOverflowing] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(collapseEnabled);
-
-  // Mermaid lightbox state
-  const [zoomState, setZoomState] = React.useState<{
-    source: string;
-    trigger: HTMLElement | null;
-  } | null>(null);
-
-  // Set innerHTML via layout effect -- React won't manage these children,
-  // so imperative DOM modifications (mermaid enhancement) survive re-renders.
-  React.useLayoutEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.innerHTML = markdownHtml;
-    }
-  }, [markdownHtml, mermaidConfigKey]);
 
   // Sync collapse state when collapseEnabled preference changes
   React.useEffect(() => {
@@ -123,132 +93,41 @@ export const MessageRow = React.memo(function MessageRow({
       cancelAnimationFrame(rafId);
       observer.disconnect();
     };
-  }, [hasMessageText, markdownHtml, plainMode]);
+  }, [hasMessageText, plainMode]);
 
   // Toggle collapse for this message
   const handleToggle = React.useCallback(() => {
     setIsCollapsed((prev) => !prev);
   }, []);
 
-  // Mermaid enhancement effect
-  React.useEffect(() => {
-    const root = contentRef.current;
-    if (!root) return;
-    if (!msg.text.includes("```mermaid")) return;
-
-    const mermaidCodeNodes = Array.from(
-      root.querySelectorAll<HTMLElement>(MERMAID_SELECTOR),
-    );
-    if (mermaidCodeNodes.length === 0) return;
-
-    const detachHandlers: Array<() => void> = [];
-    let disposed = false;
-
-    const enhanceMermaidBlocks = async () => {
-      const mermaidClient = await getMermaidClient(mermaidPreference);
-      if (disposed) return;
-
-      // Re-query DOM after await -- nodes captured before the await may have
-      // been detached by React reconciliation.
-      const freshRoot = contentRef.current;
-      if (!freshRoot) return;
-      const freshCodeNodes = Array.from(
-        freshRoot.querySelectorAll<HTMLElement>(MERMAID_SELECTOR),
-      );
-      if (freshCodeNodes.length === 0) return;
-
-      for (const codeNode of freshCodeNodes) {
-        const pre = codeNode.closest("pre");
-        if (!pre || pre.dataset.mermaidEnhanced === "true") continue;
-
-        const source = decodeHtmlEntities(codeNode.textContent ?? "");
-        if (!source.trim()) continue;
-
-        pre.dataset.mermaidEnhanced = "true";
-
-        try {
-          const previewButton = document.createElement("button");
-          previewButton.type = "button";
-          previewButton.className = "w-full rounded-xl border border-[var(--color-border-default)] bg-gradient-to-b from-[#fcfcfd] to-[#f5f5f7] p-3 text-left cursor-zoom-in transition-[border-color,box-shadow] duration-150 hover:border-[var(--color-accent)] hover:shadow-[0_0_0_2px_rgba(0,102,204,0.12)] dark:from-[var(--color-bg-elevated)] dark:to-[var(--color-bg-muted)]";
-          previewButton.setAttribute("aria-label", "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}\u{8868}\u{793A}");
-          previewButton.setAttribute("title", "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}");
-
-          const previewCanvas = document.createElement("div");
-          previewCanvas.className = "overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] p-2.5 flex justify-center items-start [&_svg]:block [&_svg]:max-w-full [&_svg]:w-auto [&_svg]:h-auto [&_svg]:m-0";
-
-          const previewHint = document.createElement("span");
-          previewHint.className = "block mt-2 text-[var(--color-text-secondary)] text-xs tracking-[0.02em]";
-          previewHint.textContent = "\u{30AF}\u{30EA}\u{30C3}\u{30AF}\u{3067}\u{62E1}\u{5927}";
-
-          const { svg } = await mermaidClient.render(
-            nextMermaidRenderId(`session-mermaid-${msgIdx}`),
-            source,
-          );
-          if (disposed) return;
-
-          previewCanvas.innerHTML = svg;
-          normalizeMermaidSvg(previewCanvas);
-
-          previewButton.append(previewCanvas, previewHint);
-
-          const handleOpen = () => {
-            setZoomState({
-              source,
-              trigger: previewButton,
-            });
-          };
-          previewButton.addEventListener("click", handleOpen);
-          detachHandlers.push(() => {
-            previewButton.removeEventListener("click", handleOpen);
-          });
-
-          pre.replaceWith(previewButton);
-        } catch {
-          pre.dataset.mermaidEnhanced = "false";
-          if (
-            !pre.previousElementSibling?.classList.contains(
-              "mermaid-error-note",
-            )
-          ) {
-            const errorNote = document.createElement("p");
-            errorNote.className = "mermaid-error-note my-2 text-[0.83em] font-medium text-[var(--color-error-text)]";
-            errorNote.textContent =
-              "Mermaid\u56F3\u306E\u63CF\u753B\u306B\u5931\u6557\u3057\u305F\u305F\u3081\u3001\u30BD\u30FC\u30B9\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002";
-            pre.before(errorNote);
-          }
-        }
-      }
-    };
-
-    void enhanceMermaidBlocks();
-
-    return () => {
-      disposed = true;
-      for (const detach of detachHandlers) {
-        detach();
-      }
-    };
-  }, [msg.text, msgIdx, mermaidConfigKey, mermaidPreference]);
-
   // Meta chips (assistant only)
   const metaChips: React.ReactNode[] = [];
   if (!isUser) {
     if (msg.modelId) {
       metaChips.push(
-        <span key="model" className="rounded-[var(--radius-sm)] bg-[var(--color-model-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-model-chip-text)]">
+        <span
+          key="model"
+          className="rounded-[var(--radius-sm)] bg-[var(--color-model-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-model-chip-text)]"
+        >
           {msg.modelId}
         </span>,
       );
     }
     if (msg.agent) {
       metaChips.push(
-        <span key="agent" className="rounded-[var(--radius-sm)] bg-[var(--color-agent-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-agent-chip-text)]">
+        <span
+          key="agent"
+          className="rounded-[var(--radius-sm)] bg-[var(--color-agent-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-agent-chip-text)]"
+        >
           {msg.agent}
         </span>,
       );
     }
     metaChips.push(
-      <span key="tps" className="rounded-[var(--radius-sm)] bg-[var(--color-tps-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-tps-chip-text)]">
+      <span
+        key="tps"
+        className="rounded-[var(--radius-sm)] bg-[var(--color-tps-chip-bg)] px-2 py-[2px] text-[0.82em] font-medium text-[var(--color-tps-chip-text)]"
+      >
         TPS {msg.outputTpsLabel || "\u2014"}
       </span>,
     );
@@ -315,16 +194,13 @@ export const MessageRow = React.memo(function MessageRow({
         <ToolTimeline
           calls={msg.toolCalls}
           msgIdx={msgIdx}
-          visible={toolsVisible}
           openDetails={openDetails}
           onToggleDetail={onToggleDetail}
           compact={!hasMessageText}
         />
       ) : null}
       {/* File diffs */}
-      {msg.fileDiffs?.length > 0 ? (
-        <FileDiffs diffs={msg.fileDiffs} />
-      ) : null}
+      {msg.fileDiffs?.length > 0 ? <FileDiffs diffs={msg.fileDiffs} /> : null}
       {hasMessageText ? (
         <div className="relative w-full" ref={bodyRef}>
           {/* Rendered markdown content */}
@@ -333,10 +209,8 @@ export const MessageRow = React.memo(function MessageRow({
             className={cn(
               /* message-content base */
               "w-full rounded-xl px-[18px] py-3.5 text-[0.95em] leading-[1.7] [&_img]:max-w-full [&_img]:h-auto",
-              /* message-content typography */
-              "[&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-[var(--color-border-subtle)] [&_pre]:bg-[var(--color-bg-code)] [&_pre]:p-3.5",
-              "[&_code]:rounded-[var(--radius-sm)] [&_code]:bg-[var(--color-bg-code)] [&_code]:px-2 [&_code]:py-[2px] [&_code]:font-[var(--font-mono)] [&_code]:text-[0.88em]",
-              "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
+              /* message-content prose spacing (pre/code intentionally absent: CodeBlock/InlineCode own their presentation) */
+              "[&_p]:my-2",
               /* message-content tables */
               "[&_table]:w-full [&_table]:border-collapse [&_table]:my-2",
               "[&_th]:border [&_th]:border-[var(--color-border-default)] [&_th]:bg-[var(--color-bg-root)] [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold",
@@ -347,8 +221,15 @@ export const MessageRow = React.memo(function MessageRow({
                 : "border border-[var(--color-assistant-border)] bg-[var(--color-assistant-bg)]",
               effectiveCollapsed && "max-h-[300px] overflow-hidden",
             )}
-            ref={contentRef}
-          />
+          >
+            <MarkdownContent
+              renderMermaidCode={(code) => (
+                <MermaidCodeBlock code={code} msgIdx={msgIdx} />
+              )}
+            >
+              {msg.text}
+            </MarkdownContent>
+          </div>
           {/* Raw / plain text content */}
           <div
             data-message-raw
@@ -379,7 +260,9 @@ export const MessageRow = React.memo(function MessageRow({
             className={cn(
               "block w-full rounded-b-xl border-none bg-transparent p-2 text-center text-[0.82em] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-accent-light)]",
               !showExpandBtn && "!hidden",
-              !isCollapsed && isOverflowing && "!block text-[var(--color-text-secondary)]",
+              !isCollapsed &&
+                isOverflowing &&
+                "!block text-[var(--color-text-secondary)]",
             )}
             onClick={handleToggle}
           >
@@ -387,15 +270,11 @@ export const MessageRow = React.memo(function MessageRow({
           </button>
         </div>
       ) : null}
-      {zoomState ? (
-        <MermaidLightbox
-          source={zoomState.source}
-          returnFocusTo={zoomState.trigger}
-          onClose={() => setZoomState(null)}
-        />
-      ) : null}
       {/* Plain mode separator */}
-      <hr className="mx-0 my-3 hidden border-t border-dashed border-[#c0c0c0] border-b-0 border-l-0 border-r-0" data-plain-sep />
+      <hr
+        className="mx-0 my-3 hidden border-t border-dashed border-[#c0c0c0] border-b-0 border-l-0 border-r-0"
+        data-plain-sep
+      />
     </div>
   );
 });

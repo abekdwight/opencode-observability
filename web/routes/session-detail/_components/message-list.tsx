@@ -1,8 +1,9 @@
 import React from "react";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
-import type { FilterMode } from "../_lib/constants";
-import { applyOmoFilter } from "../_lib/omo-filter";
 import { cn } from "../../../lib/cn";
+import type { FilterMode } from "../_lib/constants";
+import { hasVisibleMessageContent } from "../_lib/message-visibility";
+import { applyOmoFilter } from "../_lib/omo-filter";
 import { MessageRow } from "./message-row";
 
 export interface MessageListProps {
@@ -31,9 +32,7 @@ function useFilteredMessages(
     const source = omoFilter ? applyOmoFilter(messages) : messages;
     return source
       .map((msg, idx) => ({ msg, originalIdx: idx }))
-      .filter(
-        ({ msg }) => filterMode === "all" || msg.role === filterMode,
-      );
+      .filter(({ msg }) => filterMode === "all" || msg.role === filterMode);
   }, [messages, filterMode, omoFilter]);
 }
 
@@ -60,7 +59,7 @@ export function MessageList({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [containerRef.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (messages.length === 0) {
     return (
@@ -76,7 +75,9 @@ export function MessageList({
     return (
       <div className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain">
         <p className="py-10 px-[var(--space-xl)] text-center text-[var(--color-text-secondary)]">
-          {"\u8868\u793A\u3059\u308B\u30E1\u30C3\u30BB\u30FC\u30B8\u304C\u3042\u308A\u307E\u305B\u3093"}
+          {
+            "\u8868\u793A\u3059\u308B\u30E1\u30C3\u30BB\u30FC\u30B8\u304C\u3042\u308A\u307E\u305B\u3093"
+          }
         </p>
       </div>
     );
@@ -88,28 +89,38 @@ export function MessageList({
       className="flex-1 overflow-y-auto overflow-x-hidden scroll-auto overscroll-contain"
       data-testid="chat-messages"
     >
-      {filteredMessages.map((item) => (
-        <div
-          key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
-          className={cn(
-            "px-[var(--space-2xl)] max-w-[960px] mx-auto w-full",
-            item.msg.text.length > 0
-              ? "py-[var(--space-sm)] pb-[var(--space-xl)]"
-              : "py-[var(--space-xs)] pb-[var(--space-sm)]",
-          )}
-        >
-          <MessageRow
-            msg={item.msg}
-            msgIdx={item.originalIdx}
-            hidden={false}
-            toolsVisible={toolsVisible}
-            plainMode={plainMode}
-            collapseEnabled={collapseEnabled}
-            openDetails={openDetails}
-            onToggleDetail={onToggleToolDetail}
-          />
-        </div>
-      ))}
+      {filteredMessages.map((item) => {
+        const visible = hasVisibleMessageContent({
+          text: item.msg.text,
+          toolsVisible,
+          toolCallsCount: item.msg.toolCalls.length,
+          fileDiffsCount: item.msg.fileDiffs?.length ?? 0,
+          subagentLinksCount: item.msg.subagentLinks.length,
+        });
+        if (!visible) return null;
+
+        return (
+          <div
+            key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
+            className={cn(
+              "px-[var(--space-2xl)] max-w-[960px] mx-auto w-full",
+              item.msg.text.trim().length > 0
+                ? "py-[var(--space-sm)] pb-[var(--space-xl)]"
+                : "py-[var(--space-xs)] pb-[var(--space-sm)]",
+            )}
+          >
+            <MessageRow
+              msg={item.msg}
+              msgIdx={item.originalIdx}
+              hidden={false}
+              plainMode={plainMode}
+              collapseEnabled={collapseEnabled}
+              openDetails={openDetails}
+              onToggleDetail={onToggleToolDetail}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

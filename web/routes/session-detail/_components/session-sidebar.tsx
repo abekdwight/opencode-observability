@@ -3,7 +3,7 @@ import type {
   SessionDetailContract,
   SessionToolCallContract,
 } from "../../../../src/contracts/session.js";
-import { renderSafeMarkdown as renderSharedMarkdown } from "../../../../src/lib/rendering.js";
+import { MarkdownContent } from "../../../components/markdown-content";
 import { cn } from "../../../lib/cn";
 import {
   formatDuration,
@@ -31,18 +31,6 @@ function SkillDetailContent({
   fullOutput: string;
   error: string;
 }) {
-  const outputHtml = React.useMemo(
-    () => (fullOutput ? renderSharedMarkdown(fullOutput) : ""),
-    [fullOutput],
-  );
-  const outputRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (outputRef.current && outputHtml) {
-      outputRef.current.innerHTML = outputHtml;
-    }
-  }, [outputHtml]);
-
   return (
     <div style={{ marginTop: 4 }}>
       {fullInput ? (
@@ -88,7 +76,9 @@ function SkillDetailContent({
           >
             Output
           </div>
-          <div ref={outputRef} data-message-content />
+          <div data-message-content>
+            <MarkdownContent>{fullOutput}</MarkdownContent>
+          </div>
         </div>
       ) : null}
       {error ? (

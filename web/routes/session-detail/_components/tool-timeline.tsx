@@ -7,16 +7,12 @@ import { ToolDetail } from "./tool-detail";
 export interface ToolTimelineProps {
   calls: SessionToolCallContract[];
   msgIdx: number;
-  visible: boolean;
   openDetails: Set<string>;
   onToggleDetail: (id: string) => void;
   compact?: boolean;
 }
 
-function buildDetailId(
-  msgIdx: number,
-  tc: SessionToolCallContract,
-): string {
+function buildDetailId(msgIdx: number, tc: SessionToolCallContract): string {
   return [
     `tool-detail-${msgIdx}`,
     tc.tool,
@@ -38,7 +34,6 @@ function formatToolDuration(ms: number): string {
 export const ToolTimeline = React.memo(function ToolTimeline({
   calls,
   msgIdx,
-  visible,
   openDetails,
   onToggleDetail,
   compact,
@@ -52,7 +47,6 @@ export const ToolTimeline = React.memo(function ToolTimeline({
           : "mb-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)]",
         "bg-[var(--color-tool-bg)] rounded-[var(--radius-md)]",
         "border border-dashed border-[var(--color-tool-border)]",
-        !visible && "hidden",
       )}
     >
       {calls.map((tc) => {
@@ -114,7 +108,10 @@ export const ToolTimeline = React.memo(function ToolTimeline({
             {hasDetail ? (
               <button
                 type="button"
-                className={cn(lineClasses, "cursor-pointer hover:border-[var(--color-tool-pill-hover-border)]")}
+                className={cn(
+                  lineClasses,
+                  "cursor-pointer hover:border-[var(--color-tool-pill-hover-border)]",
+                )}
                 onClick={() => onToggleDetail(detailId)}
               >
                 {content}
