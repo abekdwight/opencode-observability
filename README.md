@@ -162,9 +162,25 @@ ingest payload 例:
 
 セッションごとに最大 200 イベントをインメモリにキャッシュします。上限到達時は古いイベントが自動的に破棄されます。
 
+## Session Detail Syntax Highlight
+
+`/session/:id` のメッセージ本文中のフェンスドコードブロックは [Shiki](https://shiki.style/) でシンタックスハイライトされます。Oniguruma WASM エンジンと各言語の文法は Vite のコード分割により遅延ロードされ、初回のコードブロック描画時にバックグラウンドで初期化されます。
+
+### 対応言語
+
+`typescript` (`ts`), `tsx`, `javascript` (`js`), `jsx`, `python` (`py`), `rust`, `go`, `php`, `ruby` (`rb`), `json`, `css`, `html`, `bash` (`sh` / `zsh`), `yaml` (`yml`), `markdown` (`md`), `sql`, `diff` の 17 言語に加え、`mermaid` (React コンポーネントによる SVG 描画 + ライトボックス) と `text` (プレーンテキスト、別名 `plain` / `txt`) を特殊扱いとして対応します。
+
+### 未対応言語の扱い
+
+未対応の言語識別子、および言語識別子の無いフェンスはプレーンテキストとして装飾なしで表示します。意図せず誤った文法で彩色される(嘘のハイライト)ことを防ぐため、デフォルト文法へのフォールバックは行いません。
+
+### テーマ
+
+`github-light` / `github-dark` のデュアルテーマで、ページのテーマトグルに同期します。Shiki が出力する `<pre class="shiki">` の背景色は CSS でリセットし、ページの `--color-bg-code` を単一の真実としてラッパーに適用します。
+
 ## Safety
 
 - browser-facing contract は raw upstream payload を露出しません
 - `/api/session/:sessionId` の DELETE は `x-opencode-confirm-delete: <sessionId>` が一致しない限り拒否します
 - app shell は observability SSE の再接続を行い、接続不能時は degraded 表示に切り替えます
-- markdown と diff は sanitize helper 経由で描画します
+- markdown は `react-markdown` (raw HTML 非許可) で描画し、diff は escape 済みで表示します

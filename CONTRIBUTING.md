@@ -40,6 +40,6 @@ npm run fixtures:build
 
 ## Safety Rules
 
-- markdown / diff は sanitize helper を経由させます
+- markdown は `react-markdown` 経由で描画し、raw HTML を有効化する依存 (`rehype-raw` 等) を追加しないでください
 - destructive action は確認値を server で再検証します
 - E2E は happy path と degraded path の両方を更新します
