@@ -80,6 +80,16 @@ export function SessionDetailPage(): React.ReactElement | null {
     `/api/session/${encodeURIComponent(sessionId)}`,
   );
 
+  // Set document title to session title
+  React.useEffect(() => {
+    if (data) {
+      document.title = `${data.session.title} \u2014 OpenCode Telemetry`;
+    }
+    return () => {
+      document.title = "OpenCode Telemetry";
+    };
+  }, [data]);
+
   // Scrollable container ref
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 

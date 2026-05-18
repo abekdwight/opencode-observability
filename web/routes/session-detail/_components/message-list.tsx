@@ -1,5 +1,6 @@
 import React from "react";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
+import { type ChatWidth, getChatWidth } from "../../../lib/chat-width-context";
 import { cn } from "../../../lib/cn";
 import type { FilterMode } from "../_lib/constants";
 import { hasVisibleMessageContent } from "../_lib/message-visibility";
@@ -52,6 +53,21 @@ export function MessageList({
   containerRef,
 }: MessageListProps): React.ReactElement {
   const filteredMessages = useFilteredMessages(messages, filterMode, omoFilter);
+  const [chatWidth, setChatWidth] = React.useState<ChatWidth>(getChatWidth);
+
+  // Listen for width changes triggered via command palette
+  React.useEffect(() => {
+    const handler = () => setChatWidth(getChatWidth());
+    window.addEventListener("ot-chat-width-changed", handler);
+    return () => window.removeEventListener("ot-chat-width-changed", handler);
+  }, []);
+
+  const maxWidthClass =
+    chatWidth === "full"
+      ? ""
+      : chatWidth === "wide"
+        ? "max-w-[80rem]"
+        : "max-w-[960px]";
 
   // Scroll to bottom on initial mount
   React.useLayoutEffect(() => {
@@ -103,7 +119,8 @@ export function MessageList({
           <div
             key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
             className={cn(
-              "px-[var(--space-2xl)] max-w-[960px] mx-auto w-full",
+              "px-[var(--space-2xl)] mx-auto w-full",
+              maxWidthClass,
               item.msg.text.trim().length > 0
                 ? "py-[var(--space-sm)] pb-[var(--space-xl)]"
                 : "py-[var(--space-xs)] pb-[var(--space-sm)]",

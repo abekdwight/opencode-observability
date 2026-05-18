@@ -49,4 +49,10 @@ export const actionCommands: Command[] = [
     category: "action",
     keywords: ["diagram", "elk", "layout", "readability"],
   },
+  {
+    id: "cycle-chat-width",
+    label: "Cycle Chat Width",
+    category: "action",
+    keywords: ["width", "narrow", "wide", "full", "max"],
+  },
 ];

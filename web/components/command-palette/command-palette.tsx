@@ -3,6 +3,7 @@ import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
 import { useMermaidPreferences } from "../mermaid-preferences-provider";
 import { useTheme } from "../../hooks/use-theme";
+import { cycleChatWidth } from "../../lib/chat-width-context";
 import { cn } from "../../lib/cn";
 import { actionCommands, navigationCommands } from "./commands";
 
@@ -38,6 +39,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         break;
       case "toggle-mermaid-theme":
         toggleMermaidTheme();
+        break;
+      case "cycle-chat-width":
+        cycleChatWidth();
+        window.dispatchEvent(new CustomEvent("ot-chat-width-changed"));
         break;
     }
     onOpenChange(false);
