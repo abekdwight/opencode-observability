@@ -646,8 +646,10 @@ export function rebuildDashboardSessionAtom(
   rootSessionId: string,
   sourceStamp: DashboardSessionSourceStamp,
   generatedAt = new Date().toISOString(),
+  startMs?: number,
+  endMs?: number,
 ): DashboardSessionAtom | null {
-  const source = readDashboardSessionAtomSource(db, rootSessionId);
+  const source = readDashboardSessionAtomSource(db, rootSessionId, startMs ?? 0, endMs ?? 9999999999999);
   if (!source) {
     return null;
   }

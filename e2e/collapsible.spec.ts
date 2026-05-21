@@ -9,11 +9,59 @@ const MONITOR_SNAPSHOT = {
       id: "ses-root-1",
       title: "Root monitor session",
       directory: "/workspace/repo-alpha",
+      createdAt: "2024-01-10T09:00:00.000Z",
       updatedAt: "2024-01-10T09:01:00.000Z",
       messageCount: 3,
       toolCallCount: 2,
       compactionCount: 1,
       subagentCount: 1,
+      totalTokens: 222,
+      inputTokens: 114,
+      outputTokens: 108,
+      inputRatioPercent: 51.4,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 5,
+      tokenUsage: [
+        {
+          scope: "main",
+          agent: "planner",
+          modelId: "gpt-4.1",
+          providerId: "openai",
+          messageCount: 2,
+          inputTokens: 100,
+          outputTokens: 80,
+          cacheReadTokens: 40,
+          cacheWriteTokens: 5,
+          totalTokens: 180,
+          inputRatioPercent: 55.6,
+        },
+        {
+          scope: "subagent",
+          agent: "subagent-code",
+          modelId: "gpt-4.1-mini",
+          providerId: "openai",
+          messageCount: 1,
+          inputTokens: 10,
+          outputTokens: 20,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 30,
+          inputRatioPercent: 33.3,
+        },
+        {
+          scope: "subagent",
+          agent: "compaction",
+          modelId: "gpt-5.3-codex-spark",
+          providerId: "openai",
+          messageCount: 1,
+          inputTokens: 4,
+          outputTokens: 8,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalTokens: 12,
+          inputRatioPercent: 33.3,
+        },
+      ],
     },
   ],
   compactionCounts: {
@@ -49,17 +97,19 @@ const SESSION_DETAIL: SessionDetailContract = {
     summary: { additions: 10, deletions: 4, files: 2 },
   },
   tokens: {
-    total: 180,
-    input: 100,
-    output: 80,
+    total: 222,
+    input: 114,
+    output: 108,
     reasoning: 20,
     cacheRead: 40,
     cacheWrite: 5,
-    cost: 0.17,
+    cost: 0.21,
   },
   compactions: { main: 0, subagent: 1, total: 1 },
   modelBreakdown: [
     {
+      scope: "main",
+      agent: "planner",
       modelId: "gpt-4.1",
       providerId: "openai",
       messageCount: 2,
@@ -70,6 +120,34 @@ const SESSION_DETAIL: SessionDetailContract = {
       cacheWriteTokens: 5,
       totalTokens: 180,
       totalCost: 0.17,
+    },
+    {
+      scope: "subagent",
+      agent: "subagent-code",
+      modelId: "gpt-4.1-mini",
+      providerId: "openai",
+      messageCount: 1,
+      inputTokens: 10,
+      outputTokens: 20,
+      reasoningTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 30,
+      totalCost: 0.03,
+    },
+    {
+      scope: "subagent",
+      agent: "compaction",
+      modelId: "gpt-5.3-codex-spark",
+      providerId: "openai",
+      messageCount: 1,
+      inputTokens: 4,
+      outputTokens: 8,
+      reasoningTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 12,
+      totalCost: 0.01,
     },
   ],
   subagents: [
@@ -188,6 +266,78 @@ test.describe("session detail overview", () => {
     await expect(sidebar.getByText(/Subagents\s+1/)).toBeVisible();
   });
 
+  test("session detail Models accordion mirrors monitor model usage", async ({
+    page,
+  }) => {
+    await stubApis(page);
+    await page.goto("/session/ses-root-1");
+
+    const models = page.getByTestId("model-breakdown-accordion");
+    await expect(models).toBeVisible();
+    await models.locator("summary").click();
+
+    await expect(
+      models.getByText("Model usage", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      models.getByText("main / subagent split", { exact: true }),
+    ).toBeVisible();
+    await expect(models.getByText("Main", { exact: true })).toBeVisible();
+    await expect(models.getByText("Subagent", { exact: true })).toBeVisible();
+
+    await expect(
+      models.getByRole("columnheader", { name: "Model" }),
+    ).toHaveCount(2);
+    for (const header of [
+      "Input",
+      "Output",
+      "Cache R",
+      "Cache W",
+      "Input ratio",
+    ]) {
+      await expect(
+        models.getByRole("columnheader", { name: header, exact: true }),
+      ).toHaveCount(2);
+    }
+
+    await expect(
+      models.getByRole("cell", { name: "openai/gpt-4.1", exact: true }),
+    ).toBeVisible();
+    await expect(
+      models.getByRole("cell", { name: "openai/gpt-4.1-mini", exact: true }),
+    ).toBeVisible();
+    await expect(
+      models.getByRole("cell", {
+        name: "openai/gpt-5.3-codex-spark",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(models.getByRole("cell", { name: "55.6%" })).toBeVisible();
+
+    await models.getByRole("button", { name: "Agent × Model" }).click();
+    await expect(
+      models.getByRole("columnheader", { name: "Agent × Model" }),
+    ).toHaveCount(2);
+    await expect(
+      models.getByRole("cell", {
+        name: "planner × openai/gpt-4.1",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      models.getByRole("cell", {
+        name: "subagent-code × openai/gpt-4.1-mini",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      models.getByRole("cell", {
+        name: "compaction × openai/gpt-5.3-codex-spark",
+        exact: true,
+      }),
+    ).toBeVisible();
+  });
+
   test("empty-text message shells show tools without a message body", async ({
     page,
   }) => {
@@ -250,6 +400,7 @@ test.describe("session detail overview", () => {
           createdAt: "2024-01-10T09:00:20.000Z",
           toolCalls: [],
           subagentLinks: [],
+          fileDiffs: [],
         },
         {
           role: "assistant",
@@ -260,6 +411,7 @@ test.describe("session detail overview", () => {
           createdAt: "2024-01-10T09:00:30.000Z",
           toolCalls: [],
           subagentLinks: [],
+          fileDiffs: [],
         },
       ],
       todos: [],
@@ -271,7 +423,8 @@ test.describe("session detail overview", () => {
 
     const firstMessageToggle = page
       .getByTestId("message-0")
-      .locator(".expand-btn");
+      .getByRole("button")
+      .last();
     await expect(firstMessageToggle).toBeVisible();
     await expect(firstMessageToggle).toHaveText("続きを表示");
 
@@ -285,7 +438,7 @@ test.describe("session detail overview", () => {
 
     const table = page
       .getByTestId("message-1")
-      .locator(".message-content table");
+      .locator("[data-message-content] table");
     await expect(table).toBeVisible();
     await expect(table.locator("thead th")).toHaveCount(2);
     await expect(table.locator("tbody td")).toHaveCount(2);
@@ -321,6 +474,7 @@ test.describe("session detail overview", () => {
           createdAt: "2024-01-10T09:00:40.000Z",
           toolCalls: [],
           subagentLinks: [],
+          fileDiffs: [],
         },
       ],
       todos: [],
@@ -332,11 +486,11 @@ test.describe("session detail overview", () => {
 
     const mermaidPreview = page
       .getByTestId("message-0")
-      .locator(".message-content .mermaid-preview");
+      .getByRole("button", { name: "クリックで拡大表示" });
     await expect(mermaidPreview).toBeVisible();
     await expect(mermaidPreview.locator("svg")).toBeVisible();
 
-    const inlineCanvas = mermaidPreview.locator(".mermaid-preview-canvas");
+    const inlineCanvas = mermaidPreview.locator("div").first();
     await expect(inlineCanvas).toBeVisible();
     const inlineOverflowPx = await inlineCanvas.evaluate(
       (el) => el.scrollWidth - el.clientWidth,
@@ -358,7 +512,7 @@ test.describe("session detail overview", () => {
     await expect(
       page
         .getByTestId("message-0")
-        .locator(".message-content code.language-mermaid"),
+        .locator("[data-message-content] code.language-mermaid"),
     ).toHaveCount(0);
 
     await mermaidPreview.click();
@@ -460,7 +614,7 @@ test.describe("session detail overview", () => {
     await mermaidPreview.click();
     await expect(lightbox).toBeVisible();
 
-    await page.mouse.click(5, 5);
+    await closeButton.click();
     await expect(lightbox).not.toBeVisible();
   });
 });

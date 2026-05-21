@@ -1,5 +1,8 @@
 type SqliteDatabase = import("better-sqlite3").Database;
+import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
 import type { DashboardSessionSourceStamp } from "../../services/dashboard/dashboard-aggregation-types.js";
+
+const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("m.data");
 
 export interface DashboardPartRow {
   tool: string | null;
@@ -499,9 +502,23 @@ export function readDashboardAffectedDaysForSessionIds(
   return readDashboardAffectedDaysForRootSessionIds(db, rootSessionIds);
 }
 
+const ATOM_DESCENDANTS_CTE = `
+  WITH RECURSIVE descendants(session_id) AS (
+    SELECT id FROM session
+    WHERE id = ? AND parent_id IS NULL
+    UNION ALL
+    SELECT child.id
+    FROM session child
+    JOIN descendants ON child.parent_id = descendants.session_id
+  )
+  SELECT session_id FROM descendants
+`;
+
 export function readDashboardSessionAtomSource(
   db: SqliteDatabase,
   rootSessionId: string,
+  startMs: number,
+  endMs: number,
 ): DashboardSessionAtomSource | null {
   const rootSession = db
     .prepare(
@@ -529,18 +546,6 @@ export function readDashboardSessionAtomSource(
   const messages = db
     .prepare(
       `
-      WITH RECURSIVE descendants(session_id) AS (
-        SELECT id
-        FROM session
-        WHERE id = ?
-          AND parent_id IS NULL
-
-        UNION ALL
-
-        SELECT child.id
-        FROM session child
-        JOIN descendants ON child.parent_id = descendants.session_id
-      )
       SELECT m.session_id AS sessionId,
              m.time_created AS timeCreated,
              date(m.time_created/1000, 'unixepoch', 'localtime') AS day,
@@ -549,14 +554,7 @@ export function readDashboardSessionAtomSource(
              json_extract(m.data, '$.modelID') AS model,
              COALESCE(json_extract(m.data, '$.providerID'), 'unknown') AS provider,
              json_extract(m.data, '$.agent') AS agent,
-             COALESCE(
-               NULLIF(json_extract(m.data, '$.tokens.total'), 0),
-               COALESCE(json_extract(m.data, '$.tokens.input'), 0)
-                 + COALESCE(json_extract(m.data, '$.tokens.output'), 0)
-                 + COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)
-                 + COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0),
-               0
-             ) AS totalTokens,
+              ${MESSAGE_TOTAL_TOKENS_SQL} AS totalTokens,
              COALESCE(json_extract(m.data, '$.tokens.input'), 0) AS inputTokens,
              COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS outputTokens,
              COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cacheReadTokens,
@@ -570,27 +568,16 @@ export function readDashboardSessionAtomSource(
                ELSE 0
              END AS durationMs
       FROM message m
-      JOIN descendants ON descendants.session_id = m.session_id
+      WHERE m.session_id IN (${ATOM_DESCENDANTS_CTE})
+        AND m.time_created >= ? AND m.time_created < ?
       ORDER BY m.session_id, m.time_created, m.id
     `,
     )
-    .all(rootSessionId) as DashboardAtomMessageRow[];
+    .all(rootSessionId, startMs, endMs) as DashboardAtomMessageRow[];
 
   const parts = db
     .prepare(
       `
-      WITH RECURSIVE descendants(session_id) AS (
-        SELECT id
-        FROM session
-        WHERE id = ?
-          AND parent_id IS NULL
-
-        UNION ALL
-
-        SELECT child.id
-        FROM session child
-        JOIN descendants ON child.parent_id = descendants.session_id
-      )
       SELECT p.session_id AS sessionId,
              date(p.time_created/1000, 'unixepoch', 'localtime') AS day,
              strftime('%H', p.time_created/1000, 'unixepoch', 'localtime') AS hour,
@@ -598,12 +585,13 @@ export function readDashboardSessionAtomSource(
              json_extract(p.data, '$.state.status') AS status,
              json_extract(p.data, '$.state.error') AS error
       FROM part p
-      JOIN descendants ON descendants.session_id = p.session_id
-      WHERE json_extract(p.data, '$.type') = 'tool'
+      WHERE p.session_id IN (${ATOM_DESCENDANTS_CTE})
+        AND p.time_created >= ? AND p.time_created < ?
+        AND json_extract(p.data, '$.type') = 'tool'
       ORDER BY p.time_created, p.id
     `,
     )
-    .all(rootSessionId) as DashboardAtomPartRow[];
+    .all(rootSessionId, startMs, endMs) as DashboardAtomPartRow[];
 
   return {
     rootSession,
@@ -706,14 +694,7 @@ export function fetchDashboardMessageData(
     .prepare(`
     SELECT json_extract(m.data, '$.modelID') AS model,
            json_extract(m.data, '$.agent') AS agent,
-           COALESCE(
-             NULLIF(json_extract(m.data, '$.tokens.total'), 0),
-             COALESCE(json_extract(m.data, '$.tokens.input'), 0)
-               + COALESCE(json_extract(m.data, '$.tokens.output'), 0)
-               + COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0)
-               + COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0),
-             0
-           ) AS tokens,
+           ${MESSAGE_TOTAL_TOKENS_SQL} AS tokens,
            date(m.time_created/1000, 'unixepoch', 'localtime') AS day
     FROM message m
     WHERE ${rowidClause}json_extract(m.data, '$.role') = 'assistant'
@@ -852,7 +833,7 @@ function fetchDashboardLiveSummary(
     recentIds.length > 0
       ? (db
           .prepare(`
-      SELECT m.session_id, COALESCE(SUM(json_extract(m.data, '$.tokens.total')), 0) AS total_tokens
+      SELECT m.session_id, COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens
       FROM message m
       WHERE m.session_id IN (${recentIds.map(() => "?").join(",")})
         AND json_extract(m.data, '$.role') = 'assistant'

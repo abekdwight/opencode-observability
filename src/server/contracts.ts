@@ -6,6 +6,7 @@ import type {
 import type { SessionDetailContract } from "../contracts/session.js";
 import type { SignalBadge } from "../contracts/shared.js";
 import { getMonitorActiveWindowMs } from "../lib/config.js";
+import { buildMessageTotalTokensSql } from "../lib/message-token-sql.js";
 import {
   buildSessionDetailSnapshot,
   buildSessionRouteView,
@@ -39,6 +40,8 @@ function computeInputRatioPercent(
   if (denominator <= 0) return 0;
   return (inputTokens / denominator) * 100;
 }
+
+const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("data");
 
 function toIsoFromUnknown(value: string | number): string {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -132,7 +135,7 @@ function buildRootSessionSummary(
         COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS output_tokens,
         COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cache_read_tokens,
         COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cache_write_tokens,
-        COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS total_tokens,
+        COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens,
         COALESCE(SUM(json_extract(data, '$.cost')), 0) AS total_cost
       FROM message
       WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant'

@@ -134,6 +134,7 @@ export function MessageList({
               collapseEnabled={collapseEnabled}
               openDetails={openDetails}
               onToggleDetail={onToggleToolDetail}
+              toolsVisible={toolsVisible}
             />
           </div>
         );

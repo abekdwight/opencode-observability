@@ -741,6 +741,276 @@ describe("server api contracts", () => {
     expect((root?.inputRatioPercent ?? 0) > 0).toBe(true);
   });
 
+  test("monitor snapshot backfills session metadata from DB for heartbeat-only active sessions", async () => {
+    const app = createApiApp();
+    const ingest = await app.request("/api/monitor/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        source: {
+          instanceId: "instance-local-heartbeat-only",
+        },
+        heartbeat: {
+          at: "2024-01-11T11:05:50.000Z",
+          activeSessionIds: [ROOT_SESSION_ID],
+        },
+      }),
+    });
+    expect(ingest.status).toBe(202);
+
+    const response = await app.request("/api/monitor/snapshot");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      activeRootSessions: Array<{
+        id: string;
+        title: string;
+        directory: string;
+      }>;
+    };
+    const root = body.activeRootSessions.find(
+      (session) => session.id === ROOT_SESSION_ID,
+    );
+
+    expect(root).toMatchObject({
+      id: ROOT_SESSION_ID,
+      title: "Root monitor session",
+      directory: "/workspace/repo-alpha",
+    });
+  });
+
+  test("monitor snapshot token summary matches Model Usage rows including active subagents", async () => {
+    const app = createApiApp();
+    const ingest = await app.request("/api/monitor/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        source: {
+          instanceId: "instance-local-token-tree",
+        },
+        heartbeat: {
+          at: "2024-01-11T11:05:50.000Z",
+          activeSessionIds: [ROOT_SESSION_ID, CHILD_SESSION_ID],
+        },
+        events: [
+          {
+            type: "session.upsert",
+            session: {
+              id: ROOT_SESSION_ID,
+              title: "Root monitor session",
+              directory: "/workspace/repo-alpha",
+              updatedAt: "2024-01-11T11:05:50.000Z",
+              messageCount: 1,
+              toolCallCount: 1,
+            },
+          },
+          {
+            type: "session.upsert",
+            session: {
+              id: CHILD_SESSION_ID,
+              parentId: ROOT_SESSION_ID,
+              title: "Subagent follow-up",
+              directory: "/workspace/repo-alpha/subagent",
+              updatedAt: "2024-01-11T11:05:51.000Z",
+            },
+          },
+        ],
+      }),
+    });
+    expect(ingest.status).toBe(202);
+
+    const response = await app.request("/api/monitor/snapshot");
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      activeRootSessions: Array<{
+        id: string;
+        totalTokens: number;
+        inputTokens: number;
+        outputTokens: number;
+        inputRatioPercent: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        tokenUsage: Array<{
+          scope: "main" | "subagent";
+          agent: string;
+          modelId: string;
+          providerId: string;
+          totalTokens: number;
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheWriteTokens: number;
+        }>;
+      }>;
+    };
+    const root = body.activeRootSessions.find(
+      (session) => session.id === ROOT_SESSION_ID,
+    );
+
+    expect(root).toBeDefined();
+    expect(root?.totalTokens).toBe(222);
+    expect(root?.inputTokens).toBe(114);
+    expect(root?.outputTokens).toBe(108);
+    expect(root?.cacheReadTokens).toBe(40);
+    expect(root?.cacheWriteTokens).toBe(5);
+    expect(root?.inputRatioPercent).toBeCloseTo(51.351, 3);
+    expect(root?.tokenUsage).toEqual([
+      expect.objectContaining({
+        scope: "main",
+        agent: "planner",
+        providerId: "openai",
+        modelId: "gpt-4.1",
+        totalTokens: 180,
+      }),
+      expect.objectContaining({
+        scope: "subagent",
+        agent: "subagent-code",
+        providerId: "openai",
+        modelId: "gpt-4.1-mini",
+        totalTokens: 30,
+      }),
+      expect.objectContaining({
+        scope: "subagent",
+        agent: "compaction",
+        providerId: "openai",
+        modelId: "gpt-5.3-codex-spark",
+        totalTokens: 12,
+      }),
+    ]);
+  });
+
+  test("monitor snapshot token usage falls back when total token field is zero", async () => {
+    const fallbackSessionId = "ses-monitor-total-fallback";
+    const fallbackMessageId = "msg-monitor-total-fallback-assistant";
+    const now = Date.now();
+    const db = getWritableDb();
+
+    try {
+      db.prepare(
+        `INSERT INTO session (
+          id, project_id, parent_id, slug, directory, title, version, share_url,
+          summary_additions, summary_deletions, summary_files, summary_diffs,
+          revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id
+        ) VALUES (
+          @id, @project_id, NULL, @slug, @directory, @title, @version, NULL,
+          0, 0, 0, NULL,
+          NULL, NULL, @time_created, @time_updated, NULL, NULL, NULL
+        )`,
+      ).run({
+        id: fallbackSessionId,
+        project_id: "proj-alpha",
+        slug: "monitor-total-fallback",
+        directory: "/workspace/repo-alpha/fallback",
+        title: "Monitor total fallback",
+        version: "1",
+        time_created: now,
+        time_updated: now,
+      });
+      db.prepare(
+        `INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES (@id, @session_id, @time_created, @time_updated, @data)`,
+      ).run({
+        id: fallbackMessageId,
+        session_id: fallbackSessionId,
+        time_created: now,
+        time_updated: now,
+        data: JSON.stringify({
+          role: "assistant",
+          modelID: "gpt-fallback",
+          providerID: "openai",
+          agent: "fallback-agent",
+          tokens: {
+            total: 0,
+            input: 7,
+            output: 11,
+            cache: { read: 13, write: 17 },
+          },
+        }),
+      });
+    } finally {
+      db.close();
+    }
+
+    try {
+      const app = createApiApp();
+      const ingest = await app.request("/api/monitor/ingest", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          source: {
+            instanceId: "instance-local-token-fallback",
+          },
+          heartbeat: {
+            at: "2024-01-11T11:05:50.000Z",
+            activeSessionIds: [fallbackSessionId],
+          },
+        }),
+      });
+      expect(ingest.status).toBe(202);
+
+      const response = await app.request("/api/monitor/snapshot");
+      expect(response.status).toBe(200);
+
+      const body = (await response.json()) as {
+        activeRootSessions: Array<{
+          id: string;
+          totalTokens: number;
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheWriteTokens: number;
+          tokenUsage: Array<{
+            totalTokens: number;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens: number;
+            cacheWriteTokens: number;
+          }>;
+        }>;
+      };
+      const root = body.activeRootSessions.find(
+        (session) => session.id === fallbackSessionId,
+      );
+
+      expect(root).toMatchObject({
+        id: fallbackSessionId,
+        totalTokens: 48,
+        inputTokens: 7,
+        outputTokens: 11,
+        cacheReadTokens: 13,
+        cacheWriteTokens: 17,
+      });
+      expect(root?.tokenUsage).toEqual([
+        expect.objectContaining({
+          totalTokens: 48,
+          inputTokens: 7,
+          outputTokens: 11,
+          cacheReadTokens: 13,
+          cacheWriteTokens: 17,
+        }),
+      ]);
+    } finally {
+      const cleanupDb = getWritableDb();
+      try {
+        cleanupDb.prepare("DELETE FROM message WHERE session_id = ?").run(
+          fallbackSessionId,
+        );
+        cleanupDb.prepare("DELETE FROM session WHERE id = ?").run(
+          fallbackSessionId,
+        );
+      } finally {
+        cleanupDb.close();
+      }
+    }
+  });
+
   test("monitor snapshot exposes alert category badges from session.alert events", async () => {
     const app = createApiApp();
     const ingest = await app.request("/api/monitor/ingest", {
@@ -1107,6 +1377,8 @@ describe("server api contracts", () => {
       };
       compactions: { main: number; subagent: number; total: number };
       modelBreakdown: Array<{
+        scope: "main" | "subagent";
+        agent: string;
         modelId: string;
         providerId: string;
         messageCount: number;
@@ -1173,27 +1445,59 @@ describe("server api contracts", () => {
       parentId: null,
     });
     expect(body.tokens).toEqual({
-      total: 180,
-      input: 100,
-      output: 80,
+      total: 222,
+      input: 114,
+      output: 108,
       reasoning: 20,
       cacheRead: 40,
       cacheWrite: 5,
-      cost: 0.16999999999999998,
+      cost: 0.21,
     });
-    expect(body.modelBreakdown).toHaveLength(1);
-    expect(body.modelBreakdown[0]).toEqual({
-      modelId: "gpt-4.1",
-      providerId: "openai",
-      messageCount: 2,
-      inputTokens: 100,
-      outputTokens: 80,
-      reasoningTokens: 20,
-      cacheReadTokens: 40,
-      cacheWriteTokens: 5,
-      totalTokens: 180,
-      totalCost: 0.16999999999999998,
-    });
+    expect(body.modelBreakdown).toHaveLength(3);
+    expect(body.modelBreakdown).toEqual([
+      {
+        scope: "main",
+        agent: "planner",
+        modelId: "gpt-4.1",
+        providerId: "openai",
+        messageCount: 2,
+        inputTokens: 100,
+        outputTokens: 80,
+        reasoningTokens: 20,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 5,
+        totalTokens: 180,
+        totalCost: 0.16999999999999998,
+      },
+      {
+        scope: "subagent",
+        agent: "subagent-code",
+        modelId: "gpt-4.1-mini",
+        providerId: "openai",
+        messageCount: 1,
+        inputTokens: 10,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 30,
+        totalCost: 0.03,
+      },
+      {
+        scope: "subagent",
+        agent: "compaction",
+        modelId: "gpt-5.3-codex-spark",
+        providerId: "openai",
+        messageCount: 1,
+        inputTokens: 4,
+        outputTokens: 8,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 12,
+        totalCost: 0.01,
+      },
+    ]);
     expect(body.compactions).toEqual({
       main: 0,
       subagent: 1,

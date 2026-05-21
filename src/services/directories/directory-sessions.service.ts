@@ -1,5 +1,8 @@
 import { getDb } from "../../lib/db.js";
 import { calcSessionActiveDurations } from "../../lib/duration.js";
+import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
+
+const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("m.data");
 
 export interface DirectorySessionRow {
   id: string;
@@ -64,7 +67,7 @@ export function buildDirectorySessionsView(
 
     const tokenRows = db
       .prepare(`
-      SELECT m.session_id, COALESCE(SUM(json_extract(m.data, '$.tokens.total')), 0) AS total_tokens
+      SELECT m.session_id, COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens
       FROM message m
       WHERE m.session_id IN (${placeholders})
         AND json_extract(m.data, '$.role') = 'assistant'

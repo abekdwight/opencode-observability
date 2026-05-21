@@ -23,6 +23,7 @@ import {
   listFileChangePartsForSessions,
   listSessionMessages,
   listSessionModelTokenBreakdown,
+  listSessionTreeModelTokenBreakdown,
   listSessionRoleCounts,
   listSessionTitlesByIds,
   listSessionTodos,
@@ -141,8 +142,15 @@ function getSignalLevel(
 function buildSessionModelBreakdown(
   db: Database,
   sessionId: string,
+  includeDescendants = false,
 ): SessionModelTokenBreakdown[] {
-  return listSessionModelTokenBreakdown(db, sessionId).map((row) => ({
+  const rows = includeDescendants
+    ? listSessionTreeModelTokenBreakdown(db, sessionId)
+    : listSessionModelTokenBreakdown(db, sessionId);
+
+  return rows.map((row) => ({
+    scope: row.scope === "subagent" ? "subagent" : "main",
+    agent: row.agent ?? "unknown",
     modelId: row.model_id ?? "unknown",
     providerId: row.provider_id ?? "unknown",
     messageCount: asNumber(row.message_count),
@@ -156,6 +164,31 @@ function buildSessionModelBreakdown(
   }));
 }
 
+function summarizeTokensFromModelBreakdown(
+  rows: SessionModelTokenBreakdown[],
+): SessionTokenStatsRecord {
+  return rows.reduce<SessionTokenStatsRecord>(
+    (sum, row) => ({
+      total_tokens: sum.total_tokens + row.totalTokens,
+      input_tokens: sum.input_tokens + row.inputTokens,
+      output_tokens: sum.output_tokens + row.outputTokens,
+      reasoning_tokens: sum.reasoning_tokens + row.reasoningTokens,
+      cache_read_tokens: sum.cache_read_tokens + row.cacheReadTokens,
+      cache_write_tokens: sum.cache_write_tokens + row.cacheWriteTokens,
+      total_cost: sum.total_cost + row.totalCost,
+    }),
+    {
+      total_tokens: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      reasoning_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_cost: 0,
+    },
+  );
+}
+
 export function buildSessionDetailSnapshot(
   db: Database,
   sessionId: string,
@@ -163,8 +196,8 @@ export function buildSessionDetailSnapshot(
   const sessionInfo = getSessionRecord(db, sessionId);
   if (!sessionInfo) return null;
 
-  const tokens = getSessionTokenStats(db, sessionInfo.id);
-  const modelBreakdown = buildSessionModelBreakdown(db, sessionInfo.id);
+  const modelBreakdown = buildSessionModelBreakdown(db, sessionInfo.id, true);
+  const tokens = summarizeTokensFromModelBreakdown(modelBreakdown);
   const childSessions = listChildSessionRecords(db, sessionInfo.id);
   const childDurations = calcSessionActiveDurations(
     db,

@@ -17,6 +17,7 @@ export interface MessageRowProps {
   collapseEnabled: boolean;
   openDetails: Set<string>;
   onToggleDetail: (id: string) => void;
+  toolsVisible: boolean;
 }
 
 /**
@@ -31,6 +32,7 @@ export const MessageRow = React.memo(function MessageRow({
   collapseEnabled,
   openDetails,
   onToggleDetail,
+  toolsVisible,
 }: MessageRowProps) {
   const isUser = msg.role === "user";
   const roleLabel = isUser ? "User" : "Assistant";
@@ -190,7 +192,7 @@ export const MessageRow = React.memo(function MessageRow({
       ) : null}
       {subagentLinks}
       {/* Tool timeline */}
-      {msg.toolCalls.length > 0 ? (
+      {toolsVisible && msg.toolCalls.length > 0 ? (
         <ToolTimeline
           calls={msg.toolCalls}
           msgIdx={msgIdx}

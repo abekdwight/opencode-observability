@@ -371,6 +371,9 @@ function readRootSessionIdsTouchingWindow(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
 ): string[] {
+  const startMs = new Date(`${window.startDayInclusive}T00:00:00`).getTime();
+  const endMs = new Date(`${window.endDayExclusive}T00:00:00`).getTime();
+
   const rows = db
     .prepare(
       `
@@ -389,24 +392,14 @@ function readRootSessionIdsTouchingWindow(
           SELECT DISTINCT descendants.root_session_id
           FROM descendants
           JOIN session s ON s.id = descendants.session_id
-          WHERE date(s.time_created/1000, 'unixepoch', 'localtime') >= ?
-            AND date(s.time_created/1000, 'unixepoch', 'localtime') < ?
+          WHERE s.time_created >= ? AND s.time_created < ?
 
           UNION
 
           SELECT DISTINCT descendants.root_session_id
           FROM descendants
           JOIN message m ON m.session_id = descendants.session_id
-          WHERE date(m.time_created/1000, 'unixepoch', 'localtime') >= ?
-            AND date(m.time_created/1000, 'unixepoch', 'localtime') < ?
-
-          UNION
-
-          SELECT DISTINCT descendants.root_session_id
-          FROM descendants
-          JOIN part p ON p.session_id = descendants.session_id
-          WHERE date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
-            AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
+          WHERE m.time_created >= ? AND m.time_created < ?
         )
         SELECT rootSessionId
         FROM touched_roots
@@ -414,12 +407,10 @@ function readRootSessionIdsTouchingWindow(
       `,
     )
     .all(
-      window.startDayInclusive,
-      window.endDayExclusive,
-      window.startDayInclusive,
-      window.endDayExclusive,
-      window.startDayInclusive,
-      window.endDayExclusive,
+      startMs,
+      endMs,
+      startMs,
+      endMs,
     ) as Array<{ rootSessionId: string }>;
 
   return rows.map((row) => row.rootSessionId);
@@ -429,6 +420,8 @@ function ensureSelectionRootsLoaded(
   db: SqliteDatabase,
   window: DashboardRepositoryWindow,
   generatedAt: string,
+  startMs?: number,
+  endMs?: number,
 ): boolean {
   const rootSessionIds = readRootSessionIdsTouchingWindow(db, window);
   const missingRootIds = rootSessionIds.filter(
@@ -444,6 +437,8 @@ function ensureSelectionRootsLoaded(
         sourceStamp.rootSessionId,
         sourceStamp,
         generatedAt,
+        startMs,
+        endMs,
       );
       if (!atom) {
         continue;
@@ -465,10 +460,12 @@ function fallbackResetStore(
   window: DashboardRepositoryWindow,
   nextStamp: DashboardCacheStamp,
   generatedAt: string,
+  startMs?: number,
+  endMs?: number,
 ): boolean {
   clearStoreState();
   dashboardAggregationStore.stamp = nextStamp;
-  return ensureSelectionRootsLoaded(db, window, generatedAt) || true;
+  return ensureSelectionRootsLoaded(db, window, generatedAt, startMs, endMs) || true;
 }
 
 export function reconcileDashboardAggregationStore(
@@ -478,6 +475,14 @@ export function reconcileDashboardAggregationStore(
 ) {
   const generatedAt = now.toISOString();
   const heatmapWindow = buildTrailingHeatmapWindow(now);
+  const atomStartMs = Math.min(
+    new Date(`${window.startDayInclusive}T00:00:00`).getTime(),
+    new Date(`${heatmapWindow.startDayInclusive}T00:00:00`).getTime(),
+  );
+  const atomEndMs = Math.max(
+    new Date(`${window.endDayExclusive}T00:00:00`).getTime(),
+    new Date(`${heatmapWindow.endDayExclusive}T00:00:00`).getTime(),
+  );
   let mutated = false;
   const nextTimezone = resolveDashboardTimezone();
 
@@ -497,8 +502,8 @@ export function reconcileDashboardAggregationStore(
 
   if (!previousStamp) {
     dashboardAggregationStore.stamp = nextStamp;
-    mutated = ensureSelectionRootsLoaded(db, window, generatedAt) || mutated || true;
-    if (ensureSelectionRootsLoaded(db, heatmapWindow, generatedAt)) {
+    mutated = ensureSelectionRootsLoaded(db, window, generatedAt, atomStartMs, atomEndMs) || mutated || true;
+    if (ensureSelectionRootsLoaded(db, heatmapWindow, generatedAt, atomStartMs, atomEndMs)) {
       mutated = true;
     }
     if (mutated) {
@@ -509,7 +514,7 @@ export function reconcileDashboardAggregationStore(
 
   if (!sameCacheStamp(previousStamp, nextStamp)) {
     if (nextStamp.rootSessionCount < previousStamp.rootSessionCount) {
-      mutated = fallbackResetStore(db, window, nextStamp, generatedAt);
+      mutated = fallbackResetStore(db, window, nextStamp, generatedAt, atomStartMs, atomEndMs);
     } else {
       const changedRootSessionIds = readDashboardChangedRootSessionIdsSince(
         db,
@@ -517,7 +522,7 @@ export function reconcileDashboardAggregationStore(
       );
 
       if (changedRootSessionIds.length === 0) {
-        mutated = fallbackResetStore(db, window, nextStamp, generatedAt);
+        mutated = fallbackResetStore(db, window, nextStamp, generatedAt, atomStartMs, atomEndMs);
       } else {
         const nextSourceStampByRootSessionId = new Map(
           readDashboardSessionSourceStamps(db, changedRootSessionIds).map(
@@ -536,7 +541,7 @@ export function reconcileDashboardAggregationStore(
           }
 
           const nextAtom = nextSourceStamp
-            ? rebuildDashboardSessionAtom(db, rootSessionId, nextSourceStamp, generatedAt)
+            ? rebuildDashboardSessionAtom(db, rootSessionId, nextSourceStamp, generatedAt, atomStartMs, atomEndMs)
             : null;
           const diff = diffDashboardSessionAtoms(previousAtom, nextAtom);
           const affectedDays = new Set<string>();
@@ -563,11 +568,11 @@ export function reconcileDashboardAggregationStore(
     dashboardAggregationStore.stamp = nextStamp;
   }
 
-  if (ensureSelectionRootsLoaded(db, window, generatedAt)) {
+  if (ensureSelectionRootsLoaded(db, window, generatedAt, atomStartMs, atomEndMs)) {
     mutated = true;
   }
 
-  if (ensureSelectionRootsLoaded(db, heatmapWindow, generatedAt)) {
+  if (ensureSelectionRootsLoaded(db, heatmapWindow, generatedAt, atomStartMs, atomEndMs)) {
     mutated = true;
   }
 

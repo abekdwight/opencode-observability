@@ -14,6 +14,7 @@ import type {
 import type { MonitorTimelineEventContract } from "../contracts/monitor-timeline.js";
 import { getMonitorHeartbeatTtlMs } from "../lib/config.js";
 import { getDb } from "../lib/db.js";
+import { buildMessageTotalTokensSql } from "../lib/message-token-sql.js";
 import { normalizeMonitorTimelineEvent } from "./monitor-timeline-normalizer.js";
 
 interface RuntimeSourceState {
@@ -116,6 +117,33 @@ function computeInputRatioPercent(
   const denominator = inputTokens + outputTokens;
   if (denominator <= 0) return 0;
   return (inputTokens / denominator) * 100;
+}
+
+const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("data");
+
+function sumMonitorTokenUsageRows(rows: MonitorTokenUsageRow[]): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+} {
+  return rows.reduce(
+    (sum, row) => ({
+      inputTokens: sum.inputTokens + row.inputTokens,
+      outputTokens: sum.outputTokens + row.outputTokens,
+      cacheReadTokens: sum.cacheReadTokens + row.cacheReadTokens,
+      cacheWriteTokens: sum.cacheWriteTokens + row.cacheWriteTokens,
+      totalTokens: sum.totalTokens + row.totalTokens,
+    }),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+    },
+  );
 }
 
 function buildSessionKey(sourceId: string, sessionId: string): string {
@@ -291,6 +319,10 @@ class MonitorRuntimeStore {
           activeSessions,
           rootBySessionKey,
         );
+        const summaryTokenStats =
+          tokenUsage.length > 0
+            ? sumMonitorTokenUsageRows(tokenUsage)
+            : tokenStats;
         return {
           id: aggregate.session.id,
           title: aggregate.session.title,
@@ -301,15 +333,15 @@ class MonitorRuntimeStore {
           toolCallCount: aggregate.session.toolCallCount,
           compactionCount: aggregate.session.compactionCount,
           subagentCount: aggregate.subagentCount,
-          totalTokens: tokenStats?.totalTokens ?? 0,
-          inputTokens: tokenStats?.inputTokens ?? 0,
-          outputTokens: tokenStats?.outputTokens ?? 0,
+          totalTokens: summaryTokenStats?.totalTokens ?? 0,
+          inputTokens: summaryTokenStats?.inputTokens ?? 0,
+          outputTokens: summaryTokenStats?.outputTokens ?? 0,
           inputRatioPercent: computeInputRatioPercent(
-            tokenStats?.inputTokens ?? 0,
-            tokenStats?.outputTokens ?? 0,
+            summaryTokenStats?.inputTokens ?? 0,
+            summaryTokenStats?.outputTokens ?? 0,
           ),
-          cacheReadTokens: tokenStats?.cacheReadTokens ?? 0,
-          cacheWriteTokens: tokenStats?.cacheWriteTokens ?? 0,
+          cacheReadTokens: summaryTokenStats?.cacheReadTokens ?? 0,
+          cacheWriteTokens: summaryTokenStats?.cacheWriteTokens ?? 0,
           tokenUsage,
         };
       },
@@ -546,13 +578,25 @@ class MonitorRuntimeStore {
            GROUP BY p.session_id`,
         )
         .all(...sessionIds) as Array<{ sessionId: string; cnt: number }>;
-      const parentRows = db
+      const sessionRows = db
         .prepare(
-          `SELECT id AS sessionId, parent_id AS parentId FROM session WHERE id IN (${idPlaceholders})`,
+          `SELECT
+             id AS sessionId,
+             parent_id AS parentId,
+             title AS title,
+             directory AS directory,
+             time_created AS timeCreated,
+             time_updated AS timeUpdated
+           FROM session
+           WHERE id IN (${idPlaceholders})`,
         )
         .all(...sessionIds) as Array<{
         sessionId: string;
         parentId: string | null;
+        title: string;
+        directory: string;
+        timeCreated: number;
+        timeUpdated: number;
       }>;
       const subagentRows = db
         .prepare(
@@ -567,7 +611,7 @@ class MonitorRuntimeStore {
             COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS outputTokens,
             COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cacheReadTokens,
             COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cacheWriteTokens,
-            COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS totalTokens
+            COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS totalTokens
           FROM message
           WHERE session_id IN (${idPlaceholders}) AND json_extract(data, '$.role') = 'assistant'
           GROUP BY session_id`,
@@ -592,7 +636,7 @@ class MonitorRuntimeStore {
             COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS outputTokens,
             COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cacheReadTokens,
             COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cacheWriteTokens,
-            COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS totalTokens
+            COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS totalTokens
           FROM message
           WHERE session_id IN (${idPlaceholders}) AND json_extract(data, '$.role') = 'assistant'
           GROUP BY session_id, agent, modelId, providerId`,
@@ -622,11 +666,8 @@ class MonitorRuntimeStore {
           asNonNegativeInteger(row.cnt) ?? 0,
         ]),
       );
-      const parentBySessionId = new Map<string, string | null>(
-        parentRows.map((row) => [
-          row.sessionId,
-          asNonEmptyString(row.parentId),
-        ]),
+      const dbSessionBySessionId = new Map(
+        sessionRows.map((row) => [row.sessionId, row]),
       );
       const tokenStatsBySessionId = new Map<
         string,
@@ -693,8 +734,22 @@ class MonitorRuntimeStore {
         if (typeof dbToolCount === "number") {
           session.toolCallCount = Math.max(session.toolCallCount, dbToolCount);
         }
-        if (!session.parentId && parentBySessionId.has(session.id)) {
-          session.parentId = parentBySessionId.get(session.id) ?? null;
+        const dbSession = dbSessionBySessionId.get(session.id);
+        if (dbSession) {
+          session.title = asNonEmptyString(dbSession.title) ?? session.title;
+          session.directory =
+            asNonEmptyString(dbSession.directory) ?? session.directory;
+          session.createdAtMs = asTimestampMs(
+            dbSession.timeCreated,
+            session.createdAtMs,
+          );
+          session.updatedAtMs = asTimestampMs(
+            dbSession.timeUpdated,
+            session.updatedAtMs,
+          );
+          if (!session.parentId) {
+            session.parentId = asNonEmptyString(dbSession.parentId);
+          }
         }
       }
 

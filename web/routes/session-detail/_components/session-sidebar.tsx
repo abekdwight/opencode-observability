@@ -1,6 +1,7 @@
 import React from "react";
 import type {
   SessionDetailContract,
+  SessionModelTokenBreakdown,
   SessionToolCallContract,
 } from "../../../../src/contracts/session.js";
 import { MarkdownContent } from "../../../components/markdown-content";
@@ -127,6 +128,76 @@ interface SkillInvocation {
   error: string;
 }
 
+type ModelUsageView = "model" | "agent-model";
+
+interface SessionModelUsageDisplayRow extends SessionModelTokenBreakdown {
+  inputRatioPercent: number;
+}
+
+function calcInputRatioPercent(
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const denominator = inputTokens + outputTokens;
+  return denominator > 0 ? (inputTokens / denominator) * 100 : 0;
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(1)}%`;
+}
+
+function toDisplayRow(
+  row: SessionModelTokenBreakdown,
+): SessionModelUsageDisplayRow {
+  const scope = row.scope === "subagent" ? "subagent" : "main";
+  const agent = row.agent || "unknown";
+  return {
+    ...row,
+    scope,
+    agent,
+    inputRatioPercent: calcInputRatioPercent(row.inputTokens, row.outputTokens),
+  };
+}
+
+function buildSessionModelUsageDisplayRows(
+  rows: SessionModelTokenBreakdown[],
+  view: ModelUsageView,
+): SessionModelUsageDisplayRow[] {
+  if (view === "agent-model") {
+    return rows
+      .map(toDisplayRow)
+      .sort((left, right) => right.totalTokens - left.totalTokens);
+  }
+
+  const grouped = new Map<string, SessionModelUsageDisplayRow>();
+  for (const rawRow of rows) {
+    const row = toDisplayRow(rawRow);
+    const key = [row.scope, row.providerId, row.modelId].join("::");
+    const current = grouped.get(key);
+    if (current) {
+      current.messageCount += row.messageCount;
+      current.inputTokens += row.inputTokens;
+      current.outputTokens += row.outputTokens;
+      current.reasoningTokens += row.reasoningTokens;
+      current.cacheReadTokens += row.cacheReadTokens;
+      current.cacheWriteTokens += row.cacheWriteTokens;
+      current.totalTokens += row.totalTokens;
+      current.totalCost += row.totalCost;
+      current.inputRatioPercent = calcInputRatioPercent(
+        current.inputTokens,
+        current.outputTokens,
+      );
+      continue;
+    }
+
+    grouped.set(key, { ...row, agent: "all" });
+  }
+
+  return Array.from(grouped.values()).sort(
+    (left, right) => right.totalTokens - left.totalTokens,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Resize handle hook -- drag left edge to change sidebar width
 // ---------------------------------------------------------------------------
@@ -143,7 +214,9 @@ function useSidebarResize() {
         const n = Number(saved);
         if (n >= SIDEBAR_MIN_WIDTH && n <= SIDEBAR_MAX_WIDTH) return n;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return SIDEBAR_DEFAULT_WIDTH;
   });
 
@@ -163,20 +236,17 @@ function useSidebarResize() {
     [width],
   );
 
-  const onPointerMove = React.useCallback(
-    (e: React.PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      // Dragging left increases width (sidebar is on the right)
-      const delta = drag.startX - e.clientX;
-      const next = Math.min(
-        SIDEBAR_MAX_WIDTH,
-        Math.max(SIDEBAR_MIN_WIDTH, drag.startWidth + delta),
-      );
-      setWidth(next);
-    },
-    [],
-  );
+  const onPointerMove = React.useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    // Dragging left increases width (sidebar is on the right)
+    const delta = drag.startX - e.clientX;
+    const next = Math.min(
+      SIDEBAR_MAX_WIDTH,
+      Math.max(SIDEBAR_MIN_WIDTH, drag.startWidth + delta),
+    );
+    setWidth(next);
+  }, []);
 
   const onPointerUp = React.useCallback(
     (e: React.PointerEvent) => {
@@ -188,7 +258,9 @@ function useSidebarResize() {
       // Persist
       try {
         localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     },
     [width],
   );
@@ -224,6 +296,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onToggleDetail,
 }: SessionSidebarProps) {
   const resize = useSidebarResize();
+  const [modelUsageView, setModelUsageView] =
+    React.useState<ModelUsageView>("model");
   const prettyDir = data.session.directory;
   const todos = data.todos ?? [];
   const doneCount = todos.filter((t) => t.status === "completed").length;
@@ -319,31 +393,38 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           <div className={sectionTitleClasses}>Overview</div>
           <div className="flex flex-col gap-[var(--space-sm)]">
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Duration</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Duration
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatDuration(data.durationMs)}
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Started</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Started
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatTimestamp(data.session.createdAt)}
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Messages</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Messages
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {data.messages.length}
                 <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                  User{" "}
-                  {data.messages.filter((m) => m.role === "user").length} /
+                  User {data.messages.filter((m) => m.role === "user").length} /
                   Assistant{" "}
                   {data.messages.filter((m) => m.role === "assistant").length}
                 </span>
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Tool Calls</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Tool Calls
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {toolEvents.length}
                 {data.subagents.length > 0 ? (
@@ -354,17 +435,32 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Tokens</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Tokens
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {formatTokens(data.tokens.total)}
                 <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
                   In {formatTokens(data.tokens.input)} / Out{" "}
                   {formatTokens(data.tokens.output)}
                 </span>
+                {data.tokens.cacheRead > 0 || data.tokens.cacheWrite > 0 ? (
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
+                    Cache R {formatTokens(data.tokens.cacheRead)} / W{" "}
+                    {formatTokens(data.tokens.cacheWrite)}
+                  </span>
+                ) : null}
+                {data.tokens.reasoning > 0 ? (
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
+                    Reasoning {formatTokens(data.tokens.reasoning)}
+                  </span>
+                ) : null}
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)] last:border-b-0">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">Cost</span>
+              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                Cost
+              </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {data.tokens.cost > 0
                   ? `$${data.tokens.cost.toFixed(4)}`
@@ -373,11 +469,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </div>
             {(data.session.summary?.files ?? 0) > 0 ? (
               <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)]">
-                <span className="text-[var(--color-text-secondary)] font-medium shrink-0">File Changes</span>
+                <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                  File Changes
+                </span>
                 <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                   {data.session.summary.files} files
                   <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                    +{data.session.summary.additions} -{data.session.summary.deletions}
+                    +{data.session.summary.additions} -
+                    {data.session.summary.deletions}
                   </span>
                 </span>
               </div>
@@ -399,7 +498,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="todos-accordion"
           >
-            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+            <summary
+              className={cn(
+                accordionSummaryClasses,
+                "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90",
+              )}
+            >
               Todos{" "}
               <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
                 {doneCount}/{todos.length}
@@ -437,33 +541,138 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="model-breakdown-accordion"
           >
-            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+            <summary
+              className={cn(
+                accordionSummaryClasses,
+                "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90",
+              )}
+            >
               Models{" "}
               <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
                 {data.modelBreakdown.length}
               </span>
+              <span className="ml-auto normal-case tracking-normal font-medium text-[var(--color-text-tertiary)]">
+                {formatTokens(data.tokens.total)} tokens
+              </span>
             </summary>
             <div className="py-[var(--space-sm)]">
-              {data.modelBreakdown.map((model) => (
-                <div
-                  key={`${model.modelId}-${model.providerId}`}
-                  className="py-[var(--space-sm)] border-b border-[var(--color-border-faint)] last:border-b-0"
-                >
-                  <div className="text-[0.82em] font-semibold text-[var(--color-text-primary)] mb-0.5">
-                    {model.modelId}
+              <div className="flex items-center justify-between gap-[var(--space-sm)] mb-[var(--space-sm)]">
+                <div>
+                  <div className="text-[0.82em] font-semibold text-[var(--color-text-primary)]">
+                    Model usage
                   </div>
-                  <div className="flex flex-wrap gap-[var(--space-sm)] text-[0.72em] text-[var(--color-text-tertiary)]">
-                    <span>{model.providerId}</span>
-                    <span>{model.messageCount} msgs</span>
-                    <span>{formatTokens(model.totalTokens)} tokens</span>
-                    <span>
-                      {model.totalCost > 0
-                        ? `$${model.totalCost.toFixed(4)}`
-                        : "$0.00"}
-                    </span>
+                  <div className="text-[0.72em] text-[var(--color-text-tertiary)]">
+                    main / subagent split
                   </div>
                 </div>
-              ))}
+                <div
+                  className="inline-flex rounded-lg border border-[var(--color-border-default)] overflow-hidden"
+                  role="tablist"
+                  aria-label="Session model usage view"
+                >
+                  <button
+                    type="button"
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium transition-colors",
+                      modelUsageView === "model"
+                        ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
+                        : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]",
+                    )}
+                    onClick={() => setModelUsageView("model")}
+                  >
+                    Model
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium transition-colors",
+                      modelUsageView === "agent-model"
+                        ? "bg-[var(--color-accent)] text-[var(--color-text-inverse)]"
+                        : "bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)]",
+                    )}
+                    onClick={() => setModelUsageView("agent-model")}
+                  >
+                    Agent × Model
+                  </button>
+                </div>
+              </div>
+              {(["main", "subagent"] as const).map((scope) => {
+                const rows = buildSessionModelUsageDisplayRows(
+                  data.modelBreakdown,
+                  modelUsageView,
+                ).filter((row) => row.scope === scope);
+                if (rows.length === 0) return null;
+
+                return (
+                  <div key={scope} className="mb-2.5 last:mb-0">
+                    <div className="text-[0.82em] font-semibold text-[var(--color-text-secondary)] mb-1.5 uppercase tracking-wider">
+                      {scope === "main" ? "Main" : "Subagent"}
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr>
+                            <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              {modelUsageView === "model"
+                                ? "Model"
+                                : "Agent × Model"}
+                            </th>
+                            <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              Input
+                            </th>
+                            <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              Output
+                            </th>
+                            <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              Cache R
+                            </th>
+                            <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              Cache W
+                            </th>
+                            <th className="text-right text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] pb-2 border-b border-[var(--color-border-default)] py-1.5 px-2">
+                              Input ratio
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => (
+                            <tr
+                              key={[
+                                scope,
+                                row.agent,
+                                row.providerId,
+                                row.modelId,
+                              ].join("::")}
+                              className="border-b border-[var(--color-border-faint)]"
+                            >
+                              <td className="py-2 px-2">
+                                {modelUsageView === "model"
+                                  ? `${row.providerId}/${row.modelId}`
+                                  : `${row.agent} × ${row.providerId}/${row.modelId}`}
+                              </td>
+                              <td className="text-right py-2 px-2">
+                                {formatTokens(row.inputTokens)}
+                              </td>
+                              <td className="text-right py-2 px-2">
+                                {formatTokens(row.outputTokens)}
+                              </td>
+                              <td className="text-right py-2 px-2">
+                                {formatTokens(row.cacheReadTokens)}
+                              </td>
+                              <td className="text-right py-2 px-2">
+                                {formatTokens(row.cacheWriteTokens)}
+                              </td>
+                              <td className="text-right py-2 px-2 font-semibold">
+                                {formatPercent(row.inputRatioPercent)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </details>
         ) : null}
@@ -473,7 +682,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
           data-testid="loaded-skills-accordion"
         >
-          <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+          <summary
+            className={cn(
+              accordionSummaryClasses,
+              "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90",
+            )}
+          >
             Skills{" "}
             <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
               {loadedSkillNames.length}
@@ -486,70 +700,75 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </div>
             ) : null}
             {loadedSkillNames.map((skillName) => {
-                const invocations = skillInvocations.filter(
-                  (s) => s.name === skillName,
-                );
-                const lastInvocation = invocations[invocations.length - 1];
-                const hasDetail =
-                  lastInvocation?.fullInput || lastInvocation?.fullOutput;
-                const detailId = `skill-detail-${skillName}`;
-                const isSkillOpen = openDetails.has(detailId);
-                const durStr =
-                  lastInvocation.durationMs > 0
-                    ? lastInvocation.durationMs < 1000
-                      ? `${lastInvocation.durationMs}ms`
-                      : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
-                    : "";
-                return (
-                  <div key={skillName} className="py-[var(--space-xs)]">
-                    {hasDetail ? (
-                      <button
-                        type="button"
-                        className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
-                        onClick={() => onToggleDetail(detailId)}
-                      >
-                        {"\u2699\uFE0F"} <span>{skillName}</span>
-                        {durStr ? (
-                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                            {durStr}
-                          </span>
-                        ) : null}
-                      </button>
-                    ) : (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {"\u2699\uFE0F"} <span>{skillName}</span>
-                        {durStr ? (
-                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                            {durStr}
-                          </span>
-                        ) : null}
-                      </span>
-                    )}
-                    {hasDetail && isSkillOpen ? (
-                      <SkillDetailContent
-                        fullInput={lastInvocation.fullInput}
-                        fullOutput={lastInvocation.fullOutput}
-                        error={lastInvocation.error}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </details>
+              const invocations = skillInvocations.filter(
+                (s) => s.name === skillName,
+              );
+              const lastInvocation = invocations[invocations.length - 1];
+              const hasDetail =
+                lastInvocation?.fullInput || lastInvocation?.fullOutput;
+              const detailId = `skill-detail-${skillName}`;
+              const isSkillOpen = openDetails.has(detailId);
+              const durStr =
+                lastInvocation.durationMs > 0
+                  ? lastInvocation.durationMs < 1000
+                    ? `${lastInvocation.durationMs}ms`
+                    : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
+                  : "";
+              return (
+                <div key={skillName} className="py-[var(--space-xs)]">
+                  {hasDetail ? (
+                    <button
+                      type="button"
+                      className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
+                      onClick={() => onToggleDetail(detailId)}
+                    >
+                      {"\u2699\uFE0F"} <span>{skillName}</span>
+                      {durStr ? (
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {durStr}
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {"\u2699\uFE0F"} <span>{skillName}</span>
+                      {durStr ? (
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {durStr}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                  {hasDetail && isSkillOpen ? (
+                    <SkillDetailContent
+                      fullInput={lastInvocation.fullInput}
+                      fullOutput={lastInvocation.fullOutput}
+                      error={lastInvocation.error}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </details>
 
         {/* Tools -- always shown */}
         <details
           className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
           data-testid="loaded-tools-accordion"
         >
-          <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+          <summary
+            className={cn(
+              accordionSummaryClasses,
+              "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90",
+            )}
+          >
             Tools{" "}
             <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
               {loadedToolNames.length}
@@ -562,69 +781,69 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </div>
             ) : null}
             {loadedToolNames.map((toolName) => {
-                const invocations = toolInvocations.filter(
-                  (t) => t.name === toolName,
-                );
-                const lastInvocation = invocations[invocations.length - 1];
-                const hasDetail =
-                  lastInvocation?.fullInput || lastInvocation?.fullOutput;
-                const detailId = `tool-detail-${toolName}`;
-                const isToolOpen = openDetails.has(detailId);
-                const durStr =
-                  lastInvocation.durationMs > 0
-                    ? lastInvocation.durationMs < 1000
-                      ? `${lastInvocation.durationMs}ms`
-                      : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
-                    : "";
-                return (
-                  <div key={toolName} className="py-[var(--space-xs)]">
-                    {hasDetail ? (
-                      <button
-                        type="button"
-                        className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
-                        onClick={() => onToggleDetail(detailId)}
-                      >
-                        {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
-                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                          {invocations.length}x
-                        </span>
-                        {durStr ? (
-                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                            {durStr}
-                          </span>
-                        ) : null}
-                      </button>
-                    ) : (
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
-                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                          {invocations.length}x
-                        </span>
-                        {durStr ? (
-                          <span style={{ color: "#aaa", fontSize: "0.9em" }}>
-                            {durStr}
-                          </span>
-                        ) : null}
+              const invocations = toolInvocations.filter(
+                (t) => t.name === toolName,
+              );
+              const lastInvocation = invocations[invocations.length - 1];
+              const hasDetail =
+                lastInvocation?.fullInput || lastInvocation?.fullOutput;
+              const detailId = `tool-detail-${toolName}`;
+              const isToolOpen = openDetails.has(detailId);
+              const durStr =
+                lastInvocation.durationMs > 0
+                  ? lastInvocation.durationMs < 1000
+                    ? `${lastInvocation.durationMs}ms`
+                    : `${(lastInvocation.durationMs / 1000).toFixed(1)}s`
+                  : "";
+              return (
+                <div key={toolName} className="py-[var(--space-xs)]">
+                  {hasDetail ? (
+                    <button
+                      type="button"
+                      className="bg-transparent border-none p-0 cursor-pointer inline-flex items-center gap-[var(--space-sm)]"
+                      onClick={() => onToggleDetail(detailId)}
+                    >
+                      {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
+                      <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                        {invocations.length}x
                       </span>
-                    )}
-                    {hasDetail && isToolOpen ? (
-                      <SkillDetailContent
-                        fullInput={lastInvocation.fullInput}
-                        fullOutput={lastInvocation.fullOutput}
-                        error={lastInvocation.error}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </details>
+                      {durStr ? (
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {durStr}
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {"\u{1F6E0}\uFE0F"} <span>{toolName}</span>
+                      <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                        {invocations.length}x
+                      </span>
+                      {durStr ? (
+                        <span style={{ color: "#aaa", fontSize: "0.9em" }}>
+                          {durStr}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                  {hasDetail && isToolOpen ? (
+                    <SkillDetailContent
+                      fullInput={lastInvocation.fullInput}
+                      fullOutput={lastInvocation.fullOutput}
+                      error={lastInvocation.error}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </details>
 
         {/* Diffs */}
         {data.summaryDiffs ? (
@@ -632,7 +851,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="diffs-card"
           >
-            <summary className={cn(accordionSummaryClasses, "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90")}>
+            <summary
+              className={cn(
+                accordionSummaryClasses,
+                "[&::-webkit-details-marker]:hidden before:content-['\\25B6'] before:text-[0.7em] before:transition-transform before:duration-[var(--transition-fast)] [details[open]>&]:before:rotate-90",
+              )}
+            >
               Changes
             </summary>
             <div className="py-[var(--space-sm)]">

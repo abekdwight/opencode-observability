@@ -1,4 +1,5 @@
 import type { Database } from "better-sqlite3";
+import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
 
 export interface SessionRecord {
   id: string;
@@ -41,6 +42,8 @@ export interface SessionChildRecord {
 }
 
 export interface SessionModelTokenBreakdownRecord {
+  scope: "main" | "subagent";
+  agent: string;
   model_id: string;
   provider_id: string;
   message_count: number;
@@ -52,6 +55,22 @@ export interface SessionModelTokenBreakdownRecord {
   total_tokens: number;
   total_cost: number;
 }
+
+const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("m.data");
+
+const SESSION_TREE_CTE = `
+  WITH RECURSIVE session_tree(session_id, scope) AS (
+    SELECT id AS session_id, 'main' AS scope
+    FROM session
+    WHERE id = ?
+
+    UNION ALL
+
+    SELECT child.id AS session_id, 'subagent' AS scope
+    FROM session child
+    JOIN session_tree ON child.parent_id = session_tree.session_id
+  )
+`;
 
 export interface SessionMessageRecord {
   id: string;
@@ -135,7 +154,7 @@ export function getSessionTokenStats(
 ): SessionTokenStatsRecord {
   return db
     .prepare(`
-      SELECT COALESCE(SUM(json_extract(m.data, '$.tokens.total')), 0) AS total_tokens,
+      SELECT COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens,
              COALESCE(SUM(json_extract(m.data, '$.tokens.input')), 0) AS input_tokens,
              COALESCE(SUM(json_extract(m.data, '$.tokens.output')), 0) AS output_tokens,
              COALESCE(SUM(json_extract(m.data, '$.tokens.reasoning')), 0) AS reasoning_tokens,
@@ -196,20 +215,51 @@ export function listSessionModelTokenBreakdown(
   return db
     .prepare(
       `SELECT
-          COALESCE(json_extract(data, '$.modelID'), 'unknown') AS model_id,
-          COALESCE(json_extract(data, '$.providerID'), 'unknown') AS provider_id,
+          'main' AS scope,
+          COALESCE(NULLIF(json_extract(m.data, '$.agent'), ''), 'unknown') AS agent,
+          COALESCE(NULLIF(json_extract(m.data, '$.modelID'), ''), 'unknown') AS model_id,
+          COALESCE(NULLIF(json_extract(m.data, '$.providerID'), ''), 'unknown') AS provider_id,
           COUNT(*) AS message_count,
-          COALESCE(SUM(json_extract(data, '$.tokens.input')), 0) AS input_tokens,
-          COALESCE(SUM(json_extract(data, '$.tokens.output')), 0) AS output_tokens,
-          COALESCE(SUM(json_extract(data, '$.tokens.reasoning')), 0) AS reasoning_tokens,
-          COALESCE(SUM(json_extract(data, '$.tokens.cache.read')), 0) AS cache_read_tokens,
-          COALESCE(SUM(json_extract(data, '$.tokens.cache.write')), 0) AS cache_write_tokens,
-          COALESCE(SUM(json_extract(data, '$.tokens.total')), 0) AS total_tokens,
-          COALESCE(SUM(json_extract(data, '$.cost')), 0) AS total_cost
-       FROM message
-       WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant'
-       GROUP BY model_id, provider_id
-       ORDER BY total_tokens DESC`,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.input')), 0) AS input_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.output')), 0) AS output_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.reasoning')), 0) AS reasoning_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.cache.read')), 0) AS cache_read_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.cache.write')), 0) AS cache_write_tokens,
+          COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.cost')), 0) AS total_cost
+       FROM message m
+       WHERE m.session_id = ? AND json_extract(m.data, '$.role') = 'assistant'
+       GROUP BY scope, agent, model_id, provider_id
+       ORDER BY total_tokens DESC, scope ASC, agent ASC, provider_id ASC, model_id ASC`,
+    )
+    .all(sessionId) as SessionModelTokenBreakdownRecord[];
+}
+
+export function listSessionTreeModelTokenBreakdown(
+  db: Database,
+  sessionId: string,
+): SessionModelTokenBreakdownRecord[] {
+  return db
+    .prepare(
+      `${SESSION_TREE_CTE}
+       SELECT
+          session_tree.scope AS scope,
+          COALESCE(NULLIF(json_extract(m.data, '$.agent'), ''), 'unknown') AS agent,
+          COALESCE(NULLIF(json_extract(m.data, '$.modelID'), ''), 'unknown') AS model_id,
+          COALESCE(NULLIF(json_extract(m.data, '$.providerID'), ''), 'unknown') AS provider_id,
+          COUNT(*) AS message_count,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.input')), 0) AS input_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.output')), 0) AS output_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.reasoning')), 0) AS reasoning_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.cache.read')), 0) AS cache_read_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.tokens.cache.write')), 0) AS cache_write_tokens,
+          COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens,
+          COALESCE(SUM(json_extract(m.data, '$.cost')), 0) AS total_cost
+       FROM message m
+       JOIN session_tree ON session_tree.session_id = m.session_id
+       WHERE json_extract(m.data, '$.role') = 'assistant'
+       GROUP BY scope, agent, model_id, provider_id
+       ORDER BY total_tokens DESC, scope ASC, agent ASC, provider_id ASC, model_id ASC`,
     )
     .all(sessionId) as SessionModelTokenBreakdownRecord[];
 }

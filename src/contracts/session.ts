@@ -11,6 +11,8 @@ export interface SessionTokenBreakdown {
 }
 
 export interface SessionModelTokenBreakdown {
+  scope: "main" | "subagent";
+  agent: string;
   modelId: string;
   providerId: string;
   messageCount: number;
