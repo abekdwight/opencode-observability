@@ -229,7 +229,7 @@ export function SessionDetailPage(): React.ReactElement | null {
         );
         return;
       }
-      navigate("/");
+      navigate("/directories");
     } catch (e) {
       window.alert(
         `\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${e instanceof Error ? e.message : String(e)}`,
