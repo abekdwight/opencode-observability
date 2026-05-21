@@ -56,6 +56,11 @@ export interface SessionModelTokenBreakdownRecord {
   total_cost: number;
 }
 
+interface SessionTreeScopeRecord {
+  session_id: string;
+  scope: "main" | "subagent";
+}
+
 const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("m.data");
 
 const SESSION_TREE_CTE = `
@@ -235,15 +240,36 @@ export function listSessionModelTokenBreakdown(
     .all(sessionId) as SessionModelTokenBreakdownRecord[];
 }
 
+function listSessionTreeScopes(
+  db: Database,
+  sessionId: string,
+): SessionTreeScopeRecord[] {
+  return db
+    .prepare(
+      `${SESSION_TREE_CTE}
+       SELECT session_id, scope FROM session_tree`,
+    )
+    .all(sessionId) as SessionTreeScopeRecord[];
+}
+
 export function listSessionTreeModelTokenBreakdown(
   db: Database,
   sessionId: string,
 ): SessionModelTokenBreakdownRecord[] {
+  const sessionIds = listSessionTreeScopes(db, sessionId).map(
+    (row) => row.session_id,
+  );
+
+  if (sessionIds.length === 0) {
+    return [];
+  }
+
+  const idPlaceholders = sessionIds.map(() => "?").join(",");
+
   return db
     .prepare(
-      `${SESSION_TREE_CTE}
-       SELECT
-          session_tree.scope AS scope,
+      `SELECT
+          CASE WHEN m.session_id = ? THEN 'main' ELSE 'subagent' END AS scope,
           COALESCE(NULLIF(json_extract(m.data, '$.agent'), ''), 'unknown') AS agent,
           COALESCE(NULLIF(json_extract(m.data, '$.modelID'), ''), 'unknown') AS model_id,
           COALESCE(NULLIF(json_extract(m.data, '$.providerID'), ''), 'unknown') AS provider_id,
@@ -256,12 +282,12 @@ export function listSessionTreeModelTokenBreakdown(
           COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens,
           COALESCE(SUM(json_extract(m.data, '$.cost')), 0) AS total_cost
        FROM message m
-       JOIN session_tree ON session_tree.session_id = m.session_id
-       WHERE json_extract(m.data, '$.role') = 'assistant'
+       WHERE m.session_id IN (${idPlaceholders})
+         AND json_extract(m.data, '$.role') = 'assistant'
        GROUP BY scope, agent, model_id, provider_id
        ORDER BY total_tokens DESC, scope ASC, agent ASC, provider_id ASC, model_id ASC`,
     )
-    .all(sessionId) as SessionModelTokenBreakdownRecord[];
+    .all(sessionId, ...sessionIds) as SessionModelTokenBreakdownRecord[];
 }
 
 export function countSessionToolCalls(db: Database, sessionId: string): number {
