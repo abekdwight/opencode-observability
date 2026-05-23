@@ -5,6 +5,7 @@ import { useJson } from "../../hooks/use-json";
 import { useLayoutMode } from "../../lib/layout-context";
 import { ControlBar } from "./_components/control-bar";
 import { MessageList } from "./_components/message-list";
+import { SessionPromptBar } from "./_components/session-prompt-bar";
 import { SessionSidebar } from "./_components/session-sidebar";
 import { SessionTopBar } from "./_components/session-top-bar";
 import { useMessageNavigation } from "./_hooks/use-message-navigation";
@@ -297,6 +298,8 @@ export function SessionDetailPage(): React.ReactElement | null {
             onToggleToolDetail={toggleToolDetail}
             containerRef={containerRef}
           />
+
+          <SessionPromptBar sessionId={data.session.id} />
 
           <ControlBar
             collapseEnabled={collapseEnabled}

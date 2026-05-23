@@ -11,6 +11,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import type { Part } from "@opencode-ai/sdk";
+import type {
+  MonitorPromptCommandContract,
+  MonitorPromptPollResponseContract,
+} from "../contracts/monitor-command.js";
 
 type SessionStatus = "idle" | "busy" | "retry";
 
@@ -325,6 +329,14 @@ function monitorSessionUrl(target: ServerTarget, sessionId: string): string {
     `/session/${encodeURIComponent(sessionId)}`,
     target.ingestUrl,
   ).toString();
+}
+
+function monitorCommandPollUrl(): URL {
+  return new URL("/api/monitor/commands/poll", INGEST_URL);
+}
+
+function monitorCommandAckUrl(): URL {
+  return new URL("/api/monitor/commands/ack", INGEST_URL);
 }
 
 function normalizeCommandName(command: string): string {
@@ -687,10 +699,7 @@ async function ensureLocalObservabilityServerReady(
   };
 }
 
-export const OpencodeObservabilityPlugin: Plugin = async ({
-  client,
-  directory,
-}) => {
+export const OpencodeObservabilityPlugin: Plugin = async ({ client }) => {
   const globalState = globalThis as Record<PropertyKey, unknown>;
   if (globalState[PLUGIN_INSTANCE_KEY]) {
     return NOOP_HOOKS;
@@ -700,6 +709,7 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
   const sessions = new Map<string, SessionState>();
   const hydratedSessionIds = new Set<string>();
   let requestQueue = Promise.resolve();
+  let commandPollQueue = Promise.resolve();
 
   const postLogWarn = async (message: string, error: unknown) => {
     try {
@@ -954,6 +964,101 @@ export const OpencodeObservabilityPlugin: Plugin = async ({
         activeSessionIds: [...sessions.keys()],
       },
     });
+    await pollPromptCommands();
+  };
+
+  const dispatchPromptCommand = async (
+    command: MonitorPromptCommandContract,
+  ): Promise<boolean> => {
+    let session = sessions.get(command.sessionId) ?? null;
+    if (!session) {
+      try {
+        const response = await client.session.get({
+          path: { id: command.sessionId },
+        });
+        if (response.error || !response.data) {
+          return false;
+        }
+        session = upsertFromInfo(response.data as SessionInfo);
+      } catch {
+        return false;
+      }
+    }
+
+    const input: {
+      path: { id: string };
+      query?: { directory?: string };
+      body: {
+        parts: Array<{ type: "text"; text: string }>;
+      };
+    } = {
+      path: { id: command.sessionId },
+      body: {
+        parts: [{ type: "text", text: command.text }],
+      },
+    };
+
+    if (session?.directory) {
+      input.query = { directory: session.directory };
+    }
+
+    const response = await client.session.promptAsync(input);
+    if (response.error) {
+      throw new Error(
+        `prompt dispatch failed: ${JSON.stringify(response.error)}`,
+      );
+    }
+    return true;
+  };
+
+  const pollPromptCommands = async () => {
+    commandPollQueue = commandPollQueue
+      .then(async () => {
+        await ensureServerReadyPromise;
+
+        const response = await fetch(monitorCommandPollUrl(), {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+          throw new Error(`command poll failed: HTTP ${response.status}`);
+        }
+
+        const payload =
+          (await response.json()) as MonitorPromptPollResponseContract;
+
+        const acknowledgedCommandIds: string[] = [];
+        for (const command of payload.commands) {
+          const dispatched = await dispatchPromptCommand(command);
+          if (dispatched) {
+            acknowledgedCommandIds.push(command.id);
+          }
+        }
+
+        if (acknowledgedCommandIds.length > 0) {
+          const ackResponse = await fetch(monitorCommandAckUrl(), {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ commandIds: acknowledgedCommandIds }),
+          });
+          if (!ackResponse.ok) {
+            throw new Error(`command ack failed: HTTP ${ackResponse.status}`);
+          }
+        }
+      })
+      .catch(async (error) =>
+        postLogWarn("failed to poll prompt commands", error),
+      );
+
+    await commandPollQueue;
   };
 
   const upsertFromInfo = (

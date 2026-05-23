@@ -2,10 +2,21 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { MonitorSnapshotContract } from "../contracts/monitor.js";
 import type {
+  MonitorPromptAckRequestContract,
+  MonitorPromptEnqueueRequestContract,
+  MonitorPromptPollRequestContract,
+} from "../contracts/monitor-command.js";
+import type {
   MonitorTimelineFeedEventContract,
   MonitorTimelineFeedHeartbeatContract,
 } from "../contracts/monitor-timeline.js";
 import { getMonitorIngestToken } from "../lib/config.js";
+import {
+  acknowledgeMonitorPromptCommands,
+  drainMonitorPromptCommands,
+  enqueueMonitorPromptCommand,
+  listMonitorPromptCommands,
+} from "./monitor-command-queue.js";
 import {
   buildMonitorSnapshotFromRuntime,
   ingestMonitorRuntimeEvent,
@@ -53,6 +64,32 @@ export function buildMonitorSnapshot(): MonitorSnapshotContract {
   return buildMonitorSnapshotFromRuntime();
 }
 
+function normalizePromptText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const values = value
+    .filter((id): id is string => typeof id === "string")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return values.length === value.length ? values : null;
+}
+
 function hasValidIngestToken(
   authorizationHeader: string | null,
   tokenHeader: string | null,
@@ -77,6 +114,91 @@ function hasValidIngestToken(
 }
 
 export const monitorApi = new Hono()
+  .post("/sessions/:sessionId/prompt", async (c) => {
+    const sessionId = c.req.param("sessionId").trim();
+    if (!sessionId) {
+      return c.json({ message: "sessionId is required" }, 400);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json(
+        { message: "invalid prompt payload: body must be JSON" },
+        400,
+      );
+    }
+
+    const record = asRecord(payload);
+    const text = normalizePromptText(
+      (record as MonitorPromptEnqueueRequestContract | null)?.text,
+    );
+    if (!text) {
+      return c.json({ message: "text is required" }, 400);
+    }
+
+    const command = enqueueMonitorPromptCommand(sessionId, text);
+    return c.json(
+      {
+        accepted: true,
+        commandId: command.id,
+        sessionId: command.sessionId,
+      },
+      202,
+    );
+  })
+  .post("/commands/poll", async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json(
+        { message: "invalid command poll payload: body must be JSON" },
+        400,
+      );
+    }
+
+    const record = asRecord(payload);
+    const rawSessionIds = (record as MonitorPromptPollRequestContract | null)
+      ?.sessionIds;
+    const sessionIds =
+      rawSessionIds === undefined
+        ? undefined
+        : normalizeStringArray(rawSessionIds);
+    if (rawSessionIds !== undefined && !sessionIds) {
+      return c.json({ message: "sessionIds must be an array of strings" }, 400);
+    }
+
+    return c.json({
+      commands: sessionIds
+        ? drainMonitorPromptCommands(sessionIds)
+        : listMonitorPromptCommands(),
+    });
+  })
+  .post("/commands/ack", async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json(
+        { message: "invalid command ack payload: body must be JSON" },
+        400,
+      );
+    }
+
+    const record = asRecord(payload);
+    const commandIds = normalizeStringArray(
+      (record as MonitorPromptAckRequestContract | null)?.commandIds,
+    );
+    if (!commandIds) {
+      return c.json({ message: "commandIds must be an array of strings" }, 400);
+    }
+
+    return c.json({
+      acknowledged: acknowledgeMonitorPromptCommands(commandIds),
+    });
+  })
   .post("/ingest", async (c) => {
     if (
       !hasValidIngestToken(
