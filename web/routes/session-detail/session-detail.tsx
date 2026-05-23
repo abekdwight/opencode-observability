@@ -90,7 +90,7 @@ function useSessionShortcuts(actions: {
 // ---------------------------------------------------------------------------
 // Page-wide horizontal swipe detection for Footer pane navigation
 // ---------------------------------------------------------------------------
-const SWIPE_DISTANCE_THRESHOLD_PX = 25;
+const SWIPE_DISTANCE_THRESHOLD_PX = 35;
 
 interface SwipeDragState {
   startX: number;
@@ -132,9 +132,9 @@ function usePageSwipeNavigation(actions: {
       const deltaX = event.clientX - drag.startX;
       const deltaY = event.clientY - drag.startY;
       if (Math.abs(deltaX) < SWIPE_DISTANCE_THRESHOLD_PX) return;
-      // 縦ブレ許容: 横移動の 3 倍を超える縦移動があった場合のみ縦 swipe としてキャンセル
-      // （片手スマホ操作で寛容に反応させるため、許容角を約 ±71度まで広げる）
-      if (Math.abs(deltaY) > Math.abs(deltaX) * 3) return;
+      // 縦ブレ許容: 横移動の 2 倍を超える縦移動があった場合のみ縦 swipe としてキャンセル
+      // （許容角 ≈ ±63度。pointercancel 経由の判定とのバランスで誤発動を抑える）
+      if (Math.abs(deltaY) > Math.abs(deltaX) * 2) return;
 
       if (deltaX < 0) {
         actions.cyclePaneNext();
