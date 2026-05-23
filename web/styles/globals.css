@@ -19,11 +19,39 @@
 }
 
 /* Base resets */
+:root {
+  --app-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+  }
+}
+
 html,
 body,
 #app {
   min-height: 100%;
   margin: 0;
+}
+
+.app-shell-viewport {
+  min-height: var(--app-viewport-height);
+}
+
+.app-shell-ide {
+  height: var(--app-viewport-height);
+}
+
+.control-bar-safe-area {
+  padding-bottom: var(--space-sm);
+}
+
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .control-bar-safe-area {
+    padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom));
+  }
 }
 
 body {

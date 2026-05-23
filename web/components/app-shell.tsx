@@ -58,8 +58,8 @@ export function AppShell() {
     <LayoutModeContext.Provider value={layoutModeValue}>
       <div
         className={cn(
-          "flex flex-col min-h-screen bg-[var(--color-bg-root)]",
-          layoutMode === "ide" && "h-screen overflow-hidden",
+          "app-shell-viewport flex flex-col bg-[var(--color-bg-root)]",
+          layoutMode === "ide" && "app-shell-ide overflow-hidden",
         )}
         data-testid="app-shell"
       >

@@ -26,11 +26,13 @@ function HelpButton() {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
-  const modKey = isMac ? '⌘' : 'Ctrl';
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
+  const modKey = isMac ? "⌘" : "Ctrl";
   const altPlatformNote = isMac
-    ? 'Windows: ⌘ の代わりに Ctrl を使用'
-    : 'Mac: Ctrl の代わりに Cmd を使用';
+    ? "Windows: ⌘ の代わりに Ctrl を使用"
+    : "Mac: Ctrl の代わりに Cmd を使用";
 
   // Close on outside click
   React.useEffect(() => {
@@ -60,7 +62,16 @@ function HelpButton() {
         aria-label="Keyboard shortcuts"
         data-testid="btn-help"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" role="img" aria-hidden="true">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          role="img"
+          aria-hidden="true"
+        >
           <circle cx="8" cy="8" r="7" />
           <path d="M5.5 6a2.5 2.5 0 0 1 5 0c0 1.5-2.5 1.5-2.5 3" />
           <circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none" />
@@ -77,65 +88,117 @@ function HelpButton() {
           )}
         >
           <div className="text-[0.78em] font-bold uppercase tracking-wider text-[var(--color-text-secondary)] mb-2">
-            {"\u30AD\u30FC\u30DC\u30FC\u30C9\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8"}
+            {
+              "\u30AD\u30FC\u30DC\u30FC\u30C9\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8"
+            }
           </div>
           <table className="w-full border-collapse text-[0.8em]">
             <tbody>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">j</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    j
+                  </kbd>
                   {" / "}
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">k</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    k
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"\u6B21 / \u524D\u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u3078\u30B8\u30E3\u30F3\u30D7"}</td>
+                <td className="py-0.5 align-middle">
+                  {
+                    "\u6B21 / \u524D\u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u3078\u30B8\u30E3\u30F3\u30D7"
+                  }
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">E</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    E
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"\u6298\u308A\u305F\u305F\u307F\u5207\u66FF"}</td>
+                <td className="py-0.5 align-middle">
+                  {"\u6298\u308A\u305F\u305F\u307F\u5207\u66FF"}
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">U</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    U
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"\u30D5\u30A3\u30EB\u30BF\u5207\u66FF\uFF08\u5168/User/Assistant\uFF09"}</td>
+                <td className="py-0.5 align-middle">
+                  {
+                    "\u30D5\u30A3\u30EB\u30BF\u5207\u66FF\uFF08\u5168/User/Assistant\uFF09"
+                  }
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">M</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    M
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"Markdown / \u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\u5207\u66FF"}</td>
+                <td className="py-0.5 align-middle">
+                  {
+                    "Markdown / \u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\u5207\u66FF"
+                  }
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">.</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    .
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"\u30C4\u30FC\u30EB\u547C\u51FA\u306E\u8868\u793A\u5207\u66FF"}</td>
+                <td className="py-0.5 align-middle">
+                  {
+                    "\u30C4\u30FC\u30EB\u547C\u51FA\u306E\u8868\u793A\u5207\u66FF"
+                  }
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">B</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    B
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"\u30B5\u30A4\u30C9\u30D0\u30FC\u5207\u66FF"}</td>
+                <td className="py-0.5 align-middle">
+                  {"\u30B5\u30A4\u30C9\u30D0\u30FC\u5207\u66FF"}
+                </td>
               </tr>
               <tr>
                 <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">{modKey}</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
                   +
-                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">O</kbd>
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    O
+                  </kbd>
                 </td>
-                <td className="py-0.5 align-middle">{"OMO\u30D5\u30A3\u30EB\u30BF\u5207\u66FF"}</td>
+                <td className="py-0.5 align-middle">
+                  {"OMO\u30D5\u30A3\u30EB\u30BF\u5207\u66FF"}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -152,9 +215,9 @@ const ctrlBtnBase = cn(
   "px-[var(--space-lg)] py-[var(--space-sm)]",
   "rounded-[var(--radius-md)]",
   "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
-  "text-[var(--color-text-primary)] text-[0.82em] font-medium",
+  "text-[var(--color-text-primary)] text-[0.82em] font-medium whitespace-nowrap",
   "cursor-pointer transition-all duration-[var(--transition-fast)]",
-  "flex items-center gap-[var(--space-sm)]",
+  "flex shrink-0 items-center gap-[var(--space-sm)]",
   "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
 );
 
@@ -193,15 +256,19 @@ export const ControlBar = React.memo(function ControlBar({
         "shrink-0",
         "bg-[var(--color-bg-surface-translucent)] backdrop-blur-[12px]",
         "border-t border-[var(--color-border-subtle)]",
-        "px-[var(--space-lg)] py-[var(--space-sm)]",
+        "control-bar-safe-area px-[var(--space-lg)] pt-[var(--space-sm)]",
         "z-[var(--z-control-bar)]",
       )}
       data-testid="control-bar"
     >
-      <div className="flex gap-[var(--space-sm)] items-center justify-center flex-nowrap">
+      <div className="flex gap-[var(--space-sm)] items-center justify-start md:justify-center flex-nowrap overflow-x-auto overscroll-x-contain">
         <button
           type="button"
-          className={cn(ctrlBtnBase, collapseEnabled && !collapseDisabled && ctrlBtnActive, collapseDisabled && "opacity-40 cursor-not-allowed")}
+          className={cn(
+            ctrlBtnBase,
+            collapseEnabled && !collapseDisabled && ctrlBtnActive,
+            collapseDisabled && "opacity-40 cursor-not-allowed",
+          )}
           onClick={onToggleCollapse}
           disabled={collapseDisabled}
           data-testid="btn-collapse"
