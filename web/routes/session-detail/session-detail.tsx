@@ -4,6 +4,7 @@ import type { SessionDetailContract } from "../../../src/contracts/session.js";
 import { useJson } from "../../hooks/use-json";
 import { useLayoutMode } from "../../lib/layout-context";
 import { ControlBar } from "./_components/control-bar";
+import { FooterPaneSwiper } from "./_components/footer-pane-swiper";
 import { MessageList } from "./_components/message-list";
 import { SessionPromptBar } from "./_components/session-prompt-bar";
 import { SessionSidebar } from "./_components/session-sidebar";
@@ -15,6 +16,11 @@ import { buildCopyCommand } from "./_lib/copy-command";
 import { applyOmoFilter, detectOmoContent } from "./_lib/omo-filter";
 
 // ---------------------------------------------------------------------------
+// Footer pane count -- update when adding/removing pane in render()
+// ---------------------------------------------------------------------------
+const FOOTER_PANES_COUNT = 2;
+
+// ---------------------------------------------------------------------------
 // Keyboard shortcuts for session detail (Ctrl/Cmd + key)
 // ---------------------------------------------------------------------------
 function useSessionShortcuts(actions: {
@@ -24,12 +30,30 @@ function useSessionShortcuts(actions: {
   toggleTools: () => void;
   toggleSidebar: () => void;
   toggleOmoFilter: () => void;
+  cyclePanePrev: () => void;
+  cyclePaneNext: () => void;
 }) {
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Only fire with Ctrl (Windows/Linux) or Cmd (Mac)
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+
+      // Pane cycle (Cmd/Ctrl + Shift + < / >)
+      // Use e.code to be robust against keyboard layout differences
+      // (< is Shift+Comma, > is Shift+Period)
+      if (e.shiftKey) {
+        if (e.code === "Comma") {
+          e.preventDefault();
+          actions.cyclePanePrev();
+          return;
+        }
+        if (e.code === "Period") {
+          e.preventDefault();
+          actions.cyclePaneNext();
+          return;
+        }
+      }
 
       switch (e.key.toLowerCase()) {
         case "e": // Expand/collapse
@@ -61,6 +85,71 @@ function useSessionShortcuts(actions: {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [actions]);
+}
+
+// ---------------------------------------------------------------------------
+// Page-wide horizontal swipe detection for Footer pane navigation
+// ---------------------------------------------------------------------------
+const SWIPE_DISTANCE_THRESHOLD_PX = 25;
+
+interface SwipeDragState {
+  startX: number;
+  startY: number;
+  pointerId: number;
+}
+
+function usePageSwipeNavigation(actions: {
+  cyclePanePrev: () => void;
+  cyclePaneNext: () => void;
+}) {
+  const dragRef = React.useRef<SwipeDragState | null>(null);
+
+  const onPointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (event.pointerType === "mouse") return;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("textarea, input, [data-no-swipe]")) return;
+      dragRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        pointerId: event.pointerId,
+      };
+    },
+    [],
+  );
+
+  // pointerup と pointercancel の両方で同じ判定を行う
+  // iOS Safari は縦スクロール開始時に pointercancel を発火し pointerup を送らないため、
+  // cancel タイミングの clientX/Y（スクロール開始直前の座標）でも swipe を判定する
+  const evaluateSwipe = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (event.pointerId !== drag.pointerId) return;
+      dragRef.current = null;
+
+      const deltaX = event.clientX - drag.startX;
+      const deltaY = event.clientY - drag.startY;
+      if (Math.abs(deltaX) < SWIPE_DISTANCE_THRESHOLD_PX) return;
+      // 縦ブレ許容: 横移動の 3 倍を超える縦移動があった場合のみ縦 swipe としてキャンセル
+      // （片手スマホ操作で寛容に反応させるため、許容角を約 ±71度まで広げる）
+      if (Math.abs(deltaY) > Math.abs(deltaX) * 3) return;
+
+      if (deltaX < 0) {
+        actions.cyclePaneNext();
+      } else {
+        actions.cyclePanePrev();
+      }
+    },
+    [actions],
+  );
+
+  return {
+    onPointerDown,
+    onPointerUp: evaluateSwipe,
+    onPointerCancel: evaluateSwipe,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +250,15 @@ export function SessionDetailPage(): React.ReactElement | null {
     filterMode,
   });
 
+  // Footer pane navigation state
+  const [activePaneIndex, setActivePaneIndex] = React.useState(0);
+  const cyclePanePrev = React.useCallback(() => {
+    setActivePaneIndex((i) => Math.max(0, i - 1));
+  }, []);
+  const cyclePaneNext = React.useCallback(() => {
+    setActivePaneIndex((i) => Math.min(FOOTER_PANES_COUNT - 1, i + 1));
+  }, []);
+
   // Keyboard shortcuts
   useSessionShortcuts(
     React.useMemo(
@@ -171,6 +269,8 @@ export function SessionDetailPage(): React.ReactElement | null {
         toggleTools,
         toggleSidebar,
         toggleOmoFilter,
+        cyclePanePrev,
+        cyclePaneNext,
       }),
       [
         toggleCollapse,
@@ -179,9 +279,31 @@ export function SessionDetailPage(): React.ReactElement | null {
         toggleTools,
         toggleSidebar,
         toggleOmoFilter,
+        cyclePanePrev,
+        cyclePaneNext,
       ],
     ),
   );
+
+  // Page-wide horizontal swipe -> footer pane navigation
+  const pageSwipe = usePageSwipeNavigation(
+    React.useMemo(
+      () => ({ cyclePanePrev, cyclePaneNext }),
+      [cyclePanePrev, cyclePaneNext],
+    ),
+  );
+
+  // Command palette -> footer pane navigation
+  React.useEffect(() => {
+    const handlePrev = () => cyclePanePrev();
+    const handleNext = () => cyclePaneNext();
+    window.addEventListener("ot-footer-pane-cycle-prev", handlePrev);
+    window.addEventListener("ot-footer-pane-cycle-next", handleNext);
+    return () => {
+      window.removeEventListener("ot-footer-pane-cycle-prev", handlePrev);
+      window.removeEventListener("ot-footer-pane-cycle-next", handleNext);
+    };
+  }, [cyclePanePrev, cyclePaneNext]);
 
   // Body class for plain mode
   React.useEffect(() => {
@@ -272,6 +394,9 @@ export function SessionDetailPage(): React.ReactElement | null {
     <section
       className="session-detail-page flex-1 flex flex-col overflow-hidden p-0"
       data-testid="session-detail"
+      onPointerDown={pageSwipe.onPointerDown}
+      onPointerUp={pageSwipe.onPointerUp}
+      onPointerCancel={pageSwipe.onPointerCancel}
     >
       <SessionTopBar
         session={data.session}
@@ -299,21 +424,33 @@ export function SessionDetailPage(): React.ReactElement | null {
             containerRef={containerRef}
           />
 
-          <SessionPromptBar sessionId={data.session.id} />
-
-          <ControlBar
-            collapseEnabled={collapseEnabled}
-            onToggleCollapse={toggleCollapse}
-            filterMode={filterMode}
-            onCycleFilter={cycleFilter}
-            plainMode={plainMode}
-            onTogglePlain={togglePlain}
-            collapseDisabled={plainMode}
-            toolsVisible={toolsVisible}
-            onToggleTools={toggleTools}
-            navIndex={navIndex}
-            totalVisible={visibleCount}
-            onJump={jumpMessage}
+          <FooterPaneSwiper
+            activeIndex={activePaneIndex}
+            panes={[
+              {
+                key: "main",
+                node: (
+                  <ControlBar
+                    collapseEnabled={collapseEnabled}
+                    onToggleCollapse={toggleCollapse}
+                    filterMode={filterMode}
+                    onCycleFilter={cycleFilter}
+                    plainMode={plainMode}
+                    onTogglePlain={togglePlain}
+                    collapseDisabled={plainMode}
+                    toolsVisible={toolsVisible}
+                    onToggleTools={toggleTools}
+                    navIndex={navIndex}
+                    totalVisible={visibleCount}
+                    onJump={jumpMessage}
+                  />
+                ),
+              },
+              {
+                key: "prompt",
+                node: <SessionPromptBar sessionId={data.session.id} />,
+              },
+            ]}
           />
         </div>
 

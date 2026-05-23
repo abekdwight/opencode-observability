@@ -1,3 +1,4 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import React from "react";
 import { cn } from "../../../lib/cn";
 import type { FilterMode } from "../_lib/constants";
@@ -20,12 +21,11 @@ export interface ControlBarProps {
 }
 
 // ---------------------------------------------------------------------------
-// HelpButton -- ? icon with tooltip showing keyboard shortcuts
+// HelpButton -- ? icon with popover showing keyboard shortcuts.
+// Uses Radix Popover (Portal) so the popover escapes any parent overflow:hidden
+// (e.g. the FooterPaneSwiper Slot).
 // ---------------------------------------------------------------------------
 function HelpButton() {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.platform ?? navigator.userAgent);
@@ -34,57 +34,51 @@ function HelpButton() {
     ? "Windows: ⌘ の代わりに Ctrl を使用"
     : "Mac: Ctrl の代わりに Cmd を使用";
 
-  // Close on outside click
-  React.useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        className={cn(
-          "w-7 h-7 rounded-full",
-          "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
-          "text-[var(--color-text-secondary)] cursor-pointer",
-          "flex items-center justify-center p-0",
-          "transition-all duration-[var(--transition-fast)]",
-          "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
-        )}
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Keyboard shortcuts"
-        data-testid="btn-help"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          role="img"
-          aria-hidden="true"
-        >
-          <circle cx="8" cy="8" r="7" />
-          <path d="M5.5 6a2.5 2.5 0 0 1 5 0c0 1.5-2.5 1.5-2.5 3" />
-          <circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none" />
-        </svg>
-      </button>
-      {open ? (
-        <div
+    <PopoverPrimitive.Root>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
           className={cn(
-            "absolute bottom-[calc(100%+8px)] right-0",
+            "w-7 h-7 rounded-full",
+            "border border-[var(--color-border-default)] bg-[var(--color-bg-surface)]",
+            "text-[var(--color-text-secondary)] cursor-pointer",
+            "flex items-center justify-center p-0",
+            "transition-all duration-[var(--transition-fast)]",
+            "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
+          )}
+          aria-label="Keyboard shortcuts"
+          data-testid="btn-help"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            role="img"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="8" r="7" />
+            <path d="M5.5 6a2.5 2.5 0 0 1 5 0c0 1.5-2.5 1.5-2.5 3" />
+            <circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="top"
+          align="end"
+          sideOffset={8}
+          collisionPadding={8}
+          className={cn(
             "bg-[var(--color-bg-surface)] border border-[var(--color-border-default)]",
             "rounded-[var(--radius-md)] shadow-[0_4px_16px_rgba(0,0,0,0.12)]",
-            "p-3 px-4 min-w-[280px] z-[100]",
-            "animate-[helpFadeIn_0.12s_ease]",
+            "p-3 px-4 min-w-[280px] z-[var(--z-overlay)]",
+            "outline-none",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
           )}
         >
           <div className="text-[0.78em] font-bold uppercase tracking-wider text-[var(--color-text-secondary)] mb-2">
@@ -200,14 +194,38 @@ function HelpButton() {
                   {"OMO\u30D5\u30A3\u30EB\u30BF\u5207\u66FF"}
                 </td>
               </tr>
+              <tr>
+                <td className="whitespace-nowrap pr-4 py-0.5 align-middle text-[var(--color-text-secondary)]">
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {modKey}
+                  </kbd>
+                  +
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {"\u21E7"}
+                  </kbd>
+                  +
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {"<"}
+                  </kbd>
+                  {" / "}
+                  <kbd className="inline-block px-1.5 py-px text-[0.85em] font-[var(--font-mono)] bg-[var(--color-bg-page)] border border-[var(--color-border-default)] rounded-[3px] leading-snug">
+                    {">"}
+                  </kbd>
+                </td>
+                <td className="py-0.5 align-middle">
+                  {
+                    "Footer \u30D1\u30CD\u30EB\u5207\u66FF\uFF08\u524D / \u6B21\uFF09"
+                  }
+                </td>
+              </tr>
             </tbody>
           </table>
           <div className="mt-2 text-[0.72em] text-[var(--color-text-tertiary)]">
             {altPlatformNote}
           </div>
-        </div>
-      ) : null}
-    </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }
 

@@ -1,10 +1,10 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
-import { useMermaidPreferences } from "../mermaid-preferences-provider";
 import { useTheme } from "../../hooks/use-theme";
 import { cycleChatWidth } from "../../lib/chat-width-context";
 import { cn } from "../../lib/cn";
+import { useMermaidPreferences } from "../mermaid-preferences-provider";
 import { actionCommands, navigationCommands } from "./commands";
 
 interface CommandPaletteProps {
@@ -43,6 +43,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       case "cycle-chat-width":
         cycleChatWidth();
         window.dispatchEvent(new CustomEvent("ot-chat-width-changed"));
+        break;
+      case "cycle-footer-pane-prev":
+        window.dispatchEvent(new CustomEvent("ot-footer-pane-cycle-prev"));
+        break;
+      case "cycle-footer-pane-next":
+        window.dispatchEvent(new CustomEvent("ot-footer-pane-cycle-next"));
         break;
     }
     onOpenChange(false);

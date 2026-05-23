@@ -55,4 +55,16 @@ export const actionCommands: Command[] = [
     category: "action",
     keywords: ["width", "narrow", "wide", "full", "max"],
   },
+  {
+    id: "cycle-footer-pane-prev",
+    label: "Footer: Previous Pane",
+    category: "action",
+    keywords: ["footer", "pane", "swipe", "prev", "previous", "tools", "main"],
+  },
+  {
+    id: "cycle-footer-pane-next",
+    label: "Footer: Next Pane",
+    category: "action",
+    keywords: ["footer", "pane", "swipe", "next", "message", "prompt"],
+  },
 ];
