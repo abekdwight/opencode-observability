@@ -13,6 +13,8 @@ import {
   invalidateDashboardAggregationStoreForRootSessionIdsAndDays,
 } from "../services/dashboard/dashboard-aggregation-store.js";
 import { renderAppShell } from "./app-shell.js";
+import { claudeSessionsApi } from "./claude-sessions-api.js";
+import { codexSessionsApi } from "./codex-sessions-api.js";
 import { dashboardApi } from "./dashboard-api.js";
 import { requireDeleteConfirmation } from "./delete-guard.js";
 import { directoriesApi } from "./directories-api.js";
@@ -29,6 +31,8 @@ export function createApiApp() {
   apiApp.route("/monitor", monitorApi);
   apiApp.route("/mcp", mcpApi);
   apiApp.route("/session", sessionApi);
+  apiApp.route("/codex-sessions", codexSessionsApi);
+  apiApp.route("/claude-sessions", claudeSessionsApi);
   apiApp.route("/dashboard", dashboardApi);
   apiApp.route("/export", exportApi);
   apiApp.route("/", directoriesApi);

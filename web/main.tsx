@@ -5,6 +5,10 @@ import { AppShell } from "./components/app-shell";
 import { MermaidPreferencesProvider } from "./components/mermaid-preferences-provider";
 import { ThemeProvider } from "./components/theme-provider";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { ClaudeSessionDetail } from "./routes/claude-session-detail";
+import { ClaudeSessions } from "./routes/claude-sessions";
+import { CodexSessionDetail } from "./routes/codex-session-detail";
+import { CodexSessions } from "./routes/codex-sessions";
 import { Dashboard } from "./routes/dashboard";
 import { Directories } from "./routes/directories/directories";
 import { DirectorySessions } from "./routes/directory-sessions/directory-sessions";
@@ -25,6 +29,16 @@ ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
                 <Route index element={<Dashboard />} />
                 <Route path="monitor" element={<Monitor />} />
                 <Route path="session/:sessionId" element={<SessionDetail />} />
+                <Route path="codex-sessions" element={<CodexSessions />} />
+                <Route
+                  path="codex-sessions/:id"
+                  element={<CodexSessionDetail />}
+                />
+                <Route path="claude-sessions" element={<ClaudeSessions />} />
+                <Route
+                  path="claude-sessions/:id"
+                  element={<ClaudeSessionDetail />}
+                />
                 <Route path="directories" element={<Directories />} />
                 <Route path="dir/:directory" element={<DirectorySessions />} />
                 <Route path="search" element={<Search />} />

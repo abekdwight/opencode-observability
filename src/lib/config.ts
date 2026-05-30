@@ -8,6 +8,12 @@ const DEFAULT_DB_PATH = path.join(
   "opencode",
   "opencode.db",
 );
+const DEFAULT_CODEX_STATE_DB_PATH = path.join(
+  homedir(),
+  ".codex",
+  "state_5.sqlite",
+);
+const DEFAULT_CLAUDE_PROJECTS_DIR = path.join(homedir(), ".claude", "projects");
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3737;
 const DEFAULT_MONITOR_ACTIVE_WINDOW_MS = 15 * 60_000;
@@ -34,6 +40,16 @@ export function getHost(): string {
 export function getOpenCodeDbPath(): string {
   const value = process.env.OPENCODE_DB_PATH?.trim();
   return value && value.length > 0 ? value : DEFAULT_DB_PATH;
+}
+
+export function getCodexStateDbPath(): string {
+  const value = process.env.CODEX_STATE_DB_PATH?.trim();
+  return value && value.length > 0 ? value : DEFAULT_CODEX_STATE_DB_PATH;
+}
+
+export function getClaudeProjectsDir(): string {
+  const value = process.env.CLAUDE_PROJECTS_DIR?.trim();
+  return value && value.length > 0 ? value : DEFAULT_CLAUDE_PROJECTS_DIR;
 }
 
 export function getMonitorActiveWindowMs(): number {

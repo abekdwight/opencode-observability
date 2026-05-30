@@ -17,6 +17,8 @@ export const HeaderActionsContext = React.createContext<HeaderActionsSetter>(
 const NAV_ITEMS = [
   { to: "/", label: "Home" },
   { to: "/directories", label: "Directories" },
+  { to: "/codex-sessions", label: "Codex" },
+  { to: "/claude-sessions", label: "Claude" },
   { to: "/search", label: "Search" },
   { to: "/monitor", label: "Monitor" },
 ] as const;
