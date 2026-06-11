@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}\"/scripts/open_monitor.py",
+            "statusMessage": "Opening telemetry viewer",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

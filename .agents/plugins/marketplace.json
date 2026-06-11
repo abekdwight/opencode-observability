@@ -1,0 +1,16 @@
+{
+  "name": "opencode-telemetry",
+  "interface": {
+    "displayName": "OpenCode Telemetry"
+  },
+  "plugins": [
+    {
+      "name": "opencode-telemetry",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

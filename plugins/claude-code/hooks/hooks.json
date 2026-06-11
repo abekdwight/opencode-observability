@@ -1,0 +1,16 @@
+{
+  "description": "Open the telemetry viewer for the current session when /monitor is invoked, blocking the prompt before it reaches the model.",
+  "hooks": {
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/scripts/open_monitor.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

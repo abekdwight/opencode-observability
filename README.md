@@ -126,6 +126,48 @@ ingest payload 例:
 }
 ```
 
+## Claude Code / Codex Integration
+
+このリポジトリは Claude Code と Codex のプラグインマーケットプレイスを兼ねています。
+それぞれのプラグインは `/monitor` で **現在のセッション** をビューア
+(`/sessions/claude/<id>` / `/sessions/codex/<id>`) で開きます。
+どちらもフック（Claude Code: `UserPromptExpansion` / Codex: `UserPromptSubmit`）が
+**モデル実行前にプロンプトをブロック**して処理するため、トークンを消費しません。
+OpenCode plugin の `command.execute.before` + キャンセルと同じ動作モデルです。
+
+### Claude Code
+
+```
+/plugin marketplace add abekeishi/opencode-telemetry
+/plugin install opencode-telemetry@opencode-telemetry
+```
+
+`/monitor` を実行すると、フックがブラウザでセッションビューアを開き
+プロンプト展開をブロックします。プラグインのフックは初回に信頼の承認が必要です。
+
+### Codex
+
+```
+codex plugin marketplace add abekeishi/opencode-telemetry
+codex plugin add opencode-telemetry@opencode-telemetry
+```
+
+`/monitor`（または skill `@monitor`）でビューアを開きます。フックは初回に
+`/hooks` で信頼を承認してください。フックが無効な場合は skill 本文の
+フォールバックとして、モデルが `$CODEX_THREAD_ID` を使って URL を開きます
+（この場合のみ 1 ターン消費）。
+
+### 共通の前提・設定
+
+- ビューアサーバーが起動していること（`npx opencode-observability`）。
+  未起動の場合、フックは起動方法を案内するメッセージを返します
+- フックスクリプトは `python3`（標準ライブラリのみ）で動作します
+- `OPENCODE_TELEMETRY_URL`: ビューアの base URL（既定値 `http://127.0.0.1:3737`）
+
+レイアウト: プラグイン本体は `plugins/claude-code/` と `plugins/codex/`、
+マーケットプレイスマニフェストは `.claude-plugin/marketplace.json`（Claude Code）と
+`.agents/plugins/marketplace.json`（Codex）にあります。
+
 ## Monitor Timeline
 
 `/monitor` ページは各セッションカードに **インライン SVG タイムラインチャート** を直接埋め込んでいます。水平の時間軸は右端が「Now」、左端が「5m」で、新しい活動が右に、古い活動が左に流れるリアルタイムのチャートレーン表示です。セッションの選択パネルや Timeline ボタンはありません — タイムラインは常にカード内に表示されます。このタイムラインは **ライブ専用** のメモリ内ストリームです。

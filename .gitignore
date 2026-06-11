@@ -8,3 +8,9 @@ test-results/
 .claude/handover/
 tests/fixtures/opencode-telemetry-*.sqlite
 .serena/project.yml
+__pycache__/
+
+# Local tooling state (not for the public repo)
+.claude/settings.local.json
+.serena/
+.playwright-mcp/
