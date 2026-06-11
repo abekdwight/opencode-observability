@@ -21,7 +21,7 @@ ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
           <BrowserRouter>
             <Routes>
               <Route element={<AppShell />}>
-                <Route index element={<Navigate replace to="/sessions" />} />
+                <Route index element={<Navigate replace to="/monitor" />} />
                 <Route path="sessions" element={<Sessions />} />
                 <Route
                   path="sessions/:harness/:id"
@@ -32,7 +32,7 @@ ReactDOM.createRoot(document.querySelector<HTMLDivElement>("#app")!).render(
                 <Route path="search" element={<Search />} />
                 <Route path="tool-errors" element={<ToolErrors />} />
                 <Route path="tool-errors/:tool" element={<ToolErrors />} />
-                <Route path="*" element={<Navigate replace to="/sessions" />} />
+                <Route path="*" element={<Navigate replace to="/monitor" />} />
               </Route>
             </Routes>
           </BrowserRouter>

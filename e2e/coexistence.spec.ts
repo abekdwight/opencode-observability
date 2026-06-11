@@ -459,6 +459,11 @@ test("deep links render app shell on every React route", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Recent Sessions" }),
+  ).toBeVisible();
+
+  await page.goto("/sessions");
   await expect(page.getByTestId("sessions-page")).toBeVisible();
   await expect(page.getByText("Root monitor session").first()).toBeVisible();
 
