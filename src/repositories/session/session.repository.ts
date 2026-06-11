@@ -400,3 +400,81 @@ export function listSessionTodos(
     `)
     .all(sessionId) as SessionTodoRecord[];
 }
+
+// ---------------------------------------------------------------------------
+// Root session listing (harness session list)
+// ---------------------------------------------------------------------------
+
+export interface RootSessionListRecord {
+  id: string;
+  title: string;
+  directory: string;
+  time_created: number;
+  time_updated: number;
+}
+
+export function listRootSessionRecords(
+  db: Database,
+  limit: number,
+): RootSessionListRecord[] {
+  return db
+    .prepare(`
+      SELECT id, title, directory, time_created, time_updated
+      FROM session
+      WHERE parent_id IS NULL
+      ORDER BY time_updated DESC, time_created DESC, id ASC
+      LIMIT ?
+    `)
+    .all(limit) as RootSessionListRecord[];
+}
+
+export function countMessagesBySession(
+  db: Database,
+  sessionIds: string[],
+): Map<string, number> {
+  if (sessionIds.length === 0) return new Map();
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(`
+      SELECT m.session_id, COUNT(*) AS cnt
+      FROM message m WHERE m.session_id IN (${placeholders})
+      GROUP BY m.session_id
+    `)
+    .all(...sessionIds) as { session_id: string; cnt: number }[];
+  return new Map(rows.map((row) => [row.session_id, row.cnt]));
+}
+
+export function sumAssistantTokensBySession(
+  db: Database,
+  sessionIds: string[],
+): Map<string, number> {
+  if (sessionIds.length === 0) return new Map();
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(`
+      SELECT m.session_id, COALESCE(SUM(${MESSAGE_TOTAL_TOKENS_SQL}), 0) AS total_tokens
+      FROM message m
+      WHERE m.session_id IN (${placeholders})
+        AND json_extract(m.data, '$.role') = 'assistant'
+      GROUP BY m.session_id
+    `)
+    .all(...sessionIds) as { session_id: string; total_tokens: number }[];
+  return new Map(rows.map((row) => [row.session_id, row.total_tokens]));
+}
+
+export function countSubagentsBySession(
+  db: Database,
+  sessionIds: string[],
+): Map<string, number> {
+  if (sessionIds.length === 0) return new Map();
+  const placeholders = sessionIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(`
+      SELECT parent_id, COUNT(*) AS cnt
+      FROM session
+      WHERE parent_id IN (${placeholders})
+      GROUP BY parent_id
+    `)
+    .all(...sessionIds) as { parent_id: string; cnt: number }[];
+  return new Map(rows.map((row) => [row.parent_id, row.cnt]));
+}

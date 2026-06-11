@@ -1,9 +1,11 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { isHarnessId } from "../../../../src/contracts/harness.js";
 import type { SessionMessageContract } from "../../../../src/contracts/session.js";
 import { MarkdownContent } from "../../../components/markdown-content";
 import { cn } from "../../../lib/cn";
 import { formatDurationShort, formatTimestampShort } from "../../../lib/format";
+import { sessionPath } from "../../../lib/harness";
 import { COLLAPSE_HEIGHT } from "../_lib/constants";
 import { FileDiffs } from "./file-diffs";
 import { MermaidCodeBlock } from "./mermaid-code-block";
@@ -34,6 +36,8 @@ export const MessageRow = React.memo(function MessageRow({
   onToggleDetail,
   toolsVisible,
 }: MessageRowProps) {
+  const { harness: rawHarness = "" } = useParams();
+  const harness = isHarnessId(rawHarness) ? rawHarness : "opencode";
   const isUser = msg.role === "user";
   const roleLabel = isUser ? "User" : "Assistant";
   const dateStr = formatTimestampShort(msg.createdAt);
@@ -141,7 +145,7 @@ export const MessageRow = React.memo(function MessageRow({
       {msg.subagentLinks.map((link) => (
         <Link
           key={link.id}
-          to={`/session/${encodeURIComponent(link.id)}`}
+          to={sessionPath(harness, link.id)}
           className="inline-block rounded-lg border-l-[3px] border-l-[var(--color-border-default)] bg-[var(--color-bg-elevated)] px-2 py-1 text-[0.82em] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-muted)] hover:no-underline"
         >
           {"\u2192"} {link.title}

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { SessionDetailContract } from "../src/contracts/session.js";
+import type { HarnessSessionDetailContract } from "../src/contracts/harness.js";
 
 const MONITOR_SNAPSHOT = {
   kind: "monitor.snapshot",
@@ -83,14 +83,22 @@ const MONITOR_SNAPSHOT = {
   ],
 };
 
-const SESSION_DETAIL: SessionDetailContract = {
-  kind: "session.detail",
+const SESSION_DETAIL: HarnessSessionDetailContract = {
+  kind: "harness.session.detail",
   generatedAt: "2024-01-11T11:00:00.000Z",
+  harness: {
+    id: "opencode",
+    label: "OpenCode",
+    capabilities: { delete: true, livePrompt: true, resume: true },
+  },
+  source: { ok: true, parseWarningCount: 0 },
+  models: ["gpt-4.1", "gpt-4.1-mini", "gpt-5.3-codex-spark"],
   durationMs: 33_000,
   session: {
     id: "ses-root-1",
     title: "Root monitor session",
     directory: "/workspace/repo-alpha",
+    gitBranch: null,
     parentId: null,
     createdAt: "2024-01-10T09:00:00.000Z",
     updatedAt: "2024-01-10T09:01:00.000Z",
@@ -173,7 +181,7 @@ const SESSION_DETAIL: SessionDetailContract = {
 
 function stubApis(
   page: import("@playwright/test").Page,
-  sessionDetail: SessionDetailContract = SESSION_DETAIL,
+  sessionDetail: HarnessSessionDetailContract = SESSION_DETAIL,
 ) {
   return Promise.all([
     page.route("**/api/monitor/snapshot", async (route) => {
@@ -186,7 +194,7 @@ function stubApis(
     page.route("**/api/monitor/events", async (route) => {
       await route.abort("failed");
     }),
-    page.route("**/api/session/ses-root-1", async (route) => {
+    page.route("**/api/sessions/opencode/ses-root-1", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -253,7 +261,7 @@ test.describe("monitor secondary details disclosure", () => {
 test.describe("session detail overview", () => {
   test("session detail metrics render from contract data", async ({ page }) => {
     await stubApis(page);
-    await page.goto("/session/ses-root-1");
+    await page.goto("/sessions/opencode/ses-root-1");
 
     // Session header is visible
     await expect(
@@ -270,7 +278,7 @@ test.describe("session detail overview", () => {
     page,
   }) => {
     await stubApis(page);
-    await page.goto("/session/ses-root-1");
+    await page.goto("/sessions/opencode/ses-root-1");
 
     const models = page.getByTestId("model-breakdown-accordion");
     await expect(models).toBeVisible();
@@ -341,7 +349,7 @@ test.describe("session detail overview", () => {
   test("empty-text message shells show tools without a message body", async ({
     page,
   }) => {
-    const sessionWithToolOnlyMessage: SessionDetailContract = {
+    const sessionWithToolOnlyMessage: HarnessSessionDetailContract = {
       ...SESSION_DETAIL,
       messages: [
         {
@@ -372,7 +380,7 @@ test.describe("session detail overview", () => {
     };
 
     await stubApis(page, sessionWithToolOnlyMessage);
-    await page.goto("/session/ses-root-1");
+    await page.goto("/sessions/opencode/ses-root-1");
 
     const message = page.getByTestId("message-0");
     await expect(message.getByText("skill create-skill")).toBeVisible();
@@ -388,7 +396,7 @@ test.describe("session detail overview", () => {
       (_, i) =>
         `Paragraph ${i + 1}: This is a long message for overflow testing.`,
     ).join("\n\n");
-    const sessionWithMessages: SessionDetailContract = {
+    const sessionWithMessages: HarnessSessionDetailContract = {
       ...SESSION_DETAIL,
       messages: [
         {
@@ -419,7 +427,7 @@ test.describe("session detail overview", () => {
     };
 
     await stubApis(page, sessionWithMessages);
-    await page.goto("/session/ses-root-1");
+    await page.goto("/sessions/opencode/ses-root-1");
 
     const firstMessageToggle = page
       .getByTestId("message-0")
@@ -447,7 +455,7 @@ test.describe("session detail overview", () => {
   test("mermaid fenced blocks render as diagrams and open in zoom lightbox", async ({
     page,
   }) => {
-    const sessionWithMermaid: SessionDetailContract = {
+    const sessionWithMermaid: HarnessSessionDetailContract = {
       ...SESSION_DETAIL,
       messages: [
         {
@@ -482,7 +490,7 @@ test.describe("session detail overview", () => {
     };
 
     await stubApis(page, sessionWithMermaid);
-    await page.goto("/session/ses-root-1");
+    await page.goto("/sessions/opencode/ses-root-1");
 
     const mermaidPreview = page
       .getByTestId("message-0")

@@ -19,8 +19,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const handleSelect = (commandId: string) => {
     switch (commandId) {
-      case "go-dashboard":
-        navigate("/");
+      case "go-sessions":
+        navigate("/sessions");
         break;
       case "go-monitor":
         navigate("/monitor");
@@ -28,8 +28,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       case "go-search":
         navigate("/search");
         break;
-      case "go-directories":
-        navigate("/directories");
+      case "go-dashboard":
+        navigate("/dashboard");
         break;
       case "go-tool-errors":
         navigate("/tool-errors");

@@ -1,10 +1,15 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import type { SessionDetailContract } from "../../../../src/contracts/session.js";
+import type {
+  HarnessDescriptorContract,
+  HarnessSessionDetailContract,
+} from "../../../../src/contracts/harness.js";
 import { cn } from "../../../lib/cn";
+import { sessionPath } from "../../../lib/harness";
 
 export interface SessionTopBarProps {
-  session: SessionDetailContract["session"];
+  harness: HarnessDescriptorContract;
+  session: HarnessSessionDetailContract["session"];
   copyState: "idle" | "copied" | "error";
   onCopy: () => void;
   onDelete: () => void;
@@ -28,6 +33,7 @@ const copyBtnBase = cn(
  * Compact sub-header below the main app header showing session title + actions.
  */
 export const SessionTopBar = React.memo(function SessionTopBar({
+  harness,
   session,
   copyState,
   onCopy,
@@ -40,17 +46,22 @@ export const SessionTopBar = React.memo(function SessionTopBar({
 }: SessionTopBarProps) {
   const copyBtnClass = cn(
     copyBtnBase,
-    copyState === "copied" && "bg-[var(--color-agent-chip-bg)] border-[#4caf50] text-[var(--color-agent-chip-text)]",
-    copyState === "error" && "bg-[var(--color-error-bg)] border-[var(--color-error-border)] text-[var(--color-error)]",
+    copyState === "copied" &&
+      "bg-[var(--color-agent-chip-bg)] border-[#4caf50] text-[var(--color-agent-chip-text)]",
+    copyState === "error" &&
+      "bg-[var(--color-error-bg)] border-[var(--color-error-border)] text-[var(--color-error)]",
   );
 
   return (
     <div className="h-9 flex items-center px-[var(--space-lg)] border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] shrink-0">
       <div className="flex items-center justify-between gap-[var(--space-md)] w-full min-h-0">
         <div className="flex items-center gap-[var(--space-sm)] min-w-0 flex-1">
+          <span className="text-[0.68em] font-[var(--font-mono)] whitespace-nowrap text-[var(--color-text-tertiary)]">
+            {harness.id}
+          </span>
           {session.parentId ? (
             <Link
-              to={`/session/${encodeURIComponent(session.parentId)}`}
+              to={sessionPath(harness.id, session.parentId)}
               className="text-[0.75em] whitespace-nowrap text-[var(--color-text-secondary)]"
             >
               {"\u21B3"} parent
@@ -78,7 +89,11 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                   : "bg-[var(--color-bg-elevated)] text-[var(--color-text-tertiary)] border-[var(--color-border-default)] hover:border-[var(--color-accent)] hover:text-[var(--color-text-secondary)]",
               )}
               onClick={onToggleOmoFilter}
-              title={omoFilter ? "OMO\u30D5\u30A3\u30EB\u30BF ON\uFF08\u81EA\u52D5\u633F\u5165\u30B3\u30E1\u30F3\u30C8\u3092\u975E\u8868\u793A\uFF09" : "OMO\u30D5\u30A3\u30EB\u30BF OFF\uFF08\u3059\u3079\u3066\u8868\u793A\uFF09"}
+              title={
+                omoFilter
+                  ? "OMO\u30D5\u30A3\u30EB\u30BF ON\uFF08\u81EA\u52D5\u633F\u5165\u30B3\u30E1\u30F3\u30C8\u3092\u975E\u8868\u793A\uFF09"
+                  : "OMO\u30D5\u30A3\u30EB\u30BF OFF\uFF08\u3059\u3079\u3066\u8868\u793A\uFF09"
+              }
               data-testid="btn-omo-filter"
             >
               <svg
@@ -108,7 +123,10 @@ export const SessionTopBar = React.memo(function SessionTopBar({
             data-testid="copy-command-btn"
           >
             {copyState === "copied" ? (
-              <span className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0" aria-hidden="true">
+              <span
+                className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0"
+                aria-hidden="true"
+              >
                 <svg
                   width="14"
                   height="14"
@@ -127,7 +145,10 @@ export const SessionTopBar = React.memo(function SessionTopBar({
                 </svg>
               </span>
             ) : (
-              <span className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0" aria-hidden="true">
+              <span
+                className="w-[0.95em] h-[0.95em] inline-flex items-center justify-center shrink-0"
+                aria-hidden="true"
+              >
                 <svg
                   width="14"
                   height="14"
@@ -152,33 +173,38 @@ export const SessionTopBar = React.memo(function SessionTopBar({
             </span>
           </button>
 
-          <button
-            type="button"
-            className={cn(copyBtnBase, "hover:border-[var(--color-delete-hover)] hover:text-[var(--color-delete-hover)]")}
-            onClick={onDelete}
-            title={"\u30BB\u30C3\u30B7\u30E7\u30F3\u3092\u524A\u9664"}
-            data-testid="delete-btn"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              role="img"
-              aria-hidden="true"
+          {harness.capabilities.delete ? (
+            <button
+              type="button"
+              className={cn(
+                copyBtnBase,
+                "hover:border-[var(--color-delete-hover)] hover:text-[var(--color-delete-hover)]",
+              )}
+              onClick={onDelete}
+              title={"\u30BB\u30C3\u30B7\u30E7\u30F3\u3092\u524A\u9664"}
+              data-testid="delete-btn"
             >
-              <title>Delete</title>
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-              <path d="M10 11v6" />
-              <path d="M14 11v6" />
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-            </svg>
-          </button>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                role="img"
+                aria-hidden="true"
+              >
+                <title>Delete</title>
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -190,7 +216,8 @@ export const SessionTopBar = React.memo(function SessionTopBar({
               "cursor-pointer transition-all duration-[var(--transition-fast)]",
               "flex items-center gap-1.5",
               "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
-              sidebarOpen && "bg-[var(--color-accent)] !text-[var(--color-text-inverse)] !border-[var(--color-accent)]",
+              sidebarOpen &&
+                "bg-[var(--color-accent)] !text-[var(--color-text-inverse)] !border-[var(--color-accent)]",
             )}
             onClick={onToggleSidebar}
             title={

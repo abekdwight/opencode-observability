@@ -35,7 +35,7 @@ export function RecentSessions({
             return (
               <Link
                 key={session.id}
-                to={`/session/${encodeURIComponent(session.id)}`}
+                to={`/sessions/opencode/${encodeURIComponent(session.id)}`}
                 className="block rounded-lg px-3 py-2 transition-colors hover:bg-[var(--color-bg-elevated)] hover:no-underline"
               >
                 <div className="text-sm font-medium text-[var(--color-text-primary)]">
@@ -56,7 +56,7 @@ export function RecentSessions({
         </div>
       )}
       <Link
-        to="/directories"
+        to="/sessions?h=opencode"
         className="mt-3 block text-xs font-medium text-[var(--color-accent)]"
       >
         All directories &rarr;

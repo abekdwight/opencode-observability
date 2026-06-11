@@ -2,6 +2,29 @@ import { resolveRepoBucketKey } from "./repo-root.js";
 
 type SqliteDatabase = import("better-sqlite3").Database;
 
+export interface TimelineEntry {
+  role: "user" | "assistant";
+  timestampMs: number;
+}
+
+/**
+ * Active duration over a message timeline: the sum of gaps that end in an
+ * assistant message. Mirrors {@link calcSessionActiveDurations} (the SQL
+ * variant used for OpenCode) so durations stay comparable across harnesses.
+ */
+export function calcActiveDurationFromTimeline(
+  entries: TimelineEntry[],
+): number {
+  const sorted = [...entries].sort((a, b) => a.timestampMs - b.timestampMs);
+  let total = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].role !== "assistant") continue;
+    const gap = sorted[i].timestampMs - sorted[i - 1].timestampMs;
+    if (gap > 0) total += gap;
+  }
+  return total;
+}
+
 export function calcSessionActiveDurations(
   db: SqliteDatabase,
   sessionIds: string[],

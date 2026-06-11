@@ -1,6 +1,6 @@
 import React from "react";
+import type { HarnessSessionDetailContract } from "../../../../src/contracts/harness.js";
 import type {
-  SessionDetailContract,
   SessionModelTokenBreakdown,
   SessionToolCallContract,
 } from "../../../../src/contracts/session.js";
@@ -14,7 +14,7 @@ import {
 import { DiffView } from "./diff-view";
 
 export interface SessionSidebarProps {
-  data: SessionDetailContract;
+  data: HarnessSessionDetailContract;
   open: boolean;
   openDetails: Set<string>;
   onToggleDetail: (id: string) => void;
@@ -301,6 +301,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const prettyDir = data.session.directory;
   const todos = data.todos ?? [];
   const doneCount = todos.filter((t) => t.status === "completed").length;
+  const modelBreakdown = data.modelBreakdown ?? [];
+  const subagentCount = data.subagents?.length ?? 0;
   const toolEvents = Array.isArray(data.toolEvents)
     ? data.toolEvents
     : data.messages.flatMap((message) => message.toolCalls);
@@ -397,7 +399,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 Duration
               </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
-                {formatDuration(data.durationMs)}
+                {data.durationMs !== null
+                  ? formatDuration(data.durationMs)
+                  : "—"}
               </span>
             </div>
             <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)]">
@@ -427,9 +431,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
                 {toolEvents.length}
-                {data.subagents.length > 0 ? (
+                {subagentCount > 0 ? (
                   <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                    Subagents {data.subagents.length}
+                    Subagents {subagentCount}
                   </span>
                 ) : null}
               </span>
@@ -439,35 +443,55 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 Tokens
               </span>
               <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
-                {formatTokens(data.tokens.total)}
-                <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                  In {formatTokens(data.tokens.input)} / Out{" "}
-                  {formatTokens(data.tokens.output)}
+                {data.tokens ? formatTokens(data.tokens.total) : "—"}
+                {data.tokens ? (
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
+                    In {formatTokens(data.tokens.input)} / Out{" "}
+                    {formatTokens(data.tokens.output)}
+                  </span>
+                ) : null}
+                {data.tokens &&
+                ((data.tokens.cacheRead ?? 0) > 0 ||
+                  (data.tokens.cacheWrite ?? 0) > 0) ? (
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
+                    Cache R {formatTokens(data.tokens.cacheRead ?? 0)}
+                    {data.tokens.cacheWrite !== null
+                      ? ` / W ${formatTokens(data.tokens.cacheWrite)}`
+                      : ""}
+                  </span>
+                ) : null}
+                {data.tokens && (data.tokens.reasoning ?? 0) > 0 ? (
+                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
+                    Reasoning {formatTokens(data.tokens.reasoning ?? 0)}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            {data.tokens?.cost !== null && data.tokens?.cost !== undefined ? (
+              <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)] last:border-b-0">
+                <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                  Cost
                 </span>
-                {data.tokens.cacheRead > 0 || data.tokens.cacheWrite > 0 ? (
-                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                    Cache R {formatTokens(data.tokens.cacheRead)} / W{" "}
-                    {formatTokens(data.tokens.cacheWrite)}
-                  </span>
-                ) : null}
-                {data.tokens.reasoning > 0 ? (
-                  <span className="text-[0.85em] font-normal text-[var(--color-text-tertiary)]">
-                    Reasoning {formatTokens(data.tokens.reasoning)}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-            <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)] last:border-b-0">
-              <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
-                Cost
-              </span>
-              <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
-                {data.tokens.cost > 0
-                  ? `$${data.tokens.cost.toFixed(4)}`
-                  : "$0.00"}
-              </span>
-            </div>
-            {(data.session.summary?.files ?? 0) > 0 ? (
+                <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
+                  {data.tokens.cost > 0
+                    ? `$${data.tokens.cost.toFixed(4)}`
+                    : "$0.00"}
+                </span>
+              </div>
+            ) : null}
+            {modelBreakdown.length === 0 && data.models.length > 0 ? (
+              <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)] border-b border-[var(--color-border-faint)] last:border-b-0">
+                <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
+                  Model
+                </span>
+                <span className="font-semibold text-[var(--color-text-primary)] text-right flex flex-col items-end">
+                  {data.models.map((model) => (
+                    <span key={model}>{model}</span>
+                  ))}
+                </span>
+              </div>
+            ) : null}
+            {data.session.summary && data.session.summary.files > 0 ? (
               <div className="flex justify-between items-baseline text-[0.82em] py-[var(--space-xs)]">
                 <span className="text-[var(--color-text-secondary)] font-medium shrink-0">
                   File Changes
@@ -490,6 +514,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           <div className="text-[0.75em] font-[var(--font-mono)] text-[var(--color-text-secondary)] break-all">
             {prettyDir}
           </div>
+          {data.session.gitBranch ? (
+            <div className="mt-1 text-[0.75em] font-[var(--font-mono)] text-[var(--color-text-tertiary)] break-all">
+              ⎇ {data.session.gitBranch}
+            </div>
+          ) : null}
         </div>
 
         {/* Todos */}
@@ -536,7 +565,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         ) : null}
 
         {/* Model Breakdown */}
-        {data.modelBreakdown.length > 0 ? (
+        {modelBreakdown.length > 0 ? (
           <details
             className="mb-[var(--space-lg)] border-none bg-transparent p-0 rounded-none"
             data-testid="model-breakdown-accordion"
@@ -549,11 +578,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             >
               Models{" "}
               <span className="bg-[var(--color-border-subtle)] text-[var(--color-text-secondary)] text-[0.9em] font-semibold px-1.5 py-px rounded-[var(--radius-sm)]">
-                {data.modelBreakdown.length}
+                {modelBreakdown.length}
               </span>
-              <span className="ml-auto normal-case tracking-normal font-medium text-[var(--color-text-tertiary)]">
-                {formatTokens(data.tokens.total)} tokens
-              </span>
+              {data.tokens ? (
+                <span className="ml-auto normal-case tracking-normal font-medium text-[var(--color-text-tertiary)]">
+                  {formatTokens(data.tokens.total)} tokens
+                </span>
+              ) : null}
             </summary>
             <div className="py-[var(--space-sm)]">
               <div className="flex items-center justify-between gap-[var(--space-sm)] mb-[var(--space-sm)]">
@@ -598,7 +629,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </div>
               {(["main", "subagent"] as const).map((scope) => {
                 const rows = buildSessionModelUsageDisplayRows(
-                  data.modelBreakdown,
+                  modelBreakdown,
                   modelUsageView,
                 ).filter((row) => row.scope === scope);
                 if (rows.length === 0) return null;

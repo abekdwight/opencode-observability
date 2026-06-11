@@ -15,12 +15,10 @@ export const HeaderActionsContext = React.createContext<HeaderActionsSetter>(
 );
 
 const NAV_ITEMS = [
-  { to: "/", label: "Home" },
-  { to: "/directories", label: "Directories" },
-  { to: "/codex-sessions", label: "Codex" },
-  { to: "/claude-sessions", label: "Claude" },
+  { to: "/sessions", label: "Sessions" },
   { to: "/search", label: "Search" },
   { to: "/monitor", label: "Monitor" },
+  { to: "/dashboard", label: "Dashboard" },
 ] as const;
 
 function isActive(pathname: string, to: string): boolean {
@@ -69,7 +67,7 @@ export function AppShell() {
         <header className="h-12 flex items-center px-5 gap-4 sticky top-0 z-[var(--z-header)] shrink-0 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-surface-translucent)] backdrop-blur-xl">
           {/* Brand */}
           <Link
-            to="/"
+            to="/sessions"
             className="flex items-center gap-2 no-underline text-[var(--color-text-primary)] font-semibold text-[0.88em] tracking-tight whitespace-nowrap shrink-0 hover:no-underline"
           >
             OpenCode Telemetry

@@ -587,7 +587,7 @@ export function Monitor() {
                         <div className="mb-1">
                           <Link
                             className="text-sm font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors no-underline"
-                            to={`/session/${session.id}`}
+                            to={`/sessions/opencode/${session.id}`}
                           >
                             {session.title}
                           </Link>

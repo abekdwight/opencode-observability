@@ -326,7 +326,7 @@ function monitorAppUrl(target: ServerTarget): string {
 
 function monitorSessionUrl(target: ServerTarget, sessionId: string): string {
   return new URL(
-    `/session/${encodeURIComponent(sessionId)}`,
+    `/sessions/opencode/${encodeURIComponent(sessionId)}`,
     target.ingestUrl,
   ).toString();
 }

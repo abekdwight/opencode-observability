@@ -7,7 +7,6 @@ import {
   fillMissingDays,
 } from "../../lib/analytics.js";
 import {
-  addLocalDays,
   buildDashboardSelectionBounds,
   computeDashboardRefreshEligibility,
   parseLocalDate,
@@ -17,8 +16,6 @@ import { resolveRepoBucketKey } from "../../lib/repo-root.js";
 import {
   escapeHtml,
   formatDurationShort,
-  formatTokens,
-  NAV_SEARCH,
   prettifyPath,
 } from "../../lib/text-format.js";
 import {
@@ -251,7 +248,7 @@ const ERROR_TREND_COLORS = [
   "#86868b",
 ] as const;
 
-function buildHeatmapSvg(
+function _buildHeatmapSvg(
   dayCounts: DayCount[],
   selection: DashboardSelectionBoundsContract,
 ): string {
@@ -357,7 +354,7 @@ function buildHeatmapSvg(
 </svg>`;
 }
 
-function buildBarChart(
+function _buildBarChart(
   items: { label: string; count: number }[],
   barColor: string,
 ): string {
@@ -551,7 +548,7 @@ export function mergeDashboardAggregateStates(
   };
 }
 
-function filterMap(
+function _filterMap(
   map: Map<string, number>,
   selection: DashboardSelectionBoundsContract,
 ): Map<string, number> {
@@ -718,7 +715,11 @@ function buildRecentSessionsData(
   }));
 }
 
-function incrementCount(map: Map<string, number>, key: string, value: number): void {
+function incrementCount(
+  map: Map<string, number>,
+  key: string,
+  value: number,
+): void {
   if (!key || value === 0) return;
   map.set(key, (map.get(key) ?? 0) + value);
 }
@@ -816,34 +817,6 @@ function aggregateModelTokenTotalsFromRollups(
   return out;
 }
 
-function renderRecentSessionsHtml(
-  recentSessions: DashboardRecentSessionItem[],
-): string {
-  return recentSessions
-    .map((session) => {
-      const dateStr = new Date(session.timeUpdated).toLocaleString("ja-JP", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const tokens =
-        session.totalTokens > 0 ? formatTokens(session.totalTokens) : "—";
-      const safeTitle = escapeHtml(session.title || "(no title)");
-      const safeDir = escapeHtml(prettifyPath(session.directory || ""));
-      return `
-      <a href="/session/${encodeURIComponent(session.id)}" class="recent-item">
-        <div class="recent-title">${safeTitle}</div>
-        <div class="recent-meta">
-          <span>${dateStr}</span>
-          <span class="recent-pill">${tokens} tokens</span>
-          <span class="recent-dir">${safeDir}</span>
-        </div>
-      </a>`;
-    })
-    .join("");
-}
-
 function buildToolReliabilityMatrixData(
   toolSuccessErrorMap: Map<string, ToolSuccessError>,
 ): DashboardToolReliabilityRow[] {
@@ -878,7 +851,7 @@ function buildToolReliabilityMatrixData(
   return topRows;
 }
 
-function renderToolMatrixHtml(rows: DashboardToolReliabilityRow[]): string {
+function _renderToolMatrixHtml(rows: DashboardToolReliabilityRow[]): string {
   return rows.length > 0
     ? rows
         .map((row) => {
@@ -961,7 +934,7 @@ function buildMcpUsageData(
   return rows.some((row) => row.calls > 0) ? rows : [];
 }
 
-function renderMcpAggHtml(rows: DashboardMcpUsageRow[]): string {
+function _renderMcpAggHtml(rows: DashboardMcpUsageRow[]): string {
   return rows.length > 0
     ? rows
         .map((row) => {
@@ -1113,7 +1086,6 @@ function quantileOrNull(
 function buildModelPerformanceStatsRows(
   selectedSessionAtoms: DashboardProjectionSource["modelPerformanceStats"]["selectedSessionAtoms"],
 ): DashboardModelPerformanceStatsRow[] {
-
   interface Bucket {
     model: string;
     provider: string;
@@ -1229,7 +1201,9 @@ function buildModelPerformanceStatsRows(
 function buildModelTokenConsumptionRows(
   selectedDayRollups: DashboardProjectionSource["modelTokenConsumption"]["selectedDayRollups"],
 ): DashboardModelTokenConsumptionRow[] {
-  return Array.from(aggregateModelTokenTotalsFromRollups(selectedDayRollups).values())
+  return Array.from(
+    aggregateModelTokenTotalsFromRollups(selectedDayRollups).values(),
+  )
     .map((value) => {
       const inputTokens = value.inputTokens;
       const outputTokens = value.outputTokens;
@@ -1265,7 +1239,7 @@ function buildRecentYearHeatmapDays(
     .map((rollup) => ({ day: rollup.day, cnt: rollup.rootSessionCount }));
 }
 
-function renderErrorTrendSvg(errorTrendSeries: DashboardLineSeries[]): string {
+function _renderErrorTrendSvg(errorTrendSeries: DashboardLineSeries[]): string {
   return errorTrendSeries.length > 0
     ? buildLineChartSvg(toLineChartData(errorTrendSeries), {
         width: 920,
@@ -1369,7 +1343,7 @@ function buildTokenTrendData(
   };
 }
 
-function renderTokenTrendHtml(
+function _renderTokenTrendHtml(
   tokenTrend: DashboardTokenTrendData,
   range: DashboardRange,
   view: DashboardView,
@@ -1527,7 +1501,7 @@ function buildSubagentTrendData(
   };
 }
 
-function renderSubagentTrendHtml(
+function _renderSubagentTrendHtml(
   subagentTrend: DashboardSubagentTrendData,
   range: DashboardRange,
   view: DashboardView,
@@ -1637,7 +1611,9 @@ function buildRepoBreakdownData(
   };
 }
 
-function renderRepoBreakdownHtml(repoData: DashboardRepoBreakdownData): string {
+function _renderRepoBreakdownHtml(
+  repoData: DashboardRepoBreakdownData,
+): string {
   if (repoData.rows.length === 0) {
     return '<p style="color:#86868b;font-size:0.9em;">No repository data</p>';
   }
@@ -1765,10 +1741,14 @@ function buildDashboardData(
     }));
 
   const tokenInputDays = new Map(
-    selectedDayRollups.map((rollup) => [rollup.day, rollup.tokenInputByDay] as const),
+    selectedDayRollups.map(
+      (rollup) => [rollup.day, rollup.tokenInputByDay] as const,
+    ),
   );
   const tokenOutputDays = new Map(
-    selectedDayRollups.map((rollup) => [rollup.day, rollup.tokenOutputByDay] as const),
+    selectedDayRollups.map(
+      (rollup) => [rollup.day, rollup.tokenOutputByDay] as const,
+    ),
   );
   const tokenInputHours = new Map<string, number>();
   const tokenOutputHours = new Map<string, number>();
@@ -1816,7 +1796,9 @@ function buildDashboardData(
       activeProjects: source.summary.projectIds.size,
     },
     recentSessions: buildRecentSessionsData(recentSessions),
-    heatmapDays: buildRecentYearHeatmapDays(source.heatmapDays.trailingDayRollups),
+    heatmapDays: buildRecentYearHeatmapDays(
+      source.heatmapDays.trailingDayRollups,
+    ),
     errorTrendSeries: view === "hourly" ? [] : errorTrendSeries,
     errorTrendHourlyBars,
     tokenTrend: buildTokenTrendData(
@@ -1874,7 +1856,7 @@ function buildDashboardAggregateStateForWindow(
   return state;
 }
 
-function buildDashboardAggregateState(
+function _buildDashboardAggregateState(
   db: SqliteDatabase,
   range: DashboardRange,
 ): DashboardAggregateState {
@@ -1923,7 +1905,7 @@ function updateDashboardAggregateStateForWindow(
   return state;
 }
 
-function updateDashboardAggregateState(
+function _updateDashboardAggregateState(
   db: SqliteDatabase,
   state: DashboardAggregateState,
   range: DashboardRange,
@@ -1956,191 +1938,4 @@ export function buildDashboardViewModel(
     range,
     view,
   );
-}
-
-export function renderDashboardHtml(vm: DashboardViewModel): string {
-  const { range, view, summary } = vm;
-  const recentSessionsHtml = renderRecentSessionsHtml(vm.recentSessions);
-  const tokenTrendHtml = renderTokenTrendHtml(vm.tokenTrend, range, view);
-  const subagentTrendHtml = renderSubagentTrendHtml(
-    vm.subagentTrend,
-    range,
-    view,
-  );
-  const repoBreakdownHtml = renderRepoBreakdownHtml(vm.activeRepos);
-  const modelBarChart = buildBarChart(vm.modelUsage, "#0066cc");
-  const toolBarChart = buildBarChart(vm.toolUsage, "#0066cc");
-  const agentBarChart = buildBarChart(vm.agentDistribution, "#0066cc");
-  const mcpAggHtml = renderMcpAggHtml(vm.mcpUsage);
-  const toolMatrixHtml = renderToolMatrixHtml(vm.toolReliabilityMatrix);
-  const errorPatternChart = buildBarChart(vm.errorPatterns, "#d32f2f");
-  const errorTrendSvg = renderErrorTrendSvg(vm.errorTrendSeries);
-  const activityEndDay = toLocalDateString(new Date());
-  const activitySelection: DashboardSelectionBoundsContract = {
-    startDayInclusive: addLocalDays(activityEndDay, -364),
-    endDayInclusive: activityEndDay,
-    endDayExclusive: addLocalDays(activityEndDay, 1),
-    dayCount: 365,
-  };
-  const heatmapSvg = buildHeatmapSvg(vm.heatmapDays, activitySelection);
-
-  return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard - OpenCode Telemetry</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
-    h1 { font-size: 1.6em; font-weight: 700; margin-bottom: 8px; padding-bottom: 12px; border-bottom: 2px solid #1d1d1f; }
-    h2 { font-size: 1em; font-weight: 700; color: #1d1d1f; margin: 0 0 14px 0; }
-    a { color: #0066cc; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .card { background: white; border-radius: 12px; border: 1px solid #d2d2d7; padding: 20px 24px; margin-bottom: 16px; }
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .metric-card { background: white; border-radius: 12px; border: 1px solid #d2d2d7; padding: 16px 18px; }
-    .metric-label { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: #86868b; font-weight: 600; margin-bottom: 4px; }
-    .metric-value { font-size: 1.4em; font-weight: 700; color: #1d1d1f; }
-    .metric-sub { font-size: 0.75em; color: #86868b; margin-top: 2px; }
-    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    @media (max-width: 600px) { .charts-grid { grid-template-columns: 1fr; } }
-    .heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
-    .recent-item { display: block; padding: 14px 0; border-bottom: 1px solid #f0f0f0; transition: background 0.1s; text-decoration: none; }
-    .recent-item:last-child { border-bottom: none; }
-    .recent-item:hover { background: #f8f8fa; }
-    .recent-title { font-size: 0.95em; font-weight: 600; color: #1d1d1f; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .recent-meta { font-size: 0.78em; color: #86868b; display: flex; gap: 10px; align-items: center; }
-    .recent-pill { background: #fff3e0; color: #e65100; padding: 1px 8px; border-radius: 6px; }
-    .recent-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.92em; }
-    .more-link { display: block; text-align: center; padding: 12px; font-size: 0.88em; font-weight: 500; color: #0066cc; border-top: 1px solid #f0f0f0; margin-top: 4px; }
-    .range-bar { display: flex; gap: 6px; margin-bottom: 16px; }
-    .range-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid #d2d2d7; background: white; font-size: 0.82em; font-weight: 500; cursor: pointer; color: #1d1d1f; text-decoration: none; transition: all 0.15s; }
-    .range-btn:hover { border-color: #0066cc; color: #0066cc; text-decoration: none; }
-    .range-btn.active { background: #0066cc; color: white; border-color: #0066cc; }
-  </style>
-</head>
-<body>
-  <h1>Dashboard</h1>
-  ${NAV_SEARCH}
-
-  <div class="metrics-grid">
-    <div class="metric-card">
-      <div class="metric-label">Total Sessions</div>
-      <div class="metric-value">${summary.totalSessions.toLocaleString()}</div>
-      <div class="metric-sub">main sessions only</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Total Tokens</div>
-      <div class="metric-value">${formatTokens(summary.totalTokens)}</div>
-      <div class="metric-sub">assistant messages</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Tool Calls</div>
-      <div class="metric-value">${summary.totalToolCalls.toLocaleString()}</div>
-      <div class="metric-sub">all sessions</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Tool Error Rate</div>
-      <div class="metric-value">${summary.toolErrorRate}</div>
-      <div class="metric-sub">${summary.toolErrors.toLocaleString()} errors</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Active Projects</div>
-      <div class="metric-value">${summary.activeProjects.toLocaleString()}</div>
-      <div class="metric-sub">distinct project IDs</div>
-    </div>
-  </div>
-
-  <div class="range-bar">
-    ${DASHBOARD_RANGES.map((r) => `<a href="/?range=${r}" class="range-btn${r === range ? " active" : ""}">${r === "all" ? "All" : r === "month" ? "1 Month" : r === "week" ? "1 Week" : "1 Day"}</a>`).join("")}
-  </div>
-
-  <div class="card">
-    <h2>Recent Sessions</h2>
-    ${recentSessionsHtml || '<p style="color:#86868b;font-size:0.9em;">No sessions found</p>'}
-    <a href="/directories" class="more-link">All directories &rarr;</a>
-  </div>
-
-  <div class="card">
-    <h2>Activity (last 1 year)</h2>
-    <div class="heatmap-scroll">
-      ${heatmapSvg}
-    </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:0.75em;color:#86868b;">
-      <span>Less</span>
-      <svg width="68" height="12"><rect x="0"  y="0" width="12" height="12" rx="2" fill="#ebedf0"/><rect x="14" y="0" width="12" height="12" rx="2" fill="#9be9a8"/><rect x="28" y="0" width="12" height="12" rx="2" fill="#40c463"/><rect x="42" y="0" width="12" height="12" rx="2" fill="#30a14e"/><rect x="56" y="0" width="12" height="12" rx="2" fill="#216e39"/></svg>
-      <span>More</span>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Error Daily Trend</h2>
-    <div style="overflow-x:auto;padding-bottom:4px;">${errorTrendSvg}</div>
-  </div>
-
-  <div class="card">
-    <h2>Token I/O Trend</h2>
-    ${tokenTrendHtml}
-  </div>
-
-  <div class="card">
-    <h2>Subagent Activity</h2>
-    ${subagentTrendHtml}
-  </div>
-
-  <div class="card">
-    <h2>Active Repositories</h2>
-    ${repoBreakdownHtml}
-  </div>
-
-  <div class="charts-grid">
-    <div class="card">
-      <h2>Model Usage</h2>
-      ${modelBarChart}
-    </div>
-    <div class="card">
-      <h2>Top Tools</h2>
-      ${toolBarChart}
-    </div>
-    <div class="card">
-      <h2>Agent Distribution</h2>
-      ${agentBarChart}
-    </div>
-    <div class="card">
-      <h2>MCP Tool Usage</h2>
-      <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
-        <span style="width:140px;">Server</span>
-        <span style="width:55px;text-align:right;">Calls</span>
-        <span style="width:45px;text-align:right;">Errors</span>
-        <span style="flex:1;">Error Rate</span>
-        <span style="width:45px;"></span>
-      </div>
-      ${mcpAggHtml}
-    </div>
-  </div>
-
-  <div class="card" id="tool-reliability">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
-      <h2 style="margin:0;">Tool Reliability</h2>
-      <a href="/tool-errors" style="font-size:0.82em;white-space:nowrap;">View all tool errors &rarr;</a>
-    </div>
-    <div style="display:flex;gap:10px;margin-bottom:10px;font-size:0.7em;color:#86868b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">
-      <span style="width:140px;">Tool</span>
-      <span style="width:55px;text-align:right;">OK</span>
-      <span style="width:45px;text-align:right;">Error</span>
-      <span style="flex:1;">Error Rate</span>
-      <span style="width:45px;"></span>
-    </div>
-    ${toolMatrixHtml}
-  </div>
-
-  <div class="card">
-    <h2>Error Patterns</h2>
-    ${errorPatternChart}
-  </div>
-</body>
-</html>
-  `;
 }

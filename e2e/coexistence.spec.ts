@@ -230,58 +230,69 @@ test("deep links render app shell on every React route", async ({ page }) => {
     await route.abort("failed");
   });
 
-  await page.route("**/api/directories", async (route) => {
+  const sessionsListBody = {
+    kind: "harness.sessions",
+    generatedAt: "2024-01-11T11:00:00.000Z",
+    harnesses: [
+      {
+        descriptor: {
+          id: "opencode",
+          label: "OpenCode",
+          capabilities: { delete: true, livePrompt: true, resume: true },
+        },
+        source: { available: true, reason: "ok" },
+        sessionCount: 1,
+      },
+      {
+        descriptor: {
+          id: "codex",
+          label: "Codex",
+          capabilities: { delete: false, livePrompt: false, resume: true },
+        },
+        source: { available: false, reason: "missing-database" },
+        sessionCount: 0,
+      },
+      {
+        descriptor: {
+          id: "claude",
+          label: "Claude Code",
+          capabilities: { delete: false, livePrompt: false, resume: true },
+        },
+        source: { available: false, reason: "missing-directory" },
+        sessionCount: 0,
+      },
+    ],
+    query: { harness: null, directory: null, q: "", sort: "updated" },
+    directories: [{ directory: "/workspace/repo-alpha", count: 1 }],
+    sessions: [
+      {
+        harness: "opencode",
+        id: "ses-root-1",
+        title: "Root monitor session",
+        directory: "/workspace/repo-alpha",
+        gitBranch: null,
+        createdAt: "2024-01-10T09:00:00.000Z",
+        updatedAt: "2024-01-10T09:01:00.000Z",
+        model: null,
+        messageCount: 3,
+        totalTokens: 180,
+        subagentCount: 1,
+        detailAvailable: true,
+      },
+    ],
+  };
+  await page.route("**/api/sessions", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        kind: "directories.list",
-        generatedAt: "2024-01-11T11:00:00.000Z",
-        repoGroups: [
-          {
-            name: "repo-alpha",
-            rawWorktree: "/workspace/repo-alpha",
-            prettyWorktree: "/workspace/repo-alpha",
-            iconColor: "#4caf50",
-            totalCount: 1,
-            latestTime: "2024-01-10T09:01:00.000Z",
-            directories: [
-              {
-                rawDirectory: "/workspace/repo-alpha",
-                prettyDirectory: "/workspace/repo-alpha",
-                sessionCount: 1,
-              },
-            ],
-          },
-        ],
-      }),
+      body: JSON.stringify(sessionsListBody),
     });
   });
-
-  await page.route("**/api/dir/**", async (route) => {
+  await page.route("**/api/sessions?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        kind: "directory.sessions",
-        generatedAt: "2024-01-11T11:00:00.000Z",
-        directory: "/workspace/repo-alpha",
-        sort: { selected: "date", options: ["date", "tokens", "messages"] },
-        filter: { query: "" },
-        sessions: [
-          {
-            id: "ses-root-1",
-            title: "Root monitor session",
-            createdAt: "2024-01-10T09:00:00.000Z",
-            updatedAt: "2024-01-10T09:01:00.000Z",
-            messageCount: 3,
-            totalTokens: 180,
-            subagentCount: 1,
-            durationMs: 20000,
-            summary: { additions: 10, deletions: 4, files: 2 },
-          },
-        ],
-      }),
+      body: JSON.stringify(sessionsListBody),
     });
   });
 
@@ -313,18 +324,26 @@ test("deep links render app shell on every React route", async ({ page }) => {
     });
   });
 
-  await page.route("**/api/session/ses-root-1", async (route) => {
+  await page.route("**/api/sessions/opencode/ses-root-1", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        kind: "session.detail",
+        kind: "harness.session.detail",
         generatedAt: "2024-01-11T11:00:00.000Z",
+        harness: {
+          id: "opencode",
+          label: "OpenCode",
+          capabilities: { delete: true, livePrompt: true, resume: true },
+        },
+        source: { ok: true, parseWarningCount: 0 },
+        models: ["gpt-4.1", "gpt-4.1-mini", "gpt-5.3-codex-spark"],
         durationMs: 33_000,
         session: {
           id: "ses-root-1",
           title: "Root monitor session",
           directory: "/workspace/repo-alpha",
+          gitBranch: null,
           parentId: null,
           createdAt: "2024-01-10T09:00:00.000Z",
           updatedAt: "2024-01-10T09:01:00.000Z",
@@ -440,23 +459,18 @@ test("deep links render app shell on every React route", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByTestId("dashboard")).toBeVisible();
+  await expect(page.getByTestId("sessions-page")).toBeVisible();
+  await expect(page.getByText("Root monitor session").first()).toBeVisible();
 
-  await page.goto("/directories");
+  await page.goto("/dashboard");
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByTestId("repo-section").first()).toContainText(
-    "repo-alpha",
-  );
+  await expect(page.getByTestId("dashboard")).toBeVisible();
 
   await page.goto("/search?q=monitor");
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByText("Root monitor session").first()).toBeVisible();
 
-  await page.goto("/dir/%2Fworkspace%2Frepo-alpha");
-  await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(page.getByText("Root monitor session").first()).toBeVisible();
-
-  await page.goto("/session/ses-root-1");
+  await page.goto("/sessions/opencode/ses-root-1");
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Root monitor session" }),

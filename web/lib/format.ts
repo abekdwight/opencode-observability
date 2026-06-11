@@ -49,6 +49,11 @@ export function formatTokens(n: number): string {
   return `${n}`;
 }
 
+/** Display-shorten an absolute path: home → `~`. Full path stays in title. */
+export function formatDirectory(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+}
+
 /** Format date for search results (with year) */
 export function formatDateFull(isoString: string): string {
   return new Intl.DateTimeFormat("ja-JP", {

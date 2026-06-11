@@ -9,10 +9,10 @@ export interface Command {
 
 export const navigationCommands: Command[] = [
   {
-    id: "go-dashboard",
-    label: "Go to Dashboard",
+    id: "go-sessions",
+    label: "Go to Sessions",
     category: "navigation",
-    keywords: ["home"],
+    keywords: ["home", "list", "opencode", "codex", "claude"],
   },
   {
     id: "go-monitor",
@@ -25,8 +25,8 @@ export const navigationCommands: Command[] = [
     category: "navigation",
   },
   {
-    id: "go-directories",
-    label: "Go to Directories",
+    id: "go-dashboard",
+    label: "Go to Dashboard",
     category: "navigation",
   },
   {

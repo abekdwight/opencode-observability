@@ -1,10 +1,18 @@
 import type {
   SessionMessageContract,
+  SessionModelTokenBreakdown,
+  SessionTodoContract,
   SessionToolCallContract,
-} from "../../contracts/session.js";
+} from "../../../contracts/session.js";
 
 // ---------------------------------------------------------------------------
-// Low-level helpers
+// Claude Code transcript parser
+//
+// A transcript is a JSONL log at ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
+// Record types used: "user", "assistant" (message.content block arrays),
+// "ai-title" (generated title). Assistant content blocks: text, thinking,
+// tool_use; user messages carry tool_result blocks. Subagent (sidechain)
+// turns live in the same file flagged with isSidechain=true.
 // ---------------------------------------------------------------------------
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -275,6 +283,150 @@ export function buildClaudeMessages(
 }
 
 // ---------------------------------------------------------------------------
+// Todos — the last TodoWrite call is the session's final task list
+// ---------------------------------------------------------------------------
+
+export function extractClaudeTodos(
+  records: ClaudeRecord[],
+): SessionTodoContract[] {
+  let todos: SessionTodoContract[] = [];
+  for (const record of records) {
+    if (record.type !== "assistant") continue;
+    const message = record.raw.message;
+    if (!isObject(message) || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (!isObject(block) || block.type !== "tool_use") continue;
+      if (block.name !== "TodoWrite") continue;
+      const input = block.input;
+      if (!isObject(input) || !Array.isArray(input.todos)) continue;
+      const next: SessionTodoContract[] = [];
+      for (const item of input.todos) {
+        if (!isObject(item) || typeof item.content !== "string") continue;
+        next.push({
+          content: item.content,
+          status: typeof item.status === "string" ? item.status : "pending",
+          priority: typeof item.priority === "string" ? item.priority : "",
+        });
+      }
+      todos = next;
+    }
+  }
+  return todos;
+}
+
+// ---------------------------------------------------------------------------
+// Token usage
+//
+// Streamed assistant turns are split into several records sharing one
+// message.id, each repeating the same usage object — sum once per id.
+// ---------------------------------------------------------------------------
+
+export interface ClaudeUsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+interface UsageEntry {
+  scope: "main" | "subagent";
+  modelId: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+function usageNumber(usage: Record<string, unknown>, key: string): number {
+  const value = usage[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function collectUsageEntries(records: ClaudeRecord[]): UsageEntry[] {
+  const byMessageId = new Map<string, UsageEntry>();
+  let syntheticId = 0;
+  for (const record of records) {
+    if (record.type !== "assistant") continue;
+    const message = record.raw.message;
+    if (!isObject(message) || !isObject(message.usage)) continue;
+    const id =
+      typeof message.id === "string" && message.id
+        ? message.id
+        : `synthetic-${syntheticId++}`;
+    if (byMessageId.has(id)) continue;
+    const entry: UsageEntry = {
+      scope: record.raw.isSidechain === true ? "subagent" : "main",
+      modelId: typeof message.model === "string" ? message.model : "unknown",
+      input: usageNumber(message.usage, "input_tokens"),
+      output: usageNumber(message.usage, "output_tokens"),
+      cacheRead: usageNumber(message.usage, "cache_read_input_tokens"),
+      cacheWrite: usageNumber(message.usage, "cache_creation_input_tokens"),
+    };
+    // Skip zero-usage records (e.g. "<synthetic>" error placeholders) so
+    // they don't pollute the model breakdown.
+    if (entry.input + entry.output + entry.cacheRead + entry.cacheWrite === 0) {
+      continue;
+    }
+    byMessageId.set(id, entry);
+  }
+  return [...byMessageId.values()];
+}
+
+export function extractClaudeUsageTotals(
+  records: ClaudeRecord[],
+): ClaudeUsageTotals {
+  const totals: ClaudeUsageTotals = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  };
+  for (const entry of collectUsageEntries(records)) {
+    totals.input += entry.input;
+    totals.output += entry.output;
+    totals.cacheRead += entry.cacheRead;
+    totals.cacheWrite += entry.cacheWrite;
+  }
+  totals.total =
+    totals.input + totals.output + totals.cacheRead + totals.cacheWrite;
+  return totals;
+}
+
+export function extractClaudeModelBreakdown(
+  records: ClaudeRecord[],
+): SessionModelTokenBreakdown[] {
+  const grouped = new Map<string, SessionModelTokenBreakdown>();
+  for (const entry of collectUsageEntries(records)) {
+    const key = `${entry.scope}::${entry.modelId}`;
+    const current = grouped.get(key) ?? {
+      scope: entry.scope,
+      agent: entry.scope === "main" ? "main" : "subagent",
+      modelId: entry.modelId,
+      providerId: "anthropic",
+      messageCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+    };
+    current.messageCount += 1;
+    current.inputTokens += entry.input;
+    current.outputTokens += entry.output;
+    current.cacheReadTokens += entry.cacheRead;
+    current.cacheWriteTokens += entry.cacheWrite;
+    current.totalTokens +=
+      entry.input + entry.output + entry.cacheRead + entry.cacheWrite;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((a, b) => b.totalTokens - a.totalTokens);
+}
+
+// ---------------------------------------------------------------------------
 // Metadata extraction (used by both list and detail summaries)
 // ---------------------------------------------------------------------------
 
@@ -288,22 +440,6 @@ export interface ClaudeTranscriptMeta {
   tokensUsed: number;
   messageCount: number;
   firstUserMessage: string;
-}
-
-function usageTokens(usage: unknown): number {
-  if (!isObject(usage)) return 0;
-  const fields = [
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-  ];
-  let total = 0;
-  for (const field of fields) {
-    const value = usage[field];
-    if (typeof value === "number" && Number.isFinite(value)) total += value;
-  }
-  return total;
 }
 
 function firstUserText(message: unknown): string {
@@ -330,7 +466,6 @@ export function extractClaudeMeta(
   let model: string | null = null;
   let firstTimestamp: string | null = null;
   let lastTimestamp: string | null = null;
-  let tokensUsed = 0;
   let messageCount = 0;
   let firstUserMessage = "";
 
@@ -356,7 +491,6 @@ export function extractClaudeMeta(
 
     if (record.type === "assistant" && isObject(raw.message)) {
       if (typeof raw.message.model === "string") model = raw.message.model;
-      tokensUsed += usageTokens(raw.message.usage);
     }
 
     if (record.type === "user" && !firstUserMessage) {
@@ -372,7 +506,7 @@ export function extractClaudeMeta(
     model,
     createdAt: parseTimestamp(firstTimestamp),
     updatedAt: parseTimestamp(lastTimestamp),
-    tokensUsed,
+    tokensUsed: extractClaudeUsageTotals(records).total,
     messageCount,
     firstUserMessage,
   };

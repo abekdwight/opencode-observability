@@ -3,14 +3,8 @@ import type {
   MonitorSessionSummary,
   MonitorSnapshotContract,
 } from "../contracts/monitor.js";
-import type { SessionDetailContract } from "../contracts/session.js";
-import type { SignalBadge } from "../contracts/shared.js";
 import { getMonitorActiveWindowMs } from "../lib/config.js";
 import { buildMessageTotalTokensSql } from "../lib/message-token-sql.js";
-import {
-  buildSessionDetailSnapshot,
-  buildSessionRouteView,
-} from "../services/session/session-detail.service.js";
 
 interface SessionRow {
   id: string;
@@ -42,28 +36,6 @@ function computeInputRatioPercent(
 }
 
 const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("data");
-
-function toIsoFromUnknown(value: string | number): string {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return toIso(value);
-  }
-
-  if (typeof value !== "string") {
-    return new Date(0).toISOString();
-  }
-
-  const maybeNumeric = Number(value);
-  if (Number.isFinite(maybeNumeric)) {
-    return toIso(maybeNumeric);
-  }
-
-  const maybeDate = Date.parse(value);
-  if (Number.isFinite(maybeDate)) {
-    return new Date(maybeDate).toISOString();
-  }
-
-  return value;
-}
 
 function getCount(
   db: Database.Database,
@@ -298,110 +270,5 @@ export function buildMonitorSnapshotContract(
       total: mainCompactions + subagentCompactions,
     },
     signalBadges,
-  };
-}
-
-export function buildSessionDetailContract(
-  db: Database.Database,
-  sessionId: string,
-): SessionDetailContract | null {
-  const snapshot = buildSessionDetailSnapshot(db, sessionId);
-  if (!snapshot) return null;
-
-  const routeView = buildSessionRouteView(db, sessionId);
-  if (!routeView) return null;
-
-  const { sessionInfo, tokens, modelBreakdown, compactions, subagents } =
-    snapshot;
-  const signalBadges: SignalBadge[] = [
-    {
-      key: "tool-errors",
-      label: "Tool errors",
-      level: snapshot.toolErrorCount > 0 ? "error" : "success",
-      count: snapshot.toolErrorCount,
-    },
-    {
-      key: "subagents",
-      label: "Subagents",
-      level: subagents.length > 0 ? "info" : "success",
-      count: subagents.length,
-    },
-    {
-      key: "compactions",
-      label: "Compactions",
-      level: compactions.total > 0 ? "warning" : "info",
-      count: compactions.total,
-    },
-  ];
-
-  return {
-    kind: "session.detail",
-    generatedAt: new Date().toISOString(),
-    durationMs: Math.max(0, routeView.durationMs),
-    session: {
-      id: sessionInfo.id,
-      title: sessionInfo.title,
-      directory: sessionInfo.directory,
-      parentId: sessionInfo.parent_id,
-      createdAt: toIso(sessionInfo.time_created),
-      updatedAt: toIso(sessionInfo.time_updated),
-      summary: {
-        additions: asNumber(sessionInfo.summary_additions),
-        deletions: asNumber(sessionInfo.summary_deletions),
-        files: asNumber(sessionInfo.summary_files),
-      },
-    },
-    tokens: {
-      total: asNumber(tokens.total_tokens),
-      input: asNumber(tokens.input_tokens),
-      output: asNumber(tokens.output_tokens),
-      reasoning: asNumber(tokens.reasoning_tokens),
-      cacheRead: asNumber(tokens.cache_read_tokens),
-      cacheWrite: asNumber(tokens.cache_write_tokens),
-      cost: asNumber(tokens.total_cost),
-    },
-    modelBreakdown,
-    compactions,
-    subagents,
-    signalBadges,
-    messages: routeView.messageDetails.map((message) => ({
-      role: message.role,
-      text: message.text,
-      modelId: message.model_id ?? null,
-      agent: message.agent ?? null,
-      outputTpsLabel: message.output_tps_label ?? null,
-      createdAt: toIsoFromUnknown(message.time_created),
-      toolCalls: message.toolCalls.map((call) => ({
-        tool: call.tool,
-        input: call.input,
-        status: call.status,
-        error: call.error,
-        fullInput: call.fullInput,
-        fullOutput: call.fullOutput,
-        durationMs: call.durationMs,
-      })),
-      subagentLinks: message.subagentLinks.map((link) => ({
-        id: link.id,
-        title: link.title,
-        durationMs: link.durationMs,
-      })),
-      fileDiffs: message.fileDiffs,
-    })),
-    toolEvents: routeView.toolEvents.map((event) => ({
-      tool: event.tool,
-      input: event.input,
-      status: event.status,
-      error: event.error,
-      fullInput: event.fullInput,
-      fullOutput: event.fullOutput,
-      durationMs: event.durationMs,
-      createdAt: toIsoFromUnknown(event.time_created),
-    })),
-    todos: routeView.todos.map((todo) => ({
-      content: todo.content,
-      status: todo.status,
-      priority: todo.priority,
-    })),
-    summaryDiffs: routeView.summaryDiffs,
   };
 }

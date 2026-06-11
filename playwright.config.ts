@@ -26,6 +26,8 @@ export default defineConfig({
     env: {
       PORT: "3838",
       OPENCODE_DB_PATH: "tests/fixtures/opencode-telemetry.sqlite",
+      CODEX_STATE_DB_PATH: "tests/fixtures/nonexistent-codex-state.sqlite",
+      CLAUDE_PROJECTS_DIR: "tests/fixtures/nonexistent-claude-projects",
     },
   },
 });

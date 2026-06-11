@@ -252,12 +252,14 @@ test.describe("Monitor timeline inline chart", () => {
     );
   });
 
-  test("session title link navigates to /session/:id", async ({ page }) => {
+  test("session title link navigates to /sessions/opencode/:id", async ({
+    page,
+  }) => {
     await setupMonitorMocks(page);
     await page.goto("/monitor");
 
     // The session title should be a link
-    const titleLink = page.locator('a.recent-title[href="/session/ses-alpha"]');
+    const titleLink = page.locator('a[href="/sessions/opencode/ses-alpha"]');
     await expect(titleLink).toBeVisible();
     await expect(titleLink).toContainText("Investigate flaky test");
 
@@ -343,10 +345,10 @@ test.describe("Monitor timeline inline chart", () => {
     await page.goto("/monitor");
 
     await expect(
-      page.locator('a.recent-title[href="/session/ses-alpha"]'),
+      page.locator('a[href="/sessions/opencode/ses-alpha"]'),
     ).toBeVisible();
     await expect(
-      page.locator('a.recent-title[href="/session/ses-beta"]'),
+      page.locator('a[href="/sessions/opencode/ses-beta"]'),
     ).toBeVisible();
     await expect(
       page.getByText("No sessions seen during this page load"),

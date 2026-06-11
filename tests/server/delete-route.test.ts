@@ -19,9 +19,12 @@ describe("delete route", () => {
   });
 
   test("rejects delete without matching confirmation header", async () => {
-    const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
-      method: "DELETE",
-    });
+    const response = await app.request(
+      `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+      {
+        method: "DELETE",
+      },
+    );
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
@@ -30,13 +33,33 @@ describe("delete route", () => {
     });
   });
 
-  test("deletes root session and child session when confirmation matches", async () => {
-    const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
-      method: "DELETE",
-      headers: {
-        "x-opencode-confirm-delete": ROOT_SESSION_ID,
+  test("rejects delete for harnesses without the capability", async () => {
+    const response = await app.request(
+      `/api/sessions/codex/${ROOT_SESSION_ID}`,
+      {
+        method: "DELETE",
+        headers: {
+          "x-opencode-confirm-delete": ROOT_SESSION_ID,
+        },
       },
+    );
+
+    expect(response.status).toBe(405);
+    expect(await response.json()).toMatchObject({
+      error: "delete is not supported for this harness",
     });
+  });
+
+  test("deletes root session and child session when confirmation matches", async () => {
+    const response = await app.request(
+      `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+      {
+        method: "DELETE",
+        headers: {
+          "x-opencode-confirm-delete": ROOT_SESSION_ID,
+        },
+      },
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({

@@ -2,27 +2,13 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { resolveAppDistDir } from "../lib/app-dist-path.js";
-import { getWritableDb } from "../lib/db.js";
-import {
-  readDashboardAffectedDaysForRootSessionIds,
-  readDashboardRootSessionIdsForSessionIds,
-  readSessionDeletionTargetIds,
-} from "../repositories/dashboard/dashboard-repository.js";
-import {
-  invalidateDashboardAggregationStore,
-  invalidateDashboardAggregationStoreForRootSessionIdsAndDays,
-} from "../services/dashboard/dashboard-aggregation-store.js";
 import { renderAppShell } from "./app-shell.js";
-import { claudeSessionsApi } from "./claude-sessions-api.js";
-import { codexSessionsApi } from "./codex-sessions-api.js";
 import { dashboardApi } from "./dashboard-api.js";
-import { requireDeleteConfirmation } from "./delete-guard.js";
-import { directoriesApi } from "./directories-api.js";
 import { exportApi } from "./export-api.js";
 import { mcpApi } from "./mcp-api.js";
 import { monitorApi } from "./monitor-api.js";
 import { searchApi } from "./search-api.js";
-import { sessionApi } from "./session-api.js";
+import { sessionsApi } from "./sessions-api.js";
 import { toolErrorsApi } from "./tool-errors-api.js";
 
 export function createApiApp() {
@@ -30,65 +16,11 @@ export function createApiApp() {
 
   apiApp.route("/monitor", monitorApi);
   apiApp.route("/mcp", mcpApi);
-  apiApp.route("/session", sessionApi);
-  apiApp.route("/codex-sessions", codexSessionsApi);
-  apiApp.route("/claude-sessions", claudeSessionsApi);
+  apiApp.route("/sessions", sessionsApi);
   apiApp.route("/dashboard", dashboardApi);
   apiApp.route("/export", exportApi);
-  apiApp.route("/", directoriesApi);
   apiApp.route("/", searchApi);
   apiApp.route("/tool-errors", toolErrorsApi);
-
-  apiApp.delete("/session/:sessionId", (c) => {
-    const sessionId = c.req.param("sessionId");
-    const confirmation = c.req.header("x-opencode-confirm-delete");
-
-    if (!requireDeleteConfirmation(sessionId, confirmation)) {
-      return c.json(
-        {
-          error: "delete confirmation required",
-          sessionId,
-        },
-        400,
-      );
-    }
-
-    const db = getWritableDb();
-    try {
-      db.exec("PRAGMA foreign_keys = ON");
-      const targetSessionIds = readSessionDeletionTargetIds(db, sessionId);
-      const affectedRootSessionIds = readDashboardRootSessionIdsForSessionIds(
-        db,
-        targetSessionIds,
-      );
-      const affectedDays = readDashboardAffectedDaysForRootSessionIds(
-        db,
-        affectedRootSessionIds,
-      );
-      const deleteStmt = db.prepare(
-        "DELETE FROM session WHERE id = ? OR parent_id = ?",
-      );
-      const result = deleteStmt.run(sessionId, sessionId);
-
-      if (result.changes > 0) {
-        if (affectedRootSessionIds.length > 0 && affectedDays.length > 0) {
-          invalidateDashboardAggregationStoreForRootSessionIdsAndDays(
-            db,
-            affectedRootSessionIds,
-            affectedDays,
-          );
-        } else {
-          invalidateDashboardAggregationStore();
-        }
-      }
-
-      return c.json({ deleted: result.changes });
-    } catch (err) {
-      return c.json({ error: String(err) }, 500);
-    } finally {
-      db.close();
-    }
-  });
 
   apiApp.notFound((c) =>
     c.json(

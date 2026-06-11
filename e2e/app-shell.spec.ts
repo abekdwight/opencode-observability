@@ -99,18 +99,26 @@ test("app shell persists across monitor and session routes", async ({
   await page.route("**/api/monitor/events", async (route) => {
     await route.abort("failed");
   });
-  await page.route("**/api/session/ses-root-1", async (route) => {
+  await page.route("**/api/sessions/opencode/ses-root-1", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        kind: "session.detail",
+        kind: "harness.session.detail",
         generatedAt: "2024-01-11T11:00:00.000Z",
+        harness: {
+          id: "opencode",
+          label: "OpenCode",
+          capabilities: { delete: true, livePrompt: true, resume: true },
+        },
+        source: { ok: true, parseWarningCount: 0 },
+        models: ["gpt-4.1", "gpt-4.1-mini", "gpt-5.3-codex-spark"],
         durationMs: 33_000,
         session: {
           id: "ses-root-1",
           title: "Root monitor session",
           directory: "/workspace/repo-alpha",
+          gitBranch: null,
           parentId: null,
           createdAt: "2024-01-10T09:00:00.000Z",
           updatedAt: "2024-01-10T09:01:00.000Z",
@@ -211,7 +219,7 @@ test("app shell persists across monitor and session routes", async ({
     });
   });
 
-  await page.goto("/session/ses-root-1");
+  await page.goto("/sessions/opencode/ses-root-1");
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Root monitor session" }),
@@ -227,9 +235,7 @@ test("app shell persists across monitor and session routes", async ({
   await expect(
     page.getByRole("heading", { name: "Root monitor session" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Home" }).first().click();
+  await page.getByRole("link", { name: "Sessions" }).first().click();
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Recent Sessions" }),
-  ).toBeVisible();
+  await expect(page.getByTestId("sessions-page")).toBeVisible();
 });

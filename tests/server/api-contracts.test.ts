@@ -999,12 +999,12 @@ describe("server api contracts", () => {
     } finally {
       const cleanupDb = getWritableDb();
       try {
-        cleanupDb.prepare("DELETE FROM message WHERE session_id = ?").run(
-          fallbackSessionId,
-        );
-        cleanupDb.prepare("DELETE FROM session WHERE id = ?").run(
-          fallbackSessionId,
-        );
+        cleanupDb
+          .prepare("DELETE FROM message WHERE session_id = ?")
+          .run(fallbackSessionId);
+        cleanupDb
+          .prepare("DELETE FROM session WHERE id = ?")
+          .run(fallbackSessionId);
       } finally {
         cleanupDb.close();
       }
@@ -1219,103 +1219,198 @@ describe("server api contracts", () => {
     }
   });
 
-  test("GET /api/directories returns directories contract shape", async () => {
-    const app = createApiApp();
-    const response = await app.request("/api/directories");
+  test("GET /api/sessions merges harness lists with per-source status", async () => {
+    process.env.CODEX_STATE_DB_PATH = "/nonexistent/codex-state.sqlite";
+    process.env.CLAUDE_PROJECTS_DIR = "/nonexistent/claude-projects";
+    try {
+      const app = createApiApp();
+      const response = await app.request("/api/sessions");
 
-    expect(response.status).toBe(200);
+      expect(response.status).toBe(200);
 
-    const body = (await response.json()) as {
-      kind: string;
-      repoGroups: Array<{
-        name: string;
-        rawWorktree: string;
-        directories: Array<{
-          rawDirectory: string;
-          prettyDirectory: string;
-          worktree: string;
-          prettyWorktree: string;
+      const body = (await response.json()) as {
+        kind: string;
+        harnesses: Array<{
+          descriptor: {
+            id: string;
+            label: string;
+            capabilities: {
+              delete: boolean;
+              livePrompt: boolean;
+              resume: boolean;
+            };
+          };
+          source: { available: boolean; reason: string };
           sessionCount: number;
         }>;
-      }>;
-    };
+        query: {
+          harness: string | null;
+          directory: string | null;
+          q: string;
+          sort: string;
+        };
+        directories: Array<{ directory: string; count: number }>;
+        sessions: Array<{
+          harness: string;
+          id: string;
+          title: string;
+          directory: string;
+          gitBranch: string | null;
+          model: string | null;
+          messageCount: number | null;
+          totalTokens: number | null;
+          subagentCount: number | null;
+          detailAvailable: boolean;
+        }>;
+      };
 
-    expect(body.kind).toBe("directories.list");
-    expect(body.repoGroups.map((group) => group.rawWorktree)).toEqual([
-      "/workspace/repo-alpha",
-      "/workspace/repo-beta",
-    ]);
-    expect(body.repoGroups[0].directories).toEqual([
-      {
-        rawDirectory: "/workspace/repo-alpha",
-        prettyDirectory: "/workspace/repo-alpha",
-        worktree: "/workspace/repo-alpha",
-        prettyWorktree: "/workspace/repo-alpha",
-        sessionCount: 1,
-      },
-      {
-        rawDirectory: "/workspace/repo-alpha/future",
-        prettyDirectory: "/workspace/repo-alpha/future",
-        worktree: "/workspace/repo-alpha",
-        prettyWorktree: "/workspace/repo-alpha",
-        sessionCount: 1,
-      },
-    ]);
+      expect(body.kind).toBe("harness.sessions");
+      expect(body.query).toEqual({
+        harness: null,
+        directory: null,
+        q: "",
+        sort: "updated",
+      });
+
+      const entries = new Map(
+        body.harnesses.map((entry) => [entry.descriptor.id, entry]),
+      );
+      expect([...entries.keys()].sort()).toEqual([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+      expect(entries.get("opencode")?.source).toEqual({
+        available: true,
+        reason: "ok",
+      });
+      expect(entries.get("opencode")?.descriptor.capabilities).toEqual({
+        delete: true,
+        livePrompt: true,
+        resume: true,
+      });
+      expect(entries.get("opencode")?.sessionCount).toBe(4);
+      expect(entries.get("codex")?.source).toEqual({
+        available: false,
+        reason: "missing-database",
+      });
+      expect(entries.get("claude")?.source).toEqual({
+        available: false,
+        reason: "missing-directory",
+      });
+
+      // Root sessions only, newest update first.
+      expect(body.sessions.map((session) => session.id)).toEqual([
+        FUTURE_SESSION_ID,
+        ROOT_SESSION_ID,
+        ALERT_SESSION_ID,
+        OLD_SESSION_ID,
+      ]);
+      expect(
+        body.sessions.find((session) => session.id === ROOT_SESSION_ID),
+      ).toMatchObject({
+        harness: "opencode",
+        title: "Root monitor session",
+        directory: "/workspace/repo-alpha",
+        gitBranch: null,
+        model: null,
+        messageCount: 3,
+        totalTokens: 180,
+        subagentCount: 1,
+        detailAvailable: true,
+      });
+
+      expect(body.directories).toEqual([
+        { directory: "/workspace/repo-alpha", count: 1 },
+        { directory: "/workspace/repo-alpha/future", count: 1 },
+        { directory: "/workspace/repo-beta/legacy", count: 1 },
+        { directory: "/workspace/repo-beta/packages/api", count: 1 },
+      ]);
+    } finally {
+      delete process.env.CODEX_STATE_DB_PATH;
+      delete process.env.CLAUDE_PROJECTS_DIR;
+    }
   });
 
-  test("GET /api/dir/:directory returns sessions with sort/filter semantics", async () => {
+  test("GET /api/sessions applies q/directory filters and sort", async () => {
+    process.env.CODEX_STATE_DB_PATH = "/nonexistent/codex-state.sqlite";
+    process.env.CLAUDE_PROJECTS_DIR = "/nonexistent/claude-projects";
+    try {
+      const app = createApiApp();
+
+      const filtered = await app.request("/api/sessions?q=Legacy");
+      const filteredBody = (await filtered.json()) as {
+        sessions: Array<{ id: string }>;
+        harnesses: Array<{
+          descriptor: { id: string };
+          sessionCount: number;
+        }>;
+      };
+      expect(filteredBody.sessions.map((session) => session.id)).toEqual([
+        OLD_SESSION_ID,
+      ]);
+      expect(
+        filteredBody.harnesses.find(
+          (entry) => entry.descriptor.id === "opencode",
+        )?.sessionCount,
+      ).toBe(1);
+
+      const scoped = await app.request(
+        `/api/sessions?harness=opencode&directory=${encodeURIComponent(
+          "/workspace/repo-alpha",
+        )}`,
+      );
+      const scopedBody = (await scoped.json()) as {
+        sessions: Array<{ id: string }>;
+        directories: Array<{ directory: string }>;
+        harnesses: Array<{
+          descriptor: { id: string };
+          sessionCount: number;
+        }>;
+      };
+      expect(scopedBody.sessions.map((session) => session.id)).toEqual([
+        ROOT_SESSION_ID,
+      ]);
+      // The directory facet covers the harness+q scope, not the dir filter.
+      expect(scopedBody.directories).toHaveLength(4);
+      // Harness counts apply the directory filter (each facet excludes only
+      // its own dimension), so harness and directory combine as AND.
+      expect(
+        scopedBody.harnesses.find((entry) => entry.descriptor.id === "opencode")
+          ?.sessionCount,
+      ).toBe(1);
+
+      const sorted = await app.request("/api/sessions?sort=tokens");
+      const sortedBody = (await sorted.json()) as {
+        sessions: Array<{ totalTokens: number | null }>;
+      };
+      const tokens = sortedBody.sessions.map(
+        (session) => session.totalTokens ?? -1,
+      );
+      expect(tokens).toEqual([...tokens].sort((a, b) => b - a));
+    } finally {
+      delete process.env.CODEX_STATE_DB_PATH;
+      delete process.env.CLAUDE_PROJECTS_DIR;
+    }
+  });
+
+  test("GET /api/sessions/:harness/:id rejects unknown ids and harnesses", async () => {
     const app = createApiApp();
-    const directory = encodeURIComponent("/workspace/repo-alpha");
-    const response = await app.request(
-      `/api/dir/${directory}?sort=tokens&filter=root`,
-    );
 
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      kind: string;
-      directory: string;
-      sort: {
-        selected: string;
-        options: string[];
-      };
-      filter: {
-        query: string;
-      };
-      sessions: Array<{
-        id: string;
-        title: string;
-        messageCount: number;
-        totalTokens: number;
-        subagentCount: number;
-        durationMs: number;
-        summary: {
-          additions: number;
-          deletions: number;
-          files: number;
-        };
-      }>;
-    };
-
-    expect(body.kind).toBe("directory.sessions");
-    expect(body.directory).toBe("/workspace/repo-alpha");
-    expect(body.sort.selected).toBe("tokens");
-    expect(body.sort.options).toEqual(["date", "tokens", "messages"]);
-    expect(body.filter.query).toBe("root");
-    expect(body.sessions).toHaveLength(1);
-    expect(body.sessions[0]).toMatchObject({
-      id: ROOT_SESSION_ID,
-      title: "Root monitor session",
-      messageCount: 3,
-      totalTokens: 180,
-      subagentCount: 1,
-      summary: {
-        additions: 10,
-        deletions: 4,
-        files: 2,
-      },
+    const unknownSession = await app.request("/api/sessions/opencode/missing");
+    expect(unknownSession.status).toBe(404);
+    await expect(unknownSession.json()).resolves.toEqual({
+      kind: "harness.session.not-found",
+      harness: "opencode",
+      sessionId: "missing",
     });
-    expect(body.sessions[0].durationMs).toBeGreaterThan(0);
+
+    const unknownHarness = await app.request("/api/sessions/cursor/some-id");
+    expect(unknownHarness.status).toBe(400);
+    await expect(unknownHarness.json()).resolves.toEqual({
+      kind: "harness.unknown",
+      harness: "cursor",
+    });
   });
 
   test("GET /api/search returns empty results with no query", async () => {
@@ -1356,14 +1451,23 @@ describe("server api contracts", () => {
     expect(Array.isArray(body.results)).toBe(true);
   });
 
-  test("GET /api/session/:id returns the session contract shape", async () => {
+  test("GET /api/sessions/opencode/:id returns the unified detail contract", async () => {
     const app = createApiApp();
-    const response = await app.request(`/api/session/${ROOT_SESSION_ID}`);
+    const response = await app.request(
+      `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+    );
 
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as {
       kind: string;
+      harness: {
+        id: string;
+        label: string;
+        capabilities: Record<string, boolean>;
+      };
+      source: { ok: boolean; parseWarningCount: number };
+      models: string[];
       durationMs: number;
       session: { id: string; title: string; parentId: string | null };
       tokens: {
@@ -1437,7 +1541,18 @@ describe("server api contracts", () => {
       summaryDiffs: string | null;
     };
 
-    expect(body.kind).toBe("session.detail");
+    expect(body.kind).toBe("harness.session.detail");
+    expect(body.harness).toMatchObject({
+      id: "opencode",
+      label: "OpenCode",
+      capabilities: { delete: true, livePrompt: true, resume: true },
+    });
+    expect(body.source).toEqual({ ok: true, parseWarningCount: 0 });
+    expect(body.models).toEqual([
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-5.3-codex-spark",
+    ]);
     expect(body.durationMs).toBeGreaterThan(0);
     expect(body.session).toMatchObject({
       id: ROOT_SESSION_ID,
@@ -1565,7 +1680,7 @@ describe("server api contracts", () => {
     expect(serialized).not.toContain("part-root-1-tool-read");
   });
 
-  test("GET /api/session/:id renders tool-only messages as empty-text message shells", async () => {
+  test("GET /api/sessions/opencode/:id renders tool-only messages as empty-text message shells", async () => {
     useFixtureDb();
     let db: ReturnType<typeof getWritableDb> | null = null;
 
@@ -1609,7 +1724,9 @@ describe("server api contracts", () => {
       db = null;
 
       const app = createApiApp();
-      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`);
+      const response = await app.request(
+        `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+      );
       expect(response.status).toBe(200);
 
       const body = (await response.json()) as {
@@ -1642,7 +1759,7 @@ describe("server api contracts", () => {
     }
   });
 
-  test("DELETE /api/session invalidates dashboard aggregates for the deleted root session", async () => {
+  test("DELETE /api/sessions/opencode/:id invalidates dashboard aggregates for the deleted root session", async () => {
     useFixtureDb();
 
     const app = createApiApp();
@@ -1674,26 +1791,28 @@ describe("server api contracts", () => {
     ]);
 
     try {
-      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
-        method: "DELETE",
-        headers: {
-          "x-opencode-confirm-delete": ROOT_SESSION_ID,
+      const response = await app.request(
+        `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-opencode-confirm-delete": ROOT_SESSION_ID,
+          },
         },
-      });
+      );
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ deleted: 2 });
 
       const afterDeleteSnapshot = getDashboardApiCacheSnapshotForTests();
-      expect(afterDeleteSnapshot.generation).toBe(beforeSnapshot.generation + 1);
+      expect(afterDeleteSnapshot.generation).toBe(
+        beforeSnapshot.generation + 1,
+      );
       expect(afterDeleteSnapshot.sessionKeys).toEqual([
         OLD_SESSION_ID,
         ALERT_SESSION_ID,
       ]);
-      expect(afterDeleteSnapshot.dayKeys).toEqual([
-        "2024-01-04",
-        "2024-01-10",
-      ]);
+      expect(afterDeleteSnapshot.dayKeys).toEqual(["2024-01-04", "2024-01-10"]);
 
       const afterDb = getWritableDb();
       try {
@@ -1713,7 +1832,7 @@ describe("server api contracts", () => {
     }
   });
 
-  test("DELETE /api/session rejects missing confirmation without touching dashboard aggregates", async () => {
+  test("DELETE /api/sessions/opencode/:id rejects missing confirmation without touching dashboard aggregates", async () => {
     useFixtureDb();
 
     const app = createApiApp();
@@ -1734,9 +1853,12 @@ describe("server api contracts", () => {
     const beforeSnapshot = getDashboardApiCacheSnapshotForTests();
 
     try {
-      const response = await app.request(`/api/session/${ROOT_SESSION_ID}`, {
-        method: "DELETE",
-      });
+      const response = await app.request(
+        `/api/sessions/opencode/${ROOT_SESSION_ID}`,
+        {
+          method: "DELETE",
+        },
+      );
 
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toEqual({
@@ -2414,9 +2536,13 @@ describe("server api contracts", () => {
       expect(after.summary.totalSessions).toBe(before.summary.totalSessions);
       expect(after.summary.totalTokens).toBe(before.summary.totalTokens + 25);
       expect(
-        after.recentSessions.filter((session) => session.id !== ROOT_SESSION_ID),
+        after.recentSessions.filter(
+          (session) => session.id !== ROOT_SESSION_ID,
+        ),
       ).toEqual(unaffectedRecentSessions);
-      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.generation).toBeGreaterThan(
+        beforeSnapshot.generation,
+      );
       expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
       expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
     } finally {
@@ -2441,7 +2567,9 @@ describe("server api contracts", () => {
       );
       const updatedAt = new Date("2024-01-14T11:06:00.000Z").getTime();
 
-      db.prepare("UPDATE message SET time_updated = ?, data = ? WHERE id = ?").run(
+      db.prepare(
+        "UPDATE message SET time_updated = ?, data = ? WHERE id = ?",
+      ).run(
         updatedAt,
         JSON.stringify({
           role: "assistant",
@@ -2473,7 +2601,9 @@ describe("server api contracts", () => {
       expect(after.generatedAt).not.toBe(before.generatedAt);
       expect(after.summary.totalTokens).toBe(before.summary.totalTokens + 20);
       expect(afterMiniModel?.totalTokens).toBe(50);
-      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.generation).toBeGreaterThan(
+        beforeSnapshot.generation,
+      );
       expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
       expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
     } finally {
@@ -2526,7 +2656,9 @@ describe("server api contracts", () => {
 
       expect(after.generatedAt).not.toBe(before.generatedAt);
       expect(withoutGeneratedAt(after)).toEqual(withoutGeneratedAt(before));
-      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
+      expect(afterSnapshot.generation).toBeGreaterThan(
+        beforeSnapshot.generation,
+      );
       expect(afterSnapshot.sessionKeys).toEqual(beforeSnapshot.sessionKeys);
       expect(afterSnapshot.dayKeys).toEqual(beforeSnapshot.dayKeys);
     } finally {
@@ -2561,8 +2693,13 @@ describe("server api contracts", () => {
       expect(before.summary.totalSessions).toBe(1);
       expect(after.generatedAt).not.toBe(before.generatedAt);
       expect(after.summary.totalSessions).toBe(0);
-      expect(afterSnapshot.generation).toBeGreaterThan(beforeSnapshot.generation);
-      expect(afterSnapshot.sessionKeys).toEqual([ROOT_SESSION_ID, ALERT_SESSION_ID]);
+      expect(afterSnapshot.generation).toBeGreaterThan(
+        beforeSnapshot.generation,
+      );
+      expect(afterSnapshot.sessionKeys).toEqual([
+        ROOT_SESSION_ID,
+        ALERT_SESSION_ID,
+      ]);
       expect(afterSnapshot.dayKeys).toEqual(["2024-01-10", "2024-01-11"]);
     } finally {
       db.close();

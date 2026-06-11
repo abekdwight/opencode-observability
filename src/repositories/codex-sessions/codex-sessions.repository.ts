@@ -9,6 +9,7 @@ export interface CodexThreadRecord {
   model: string | null;
   tokens_used: number;
   cwd: string;
+  git_branch: string | null;
   first_user_message: string;
   preview: string;
   cli_version: string | null;
@@ -18,7 +19,7 @@ export interface CodexThreadRecord {
 
 const THREAD_COLUMNS = `
   id, title, rollout_path, created_at, updated_at, model, tokens_used, cwd,
-  first_user_message, preview, cli_version, agent_nickname, agent_role
+  git_branch, first_user_message, preview, cli_version, agent_nickname, agent_role
 `;
 
 export function listCodexThreads(db: Database): CodexThreadRecord[] {
@@ -26,6 +27,7 @@ export function listCodexThreads(db: Database): CodexThreadRecord[] {
     .prepare(`
       SELECT ${THREAD_COLUMNS}
       FROM threads
+      WHERE archived = 0
       ORDER BY updated_at DESC
       LIMIT 200
     `)
@@ -45,4 +47,8 @@ export function getCodexThread(
       `)
       .get(id) as CodexThreadRecord | undefined) ?? null
   );
+}
+
+export function codexThreadExists(db: Database, id: string): boolean {
+  return db.prepare("SELECT 1 FROM threads WHERE id = ?").get(id) !== undefined;
 }

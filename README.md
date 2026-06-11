@@ -156,7 +156,7 @@ ingest payload 例:
 
 ### セッション詳細との関係
 
-`/session/:id` は永続化されたセッション詳細ビューです。タイムライン feed はそのページに存在するデータのリアルタイムビューを提供しますが、v1 の feed とセッション詳細ビューの完全なイベント一致を保証しません。タイムラインには heartbeat 由来の暗黙 upsert イベントは含まれません。
+`/sessions/:harness/:id` は永続化されたセッション詳細ビューです。タイムライン feed はそのページに存在するデータのリアルタイムビューを提供しますが、v1 の feed とセッション詳細ビューの完全なイベント一致を保証しません。タイムラインには heartbeat 由来の暗黙 upsert イベントは含まれません。
 
 ### タイムライン容量
 
@@ -164,7 +164,7 @@ ingest payload 例:
 
 ## Session Detail Syntax Highlight
 
-`/session/:id` のメッセージ本文中のフェンスドコードブロックは [Shiki](https://shiki.style/) でシンタックスハイライトされます。Oniguruma WASM エンジンと各言語の文法は Vite のコード分割により遅延ロードされ、初回のコードブロック描画時にバックグラウンドで初期化されます。
+`/sessions/:harness/:id` のメッセージ本文中のフェンスドコードブロックは [Shiki](https://shiki.style/) でシンタックスハイライトされます。Oniguruma WASM エンジンと各言語の文法は Vite のコード分割により遅延ロードされ、初回のコードブロック描画時にバックグラウンドで初期化されます。
 
 ### 対応言語
 
@@ -181,6 +181,6 @@ ingest payload 例:
 ## Safety
 
 - browser-facing contract は raw upstream payload を露出しません
-- `/api/session/:sessionId` の DELETE は `x-opencode-confirm-delete: <sessionId>` が一致しない限り拒否します
+- `/api/sessions/opencode/:sessionId` の DELETE は `x-opencode-confirm-delete: <sessionId>` が一致しない限り拒否します
 - app shell は observability SSE の再接続を行い、接続不能時は degraded 表示に切り替えます
 - markdown は `react-markdown` (raw HTML 非許可) で描画し、diff は escape 済みで表示します

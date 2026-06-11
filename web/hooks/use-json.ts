@@ -1,6 +1,17 @@
 import React from "react";
 
-export function useJson<T>(url: string) {
+export interface UseJsonOptions {
+  /**
+   * Keep the last successful payload while refetching. Opt in for views
+   * where the URL change is a filter on the same content (prevents layout
+   * shift); leave off when the URL identifies a different entity, where
+   * showing stale data would be misleading.
+   */
+  keepPreviousData?: boolean;
+}
+
+export function useJson<T>(url: string, options: UseJsonOptions = {}) {
+  const { keepPreviousData = false } = options;
   const [data, setData] = React.useState<T | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -9,7 +20,9 @@ export function useJson<T>(url: string) {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    setData(null);
+    if (!keepPreviousData) {
+      setData(null);
+    }
 
     fetch(url, {
       signal: controller.signal,
@@ -42,7 +55,7 @@ export function useJson<T>(url: string) {
       });
 
     return () => controller.abort();
-  }, [url]);
+  }, [url, keepPreviousData]);
 
   return { data, error, loading };
 }

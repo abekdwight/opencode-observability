@@ -149,7 +149,7 @@ function SearchResultCard({
   result: SearchResultContract;
   terms: string[];
 }) {
-  const sessionHref = `/session/${encodeURIComponent(result.id)}`;
+  const sessionHref = `/sessions/opencode/${encodeURIComponent(result.id)}`;
   const highlightedTitle = highlightText(result.title || "(no title)", terms);
 
   return (

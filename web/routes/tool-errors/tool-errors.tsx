@@ -226,7 +226,7 @@ function ToolErrorsOverview() {
                         </td>
                         <td className="w-56 py-2.5 px-3 font-mono text-xs">
                           <Link
-                            to={`/session/${encodeURIComponent(row.sessionId)}`}
+                            to={`/sessions/opencode/${encodeURIComponent(row.sessionId)}`}
                           >
                             {row.sessionId}
                           </Link>
@@ -334,7 +334,7 @@ function ToolErrorsDetail({ tool }: { tool: string }) {
                         </td>
                         <td className="w-56 py-2.5 px-3 font-mono text-xs">
                           <Link
-                            to={`/session/${encodeURIComponent(row.sessionId)}`}
+                            to={`/sessions/opencode/${encodeURIComponent(row.sessionId)}`}
                           >
                             {row.sessionId}
                           </Link>
