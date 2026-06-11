@@ -5,7 +5,7 @@
   "author": {
     "name": "abekeishi"
   },
-  "repository": "https://github.com/abekeishi/opencode-telemetry",
+  "repository": "https://github.com/abekdwight/opencode-telemetry",
   "license": "MIT",
   "keywords": ["telemetry", "viewer", "session", "monitor"],
   "skills": "./skills/",

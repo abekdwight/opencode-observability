@@ -138,7 +138,7 @@ OpenCode plugin の `command.execute.before` + キャンセルと同じ動作モ
 ### Claude Code
 
 ```
-/plugin marketplace add abekeishi/opencode-telemetry
+/plugin marketplace add abekdwight/opencode-telemetry
 /plugin install opencode-telemetry@opencode-telemetry
 ```
 
@@ -148,7 +148,7 @@ OpenCode plugin の `command.execute.before` + キャンセルと同じ動作モ
 ### Codex
 
 ```
-codex plugin marketplace add abekeishi/opencode-telemetry
+codex plugin marketplace add abekdwight/opencode-telemetry
 codex plugin add opencode-telemetry@opencode-telemetry
 ```
 
