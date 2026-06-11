@@ -14,7 +14,7 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const { setTheme, resolvedTheme } = useTheme();
+  const { setTheme } = useTheme();
   const { toggleMermaidTheme } = useMermaidPreferences();
 
   const handleSelect = (commandId: string) => {
@@ -34,8 +34,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       case "go-tool-errors":
         navigate("/tool-errors");
         break;
-      case "toggle-theme":
-        setTheme(resolvedTheme === "dark" ? "light" : "dark");
+      case "theme-system":
+        setTheme("system");
+        break;
+      case "theme-light":
+        setTheme("light");
+        break;
+      case "theme-dark":
+        setTheme("dark");
+        break;
+      case "theme-sepia":
+        setTheme("sepia");
         break;
       case "toggle-mermaid-theme":
         toggleMermaidTheme();

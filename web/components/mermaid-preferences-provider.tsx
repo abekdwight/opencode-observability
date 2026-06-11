@@ -9,9 +9,10 @@ import {
 import { useTheme } from "../hooks/use-theme";
 import {
   DEFAULT_MERMAID_THEME_MODE,
-  type MermaidRenderPreference,
-  type MermaidThemeMode,
   getMermaidConfigCacheKey,
+  type MermaidRenderPreference,
+  type MermaidResolvedTheme,
+  type MermaidThemeMode,
 } from "../lib/mermaid-config";
 
 interface MermaidPreferencesContextValue {
@@ -64,12 +65,16 @@ export function MermaidPreferencesProvider({
     });
   }, []);
 
+  // Mermaid only distinguishes polarity; sepia renders with the light theme.
+  const mermaidResolvedTheme: MermaidResolvedTheme =
+    resolvedTheme === "dark" ? "dark" : "light";
+
   const mermaidPreference = useMemo<MermaidRenderPreference>(
     () => ({
       mode: mermaidThemeMode,
-      resolvedTheme,
+      resolvedTheme: mermaidResolvedTheme,
     }),
-    [mermaidThemeMode, resolvedTheme],
+    [mermaidThemeMode, mermaidResolvedTheme],
   );
 
   const mermaidConfigKey = useMemo(

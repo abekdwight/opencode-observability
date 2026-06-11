@@ -8,8 +8,8 @@ import {
   useState,
 } from "react";
 
-type Theme = "light" | "dark" | "system";
-type ResolvedTheme = "light" | "dark";
+type Theme = "light" | "dark" | "sepia" | "system";
+type ResolvedTheme = "light" | "dark" | "sepia";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -18,7 +18,7 @@ interface ThemeContextValue {
 }
 
 const STORAGE_KEY = "ot-theme";
-const DEFAULT_THEME: Theme = "dark";
+const DEFAULT_THEME: Theme = "system";
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
@@ -36,7 +36,12 @@ function resolveTheme(theme: Theme): ResolvedTheme {
 function readStoredTheme(): Theme {
   if (typeof window === "undefined") return DEFAULT_THEME;
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") {
+  if (
+    stored === "light" ||
+    stored === "dark" ||
+    stored === "sepia" ||
+    stored === "system"
+  ) {
     return stored;
   }
   return DEFAULT_THEME;

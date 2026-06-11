@@ -9,15 +9,16 @@ export interface Command {
 
 export const navigationCommands: Command[] = [
   {
-    id: "go-sessions",
-    label: "Go to Sessions",
-    category: "navigation",
-    keywords: ["home", "list", "opencode", "codex", "claude"],
-  },
-  {
     id: "go-monitor",
     label: "Go to Monitor",
     category: "navigation",
+    keywords: ["home"],
+  },
+  {
+    id: "go-sessions",
+    label: "Go to Sessions",
+    category: "navigation",
+    keywords: ["list", "opencode", "codex", "claude"],
   },
   {
     id: "go-search",
@@ -38,10 +39,28 @@ export const navigationCommands: Command[] = [
 
 export const actionCommands: Command[] = [
   {
-    id: "toggle-theme",
-    label: "Toggle Theme",
+    id: "theme-system",
+    label: "Theme: System",
     category: "action",
-    keywords: ["dark", "light"],
+    keywords: ["theme", "system", "auto", "os"],
+  },
+  {
+    id: "theme-light",
+    label: "Theme: Light",
+    category: "action",
+    keywords: ["theme", "light"],
+  },
+  {
+    id: "theme-dark",
+    label: "Theme: Dark",
+    category: "action",
+    keywords: ["theme", "dark"],
+  },
+  {
+    id: "theme-sepia",
+    label: "Theme: Sepia",
+    category: "action",
+    keywords: ["theme", "sepia", "paper", "warm"],
   },
   {
     id: "toggle-mermaid-theme",

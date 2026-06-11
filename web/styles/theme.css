@@ -213,3 +213,61 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
   --shadow-sidebar: -4px 0 12px rgba(0, 0, 0, 0.4);
 }
+
+[data-theme="sepia"] {
+  /* ── Sepia theme ────────────────────────────────────────────────
+   *  Positive polarity on warm paper. Inherits the light theme and
+   *  re-tints only the ground — surfaces, text, borders, accent,
+   *  shadows. Semantic and role colors carry over from :root.
+   *  Keep the ground bright: the legibility advantage of positive
+   *  polarity comes from background luminance.
+   * ────────────────────────────────────────────────────────────── */
+
+  /* Text — warm ink */
+  --color-text-primary: #3b3120;
+  --color-text-secondary: #6e6250;
+  --color-text-tertiary: #998b73;
+  --color-text-inverse: #f9f2e4;
+
+  /* Surfaces — paper */
+  --color-bg-root: #f0e7d8;
+  --color-bg-surface: #f9f2e4;
+  --color-bg-surface-translucent: rgba(249, 242, 228, 0.88);
+  --color-bg-elevated: #ebe1cd;
+  --color-bg-muted: #e6dcc6;
+  --color-bg-code: #ebe1cd;
+
+  /* Borders — ink-tinted, pure black looks detached on paper */
+  --color-border-default: rgba(59, 49, 32, 0.12);
+  --color-border-subtle: rgba(59, 49, 32, 0.07);
+  --color-border-faint: rgba(59, 49, 32, 0.04);
+
+  /* Accent — same contrast logic: ink fill on paper */
+  --color-accent: #3b3120;
+  --color-accent-hover: #54483a;
+  --color-accent-bg: rgba(59, 49, 32, 0.06);
+  --color-accent-light: rgba(59, 49, 32, 0.03);
+
+  /* Role — terracotta keeps user distinct without breaking the paper tone */
+  --color-user-bg: #f2e3d0;
+  --color-user-border: #dcc0a4;
+  --color-user-badge: #8f5527;
+
+  /* Tool chrome — warm ink instead of the light theme's cool grey */
+  --color-tool-bg: #e9dfc9;
+  --color-tool-border: rgba(59, 49, 32, 0.1);
+  --color-tool-pill-bg: #f1e9d6;
+  --color-tool-pill-border: rgba(59, 49, 32, 0.14);
+  --color-tool-pill-text: #6a5f4a;
+  --color-tool-pill-strong-text: #463c2a;
+  --color-tool-pill-muted-text: #8b7e66;
+  --color-tool-pill-hover-border: rgba(59, 49, 32, 0.26);
+  --color-tps-chip-bg: rgba(59, 49, 32, 0.05);
+  --color-tps-chip-text: #6a5f4a;
+
+  /* Shadows — warm ink */
+  --shadow-sm: 0 1px 2px rgba(59, 49, 32, 0.06);
+  --shadow-md: 0 2px 8px rgba(59, 49, 32, 0.08);
+  --shadow-lg: 0 8px 24px rgba(59, 49, 32, 0.12);
+  --shadow-sidebar: -4px 0 12px rgba(59, 49, 32, 0.06);
+}

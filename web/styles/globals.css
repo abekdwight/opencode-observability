@@ -68,24 +68,9 @@ body {
   box-sizing: border-box;
 }
 
-/* Scrollbar styling for dark mode */
-@media (prefers-color-scheme: dark) {
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 4px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.25);
-  }
-}
-
+/* Scrollbar styling for dark mode — keyed to the app theme (data-theme),
+ * not the OS preference, so light/sepia keep default scrollbars even
+ * when the OS is in dark mode. */
 [data-theme="dark"] ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

@@ -4,6 +4,12 @@ import { useTheme } from "../hooks/use-theme";
 import { cn } from "../lib/cn";
 import { type LayoutMode, LayoutModeContext } from "../lib/layout-context";
 import { CommandPalette } from "./command-palette/command-palette";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 // ---------------------------------------------------------------------------
 // HeaderActionsContext — lets child pages inject actions into the header
@@ -15,11 +21,20 @@ export const HeaderActionsContext = React.createContext<HeaderActionsSetter>(
 );
 
 const NAV_ITEMS = [
+  { to: "/monitor", label: "Monitor" },
   { to: "/sessions", label: "Sessions" },
   { to: "/search", label: "Search" },
-  { to: "/monitor", label: "Monitor" },
   { to: "/dashboard", label: "Dashboard" },
 ] as const;
+
+const THEME_OPTIONS = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "sepia", label: "Sepia" },
+] as const;
+
+const THEME_ICONS = { light: "☀", dark: "●", sepia: "◐" } as const;
 
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
@@ -34,7 +49,7 @@ export function AppShell() {
   const [headerActions, setHeaderActions] =
     React.useState<React.ReactNode>(null);
   const [layoutMode, setLayoutMode] = React.useState<LayoutMode>("default");
-  const { setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = React.useState(false);
 
   const layoutModeValue = React.useMemo(
@@ -108,17 +123,33 @@ export function AppShell() {
               {isMac ? "K" : "+K"}
             </button>
 
-            {/* Theme toggle */}
-            <button
-              type="button"
-              onClick={() =>
-                setTheme(resolvedTheme === "dark" ? "light" : "dark")
-              }
-              className="h-7 w-7 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] flex items-center justify-center hover:border-[var(--color-accent)] hover:text-[var(--color-text-primary)] transition-colors duration-150 text-sm"
-              aria-label="Toggle theme"
-            >
-              {resolvedTheme === "dark" ? "☀" : "●"}
-            </button>
+            {/* Theme menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="h-7 w-7 rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] flex items-center justify-center hover:border-[var(--color-accent)] hover:text-[var(--color-text-primary)] transition-colors duration-150 text-sm"
+                  aria-label="Select theme"
+                >
+                  {THEME_ICONS[resolvedTheme]}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {THEME_OPTIONS.map(({ value, label }) => (
+                  <DropdownMenuItem
+                    key={value}
+                    onSelect={() => setTheme(value)}
+                  >
+                    <span className="flex-1">{label}</span>
+                    {theme === value && (
+                      <span className="ml-3 text-xs text-[var(--color-text-secondary)]">
+                        ✓
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
