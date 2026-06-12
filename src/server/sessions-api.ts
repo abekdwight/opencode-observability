@@ -13,15 +13,6 @@ import {
 } from "../contracts/harness.js";
 import { getWritableDb } from "../lib/db.js";
 import {
-  readDashboardAffectedDaysForRootSessionIds,
-  readDashboardRootSessionIdsForSessionIds,
-  readSessionDeletionTargetIds,
-} from "../repositories/dashboard/dashboard-repository.js";
-import {
-  invalidateDashboardAggregationStore,
-  invalidateDashboardAggregationStoreForRootSessionIdsAndDays,
-} from "../services/dashboard/dashboard-aggregation-store.js";
-import {
   getHarnessAdapter,
   listHarnessAdapters,
 } from "../services/harness/registry.js";
@@ -200,31 +191,13 @@ sessionsApi.delete("/:harness/:id", (c) => {
   const db = getWritableDb();
   try {
     db.exec("PRAGMA foreign_keys = ON");
-    const targetSessionIds = readSessionDeletionTargetIds(db, sessionId);
-    const affectedRootSessionIds = readDashboardRootSessionIdsForSessionIds(
-      db,
-      targetSessionIds,
-    );
-    const affectedDays = readDashboardAffectedDaysForRootSessionIds(
-      db,
-      affectedRootSessionIds,
-    );
+    // Dashboard aggregates pick up the deletion automatically on the next
+    // reconcile (PRAGMA data_version advances + root-list diff), so no explicit
+    // invalidation hook is needed here.
     const deleteStmt = db.prepare(
       "DELETE FROM session WHERE id = ? OR parent_id = ?",
     );
     const result = deleteStmt.run(sessionId, sessionId);
-
-    if (result.changes > 0) {
-      if (affectedRootSessionIds.length > 0 && affectedDays.length > 0) {
-        invalidateDashboardAggregationStoreForRootSessionIdsAndDays(
-          db,
-          affectedRootSessionIds,
-          affectedDays,
-        );
-      } else {
-        invalidateDashboardAggregationStore();
-      }
-    }
 
     return c.json({ deleted: result.changes });
   } catch (err) {

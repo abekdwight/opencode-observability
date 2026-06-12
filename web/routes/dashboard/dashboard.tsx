@@ -1,15 +1,16 @@
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
+  DashboardActivityContract,
   DashboardBarItemContract,
-  DashboardContract,
+  DashboardModelsContract,
+  DashboardToolsContract,
   DashboardViewContract,
 } from "../../../src/contracts/dashboard";
 import { ActivityHeatmap } from "../../components/charts/activity-heatmap";
 import { CssBarChart } from "../../components/charts/css-bar-chart";
 import {
   applyDashboardDraftSelection,
-  createDashboardRequestVersionTracker,
   createDashboardSelectionController,
   serializeAppliedDashboardSelection,
   setDashboardDraftView,
@@ -26,8 +27,50 @@ import { SummaryMetrics } from "./_components/summary-metrics";
 import { TimeRangeSelector } from "./_components/time-range-selector";
 import { TokenTrendSection } from "./_components/token-trend-section";
 import { ToolReliabilitySection } from "./_components/tool-reliability-section";
-import { REFRESH_INTERVAL } from "./_lib/constants";
 import { buildLastYearBounds } from "./_lib/formatters";
+import { useDashboardData } from "./_lib/use-dashboard-data";
+
+/* ── Building placeholder ── */
+
+function BuildingPlaceholder({ progressPercent }: { progressPercent: number }) {
+  const pct = Math.max(0, Math.min(100, progressPercent));
+  return (
+    <div
+      role="status"
+      className="flex flex-col gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4"
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-[var(--color-text-secondary)]">
+          集計を構築中 {pct.toFixed(0)}%
+        </span>
+        <span className="text-xs text-[var(--color-text-tertiary)]">
+          しばらくお待ちください
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-elevated)]">
+        <div
+          className="h-full rounded-full bg-[var(--color-accent)] transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── Section-level error banner ── */
+
+function SectionError({ title, message }: { title: string; message: string }) {
+  return (
+    <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
+      <h2 className="mb-1 text-base font-bold text-[var(--color-text-primary)]">
+        {title}
+      </h2>
+      <p className="text-sm text-[var(--color-error-text)]">
+        データ取得エラー: {message}
+      </p>
+    </section>
+  );
+}
 
 /* ── Inline bar chart section (used in 2-col grid) ── */
 
@@ -50,6 +93,197 @@ function BarChartCard({
   );
 }
 
+/* ── Tool summary cards (from tools endpoint) ── */
+
+function ToolSummaryCards({
+  totalToolCalls,
+  toolErrors,
+  toolErrorRate,
+}: {
+  totalToolCalls: number;
+  toolErrors: number;
+  toolErrorRate: string;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-3">
+        <p className="text-xs text-[var(--color-text-secondary)]">Tool Calls</p>
+        <p className="mt-1 text-lg font-bold text-[var(--color-text-primary)]">
+          {totalToolCalls.toLocaleString()}
+        </p>
+        <p className="text-xs text-[var(--color-text-tertiary)]">
+          all sessions
+        </p>
+      </div>
+      <div className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-3">
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Tool Error Rate
+        </p>
+        <p className="mt-1 text-lg font-bold text-[var(--color-text-primary)]">
+          {toolErrorRate}
+        </p>
+        <p className="text-xs text-[var(--color-text-tertiary)]">
+          {toolErrors.toLocaleString()} errors
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Activity section group ── */
+
+function ActivitySections({
+  activityState,
+  view,
+  dayCount,
+  onToggleView,
+}: {
+  activityState: ReturnType<typeof useDashboardData>["activity"];
+  view: DashboardViewContract;
+  dayCount: number;
+  onToggleView: (v: DashboardViewContract) => void;
+}) {
+  const { data, error, initialLoading } = activityState;
+
+  if (initialLoading && !data) {
+    return <BuildingPlaceholder progressPercent={0} />;
+  }
+
+  if (error && !data) {
+    return <SectionError title="Activity" message={error} />;
+  }
+
+  if (!data) return null;
+
+  if (data.state === "building") {
+    return <BuildingPlaceholder progressPercent={data.progressPercent} />;
+  }
+
+  const activityData = (
+    data as Extract<DashboardActivityContract, { state: "ready" }>
+  ).data;
+
+  return (
+    <>
+      {/* Error Daily Trend is sourced from tools, rendered in ToolsSections.
+          Token and Subagent trends come from activity. */}
+      <TokenTrendSection
+        tokenTrend={activityData.tokenTrend}
+        view={view}
+        dayCount={dayCount}
+        onToggleView={onToggleView}
+      />
+      <SubagentTrendSection
+        subagentTrend={activityData.subagentTrend}
+        view={view}
+        dayCount={dayCount}
+        onToggleView={onToggleView}
+      />
+      <ActiveReposSection repos={activityData.activeRepos} />
+    </>
+  );
+}
+
+/* ── Models section group ── */
+
+function ModelsSections({
+  modelsState,
+}: {
+  modelsState: ReturnType<typeof useDashboardData>["models"];
+}) {
+  const { data, error, initialLoading } = modelsState;
+
+  if (initialLoading && !data) {
+    return <BuildingPlaceholder progressPercent={0} />;
+  }
+
+  if (error && !data) {
+    return <SectionError title="モデル" message={error} />;
+  }
+
+  if (!data) return null;
+
+  if (data.state === "building") {
+    return <BuildingPlaceholder progressPercent={data.progressPercent} />;
+  }
+
+  const modelsData = (
+    data as Extract<DashboardModelsContract, { state: "ready" }>
+  ).data;
+
+  return (
+    <>
+      <ModelPerformanceSection rows={modelsData.modelPerformanceStats} />
+      <ModelTokenConsumptionSection rows={modelsData.modelTokenConsumption} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <BarChartCard
+          title="Model Usage"
+          items={modelsData.modelUsage}
+          barColor="var(--color-accent)"
+        />
+      </div>
+    </>
+  );
+}
+
+/* ── Tools section group ── */
+
+function ToolsSections({
+  toolsState,
+  view,
+  onToggleView,
+}: {
+  toolsState: ReturnType<typeof useDashboardData>["tools"];
+  view: DashboardViewContract;
+  onToggleView: (v: DashboardViewContract) => void;
+}) {
+  const { data, error, initialLoading } = toolsState;
+
+  if (initialLoading && !data) {
+    return <BuildingPlaceholder progressPercent={0} />;
+  }
+
+  if (error && !data) {
+    return <SectionError title="ツール" message={error} />;
+  }
+
+  if (!data) return null;
+
+  if (data.state === "building") {
+    return <BuildingPlaceholder progressPercent={data.progressPercent} />;
+  }
+
+  const toolsData = (
+    data as Extract<DashboardToolsContract, { state: "ready" }>
+  ).data;
+
+  return (
+    <>
+      <ToolSummaryCards
+        totalToolCalls={toolsData.totalToolCalls}
+        toolErrors={toolsData.toolErrors}
+        toolErrorRate={toolsData.toolErrorRate}
+      />
+      <ErrorTrendSection
+        series={toolsData.errorTrendSeries}
+        hourlyBars={toolsData.errorTrendHourlyBars}
+        view={view}
+        onToggleView={onToggleView}
+      />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <BarChartCard
+          title="Top Tools"
+          items={toolsData.toolUsage}
+          barColor="var(--color-accent)"
+        />
+        <McpUsageSection rows={toolsData.mcpUsage} />
+      </div>
+      <ToolReliabilitySection rows={toolsData.toolReliabilityMatrix} />
+      <ErrorPatternsSection patterns={toolsData.errorPatterns} />
+    </>
+  );
+}
+
 /* ── Main Dashboard ── */
 
 export function Dashboard() {
@@ -60,9 +294,6 @@ export function Dashboard() {
   );
   const [selectionController, setSelectionController] =
     React.useState(controllerFromUrl);
-  const requestVersionTrackerRef = React.useRef(
-    createDashboardRequestVersionTracker(),
-  );
 
   React.useEffect(() => {
     const currentApplied = serializeAppliedDashboardSelection(
@@ -76,77 +307,13 @@ export function Dashboard() {
     }
   }, [controllerFromUrl, selectionController.appliedSelection]);
 
-  const { appliedSelection, apiUrl } = selectionController;
+  const { appliedSelection, apiUrls } = selectionController;
   const view = appliedSelection.view;
-  const [data, setData] = React.useState<DashboardContract | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(true);
 
-  /* Fetch + periodic refresh */
-  React.useEffect(() => {
-    let cancelled = false;
-    const controllers = new Set<AbortController>();
-
-    async function load() {
-      const requestVersion = requestVersionTrackerRef.current.start();
-      const controller = new AbortController();
-      controllers.add(controller);
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch(apiUrl, {
-          signal: controller.signal,
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          throw new Error(body?.message ?? `HTTP ${res.status}`);
-        }
-        const json = (await res.json()) as DashboardContract;
-        if (
-          !cancelled &&
-          requestVersionTrackerRef.current.isCurrent(requestVersion)
-        ) {
-          setData(json);
-        }
-      } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (
-          !cancelled &&
-          requestVersionTrackerRef.current.isCurrent(requestVersion)
-        )
-          setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        controllers.delete(controller);
-        if (
-          !cancelled &&
-          requestVersionTrackerRef.current.isCurrent(requestVersion)
-        ) {
-          setLoading(false);
-        }
-      }
-    }
-
-    load();
-
-    const timer = appliedSelection.refreshable
-      ? setInterval(() => {
-          if (!cancelled) load();
-        }, REFRESH_INTERVAL)
-      : null;
-
-    return () => {
-      cancelled = true;
-      for (const controller of controllers) {
-        controller.abort();
-      }
-      if (timer) {
-        clearInterval(timer);
-      }
-    };
-  }, [apiUrl, appliedSelection.refreshable]);
+  const { overview, activity, models, tools } = useDashboardData(
+    apiUrls,
+    appliedSelection.refreshable,
+  );
 
   const applyController = React.useCallback(
     (nextController: typeof selectionController) => {
@@ -169,130 +336,103 @@ export function Dashboard() {
     [applyController, selectionController],
   );
 
-  if (loading && !data) {
-    return (
-      <section className="mx-auto max-w-6xl px-4 py-6">
-        <p
-          className="text-sm text-[var(--color-text-secondary)]"
-          data-testid="route-loading"
-        >
-          Loading dashboard...
-        </p>
-      </section>
-    );
-  }
-
-  if (error && !data) {
+  // Overview-level fetch error: show a full-page error (overview is instant;
+  // if it fails there's nothing meaningful to show at all)
+  if (overview.error && !overview.data) {
     return (
       <section className="mx-auto max-w-6xl px-4 py-6">
         <p
           className="text-sm text-[var(--color-error-text)]"
           data-testid="route-error"
         >
-          Dashboard API unavailable: {error}
+          Dashboard API unavailable: {overview.error}
         </p>
       </section>
     );
   }
 
-  if (!data) return null;
+  // Overview initial load: show a minimal skeleton immediately in DOM
+  // (no blank flash — the skeleton IS the first paint)
+  if (overview.initialLoading && !overview.data) {
+    return (
+      <section
+        className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6"
+        data-testid="dashboard"
+      >
+        {/* Range selector stays interactive immediately */}
+        <div>
+          <TimeRangeSelector
+            controller={selectionController}
+            onApply={applyController}
+            onCancel={applyController}
+          />
+        </div>
+        <div
+          role="status"
+          className="h-24 animate-pulse rounded-xl bg-[var(--color-bg-elevated)]"
+          data-testid="route-loading"
+        />
+        <BuildingPlaceholder progressPercent={0} />
+        <BuildingPlaceholder progressPercent={0} />
+        <BuildingPlaceholder progressPercent={0} />
+      </section>
+    );
+  }
+
+  if (!overview.data) return null;
 
   const activityBounds = buildLastYearBounds();
+  const overviewData = overview.data;
 
   return (
     <section
       className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6"
       data-testid="dashboard"
     >
-      {/* 1. Summary Metrics */}
-      <SummaryMetrics data={data} />
+      {/* 1. Summary Metrics (overview — always instant) */}
+      <SummaryMetrics summary={overviewData.summary} />
 
       {/* 2. Range Selector */}
       <div>
         <TimeRangeSelector
           controller={selectionController}
-          onApply={(nextController) => {
-            applyController(nextController);
-          }}
-          onCancel={(nextController) => {
-            applyController(nextController);
-          }}
+          onApply={applyController}
+          onCancel={applyController}
         />
       </div>
 
-      {/* 3. Recent Sessions */}
-      <RecentSessions sessions={data.recentSessions} />
+      {/* 3. Recent Sessions (overview) */}
+      <RecentSessions sessions={overviewData.recentSessions} />
 
-      {/* 4. Activity Heatmap */}
+      {/* 4. Activity Heatmap (overview — 365-day, session-table sourced) */}
       <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
         <h2 className="mb-3 text-base font-bold text-[var(--color-text-primary)]">
           Activity (last 1 year)
         </h2>
         <ActivityHeatmap
-          days={data.heatmapDays}
+          days={overviewData.heatmapDays}
           startDay={activityBounds.startDayInclusive}
           endDay={activityBounds.endDayInclusive}
         />
       </section>
 
-      {/* 5. Error Daily Trend */}
-      <ErrorTrendSection
-        series={data.errorTrendSeries}
-        hourlyBars={data.errorTrendHourlyBars}
-        view={view}
-        onToggleView={handleViewToggle}
-      />
-
-      {/* 6. Token I/O Trend */}
-      <TokenTrendSection
-        tokenTrend={data.tokenTrend}
+      {/* 5-6. Token and Subagent Trends (activity endpoint) */}
+      <ActivitySections
+        activityState={activity}
         view={view}
         dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
       />
 
-      {/* 7. Subagent Activity */}
-      <SubagentTrendSection
-        subagentTrend={data.subagentTrend}
+      {/* 7-9. Models (models endpoint) */}
+      <ModelsSections modelsState={models} />
+
+      {/* 10-14. Tools, reliability, MCP, error patterns (tools endpoint) */}
+      <ToolsSections
+        toolsState={tools}
         view={view}
-        dayCount={appliedSelection.bounds.dayCount}
         onToggleView={handleViewToggle}
       />
-
-      {/* 8. Active Repositories */}
-      <ActiveReposSection repos={data.activeRepos} />
-
-      {/* 9. Model Performance (full width) */}
-      <ModelPerformanceSection rows={data.modelPerformanceStats ?? []} />
-
-      {/* 10. Model Token Consumption (full width) */}
-      <ModelTokenConsumptionSection rows={data.modelTokenConsumption} />
-
-      {/* 11-14. Model views, usage, tools, MCP (2-column grid) */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <BarChartCard
-          title="Model Usage"
-          items={data.modelUsage}
-          barColor="#0066cc"
-        />
-        <BarChartCard
-          title="Top Tools"
-          items={data.toolUsage}
-          barColor="#0066cc"
-        />
-        <BarChartCard
-          title="Agent Distribution"
-          items={data.agentDistribution}
-          barColor="#0066cc"
-        />
-        <McpUsageSection rows={data.mcpUsage} />
-      </div>
-
-      {/* 13. Tool Reliability Matrix */}
-      <ToolReliabilitySection rows={data.toolReliabilityMatrix} />
-
-      {/* 14. Error Patterns */}
-      <ErrorPatternsSection patterns={data.errorPatterns} />
     </section>
   );
 }

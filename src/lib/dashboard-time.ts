@@ -80,6 +80,13 @@ export function countInclusiveDays(
   return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
+// Local-midnight epoch ms for the given YYYY-MM-DD day. Used to translate the
+// selection window into time_created bounds for the SQL layer.
+export function toLocalDayStartMs(day: string): number {
+  const parsed = parseLocalDate(day);
+  return parsed ? parsed.getTime() : Number.NaN;
+}
+
 export function buildDashboardSelectionBounds(
   window: DashboardTimeWindow,
 ): DashboardSelectionBoundsContract {
@@ -168,30 +175,6 @@ function buildSelection(
     ),
     bounds,
   };
-}
-
-export function deriveDashboardRangeFromSelection(
-  selection: Pick<DashboardSelectionContract, "preset" | "bounds">,
-): "day" | "week" | "month" | "all" {
-  if (selection.preset === "today") {
-    return "day";
-  }
-  if (selection.preset === "last7d") {
-    return "week";
-  }
-  if (selection.preset === "last30d") {
-    return "month";
-  }
-  if (selection.bounds.dayCount <= 1) {
-    return "day";
-  }
-  if (selection.bounds.dayCount <= 7) {
-    return "week";
-  }
-  if (selection.bounds.dayCount <= 30) {
-    return "month";
-  }
-  return "all";
 }
 
 export function normalizeDashboardSelectionInput(

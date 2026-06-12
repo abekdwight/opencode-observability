@@ -48,8 +48,21 @@ CREATE TABLE session (
   time_compacting integer,
   time_archived integer,
   workspace_id text,
+  path text,
+  agent text,
+  model text,
+  cost real DEFAULT 0,
+  tokens_input integer DEFAULT 0,
+  tokens_output integer DEFAULT 0,
+  tokens_reasoning integer DEFAULT 0,
+  tokens_cache_read integer DEFAULT 0,
+  tokens_cache_write integer DEFAULT 0,
+  metadata text,
   FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 );
+
+CREATE INDEX session_parent_id_idx ON session(parent_id);
+CREATE INDEX session_project_id_idx ON session(project_id);
 
 CREATE TABLE message (
   id text PRIMARY KEY,
@@ -69,6 +82,11 @@ CREATE TABLE part (
   data text NOT NULL,
   FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE CASCADE
 );
+
+CREATE INDEX message_session_id_time_created_id_idx
+  ON message(session_id, time_created, id);
+CREATE INDEX part_session_id_idx ON part(session_id);
+CREATE INDEX part_message_id_id_idx ON part(message_id, id);
 
 CREATE TABLE todo (
   session_id text NOT NULL,
@@ -136,14 +154,33 @@ function buildFixture() {
     INSERT INTO session (
       id, project_id, parent_id, slug, directory, title, version, share_url,
       summary_additions, summary_deletions, summary_files, summary_diffs,
-      revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id
+      revert, permission, time_created, time_updated, time_compacting, time_archived, workspace_id,
+      path, agent, model, cost,
+      tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, metadata
     ) VALUES (
       @id, @project_id, @parent_id, @slug, @directory, @title, @version, NULL,
       @summary_additions, @summary_deletions, @summary_files, @summary_diffs,
-      NULL, NULL, @time_created, @time_updated, @time_compacting, NULL, NULL
+      NULL, NULL, @time_created, @time_updated, @time_compacting, NULL, NULL,
+      @path, @agent, @model, @cost,
+      @tokens_input, @tokens_output, @tokens_reasoning, @tokens_cache_read, @tokens_cache_write, NULL
     )
   `);
+  // The real opencode session.model column is a JSON string of the shape
+  // {"id":"...","providerID":"..."}. Sessions store their own aggregated
+  // tokens_*/cost on the row; the dashboard summary sums these over root rows.
+  const sessionDefaults = {
+    path: null as string | null,
+    agent: null as string | null,
+    model: null as string | null,
+    cost: 0,
+    tokens_input: 0,
+    tokens_output: 0,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
+  };
   insertSession.run({
+    ...sessionDefaults,
     id: ROOT_SESSION_ID,
     project_id: "proj-alpha",
     parent_id: null,
@@ -158,8 +195,18 @@ function buildFixture() {
     time_created: dayOne,
     time_updated: dayOne + 60_000,
     time_compacting: null,
+    path: "/workspace/repo-alpha",
+    agent: "planner",
+    model: JSON.stringify({ id: "gpt-4.1", providerID: "openai" }),
+    cost: 0.17,
+    tokens_input: 100,
+    tokens_output: 80,
+    tokens_reasoning: 20,
+    tokens_cache_read: 40,
+    tokens_cache_write: 5,
   });
   insertSession.run({
+    ...sessionDefaults,
     id: CHILD_SESSION_ID,
     project_id: "proj-alpha",
     parent_id: ROOT_SESSION_ID,
@@ -174,8 +221,18 @@ function buildFixture() {
     time_created: dayOne + 90_000,
     time_updated: dayOne + 110_000,
     time_compacting: dayOne + 105_000,
+    path: "/workspace/repo-alpha/subagent",
+    agent: "subagent-code",
+    model: JSON.stringify({ id: "gpt-4.1-mini", providerID: "openai" }),
+    cost: 0.04,
+    tokens_input: 14,
+    tokens_output: 28,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
   });
   insertSession.run({
+    ...sessionDefaults,
     id: ALERT_SESSION_ID,
     project_id: "proj-beta",
     parent_id: null,
@@ -190,8 +247,18 @@ function buildFixture() {
     time_created: dayTwo,
     time_updated: dayTwo + 70_000,
     time_compacting: dayTwo + 30_000,
+    path: "/workspace/repo-beta/packages/api",
+    agent: "reviewer",
+    model: JSON.stringify({ id: "claude-3.5-sonnet", providerID: "anthropic" }),
+    cost: 0.1,
+    tokens_input: 55,
+    tokens_output: 50,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
   });
   insertSession.run({
+    ...sessionDefaults,
     id: OLD_SESSION_ID,
     project_id: "proj-beta",
     parent_id: null,
@@ -206,8 +273,18 @@ function buildFixture() {
     time_created: dayThree,
     time_updated: dayThree + 45_000,
     time_compacting: null,
+    path: "/workspace/repo-beta/legacy",
+    agent: "reviewer",
+    model: JSON.stringify({ id: "gpt-4.1", providerID: "openai" }),
+    cost: 0.02,
+    tokens_input: 10,
+    tokens_output: 14,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
   });
   insertSession.run({
+    ...sessionDefaults,
     id: FUTURE_SESSION_ID,
     project_id: "proj-alpha",
     parent_id: null,
@@ -222,6 +299,15 @@ function buildFixture() {
     time_created: dayFuture,
     time_updated: dayFuture + 45_000,
     time_compacting: null,
+    path: "/workspace/repo-alpha/future",
+    agent: "reviewer",
+    model: JSON.stringify({ id: "gpt-4.1", providerID: "openai" }),
+    cost: 0.04,
+    tokens_input: 30,
+    tokens_output: 36,
+    tokens_reasoning: 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
   });
 
   const insertMessage = db.prepare(`

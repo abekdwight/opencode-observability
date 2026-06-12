@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   applyDashboardDraftSelection,
-  buildDashboardApiUrl,
+  buildDashboardApiUrls,
   cancelDashboardDraftSelection,
   computeDashboardRefreshEligibility,
   createDashboardRequestVersionTracker,
@@ -72,8 +72,8 @@ describe("dashboard selection controller", () => {
       start: "2024-01-02",
       end: "2024-01-04",
     });
-    expect(drafted.apiUrl).toBe(
-      "/api/dashboard?preset=last7d&start=2024-01-05&end=2024-01-11&view=daily",
+    expect(drafted.apiUrls.overview).toBe(
+      "/api/dashboard/overview?preset=last7d&start=2024-01-05&end=2024-01-11&view=daily",
     );
 
     const cancelled = cancelDashboardDraftSelection(drafted);
@@ -85,7 +85,7 @@ describe("dashboard selection controller", () => {
     });
   });
 
-  test("builds API URLs from normalized bounded params and round-trips applied URL state", () => {
+  test("builds per-endpoint API URLs from normalized bounded params", () => {
     const params = new URLSearchParams(
       "preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
     );
@@ -97,9 +97,16 @@ describe("dashboard selection controller", () => {
     expect(roundTrip).toBe(
       "preset=custom&view=hourly&start=2024-01-01&end=2024-01-03",
     );
-    expect(buildDashboardApiUrl(controller.appliedSelection)).toBe(
-      "/api/dashboard?preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
-    );
+    expect(buildDashboardApiUrls(controller.appliedSelection)).toEqual({
+      overview:
+        "/api/dashboard/overview?preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
+      activity:
+        "/api/dashboard/activity?preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
+      models:
+        "/api/dashboard/models?preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
+      tools:
+        "/api/dashboard/tools?preset=custom&start=2024-01-01&end=2024-01-03&view=hourly",
+    });
   });
 
   test("computes refresh eligibility from normalized selections", () => {
@@ -134,8 +141,8 @@ describe("dashboard selection controller", () => {
       end: "2024-01-11",
       view: "hourly",
     });
-    expect(changed.apiUrl).toBe(
-      "/api/dashboard?preset=today&start=2024-01-11&end=2024-01-11&view=hourly",
+    expect(changed.apiUrls.models).toBe(
+      "/api/dashboard/models?preset=today&start=2024-01-11&end=2024-01-11&view=hourly",
     );
   });
 

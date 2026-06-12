@@ -26,10 +26,20 @@ export interface DashboardAppliedSelection extends DashboardSelectionDraft {
   refreshable: boolean;
 }
 
+export const DASHBOARD_ENDPOINTS = [
+  "overview",
+  "activity",
+  "models",
+  "tools",
+] as const;
+export type DashboardEndpoint = (typeof DASHBOARD_ENDPOINTS)[number];
+
+export type DashboardApiUrls = Record<DashboardEndpoint, string>;
+
 export interface DashboardSelectionControllerState {
   appliedSelection: DashboardAppliedSelection;
   draftSelection: DashboardSelectionDraft;
-  apiUrl: string;
+  apiUrls: DashboardApiUrls;
   validationError: string | null;
 }
 
@@ -252,7 +262,7 @@ export function serializeAppliedDashboardSelection(
   return params;
 }
 
-export function buildDashboardApiUrl(
+function buildDashboardSelectionQuery(
   selection: DashboardAppliedSelection,
 ): string {
   const params = new URLSearchParams();
@@ -260,7 +270,22 @@ export function buildDashboardApiUrl(
   params.set("start", selection.bounds.startDayInclusive);
   params.set("end", selection.bounds.endDayInclusive);
   params.set("view", selection.view);
-  return `/api/dashboard?${params.toString()}`;
+  return params.toString();
+}
+
+// One URL per endpoint. The four dashboard endpoints share the same selection
+// query but fetch independently (overview polls; the heavy three re-fetch only
+// when overview's generation or the selection changes).
+export function buildDashboardApiUrls(
+  selection: DashboardAppliedSelection,
+): DashboardApiUrls {
+  const query = buildDashboardSelectionQuery(selection);
+  return {
+    overview: `/api/dashboard/overview?${query}`,
+    activity: `/api/dashboard/activity?${query}`,
+    models: `/api/dashboard/models?${query}`,
+    tools: `/api/dashboard/tools?${query}`,
+  };
 }
 
 export function createDashboardSelectionController(
@@ -271,7 +296,7 @@ export function createDashboardSelectionController(
   return {
     appliedSelection,
     draftSelection: toDraftSelection(appliedSelection),
-    apiUrl: buildDashboardApiUrl(appliedSelection),
+    apiUrls: buildDashboardApiUrls(appliedSelection),
     validationError: null,
   };
 }
@@ -355,7 +380,7 @@ export function applyDashboardDraftSelection(
   return {
     appliedSelection: result.selection,
     draftSelection: toDraftSelection(result.selection),
-    apiUrl: buildDashboardApiUrl(result.selection),
+    apiUrls: buildDashboardApiUrls(result.selection),
     validationError: null,
   };
 }

@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
-import type { DashboardContract } from "../../../../src/contracts/dashboard";
+import type { DashboardRecentSessionContract } from "../../../../src/contracts/dashboard";
 import { formatTokens, prettifyPath } from "../_lib/formatters";
 
 export function RecentSessions({
   sessions,
 }: {
-  sessions: DashboardContract["recentSessions"];
+  sessions: DashboardRecentSessionContract[];
 }) {
   return (
     <section className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] p-4">
