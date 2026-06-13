@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # npm dependencies — PRs target develop (the working branch); minor/patch
+  # are grouped into one PR to cut noise, majors arrive as individual PRs.
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions — keeps the SHA-pinned actions current (Dependabot bumps
+  # both the pinned SHA and the trailing version comment).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
