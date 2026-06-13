@@ -42,6 +42,12 @@ const SAMPLE = transcript([
           name: "Bash",
           input: { command: "ls" },
         },
+        {
+          type: "tool_use",
+          id: "tool-skill",
+          name: "Skill",
+          input: { skill: "database-design", args: "命名検討" },
+        },
       ],
     },
   },
@@ -184,11 +190,18 @@ describe("claude transcript parser", () => {
     expect(messages[1].toolCalls.map((call) => call.tool)).toEqual([
       "🧠 thinking",
       "Bash",
+      "skill",
     ]);
     expect(messages[1].toolCalls[1]).toMatchObject({
       input: "ls",
       status: "completed",
       fullOutput: "file.txt",
+    });
+    // Skill invocations normalize to the lowercase "skill" tool with the skill
+    // name as the label, matching the contract the sidebar aggregates on.
+    expect(messages[1].toolCalls[2]).toMatchObject({
+      tool: "skill",
+      input: "database-design",
     });
     expect(messages[3].agent).toBe("subagent");
   });

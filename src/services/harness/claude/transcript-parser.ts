@@ -152,9 +152,22 @@ function buildToolCall(
   block: Record<string, unknown>,
   result: ToolResult | undefined,
 ): SessionToolCallContract {
+  const rawName = typeof block.name === "string" ? block.name : "tool";
+  // Claude records a Skill invocation as the tool "Skill" with the skill name
+  // in input.skill. Normalize it to the shared lowercase "skill" contract with
+  // the skill name as the label so the sidebar's skill aggregation recognizes
+  // it (other harnesses already emit "skill" / input.name).
+  const skillName =
+    rawName === "Skill" &&
+    isObject(block.input) &&
+    typeof block.input.skill === "string" &&
+    block.input.skill.trim() !== ""
+      ? block.input.skill
+      : null;
+
   return {
-    tool: typeof block.name === "string" ? block.name : "tool",
-    input: summarizeToolInput(block.input),
+    tool: skillName ? "skill" : rawName,
+    input: skillName ?? summarizeToolInput(block.input),
     status: result ? (result.isError ? "error" : "completed") : "unknown",
     error: result?.isError ? result.output : "",
     fullInput: safeJson(block.input ?? {}),
