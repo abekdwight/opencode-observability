@@ -4,6 +4,14 @@
   "type": "module",
   "description": "Local-first monitor and triage app for OpenCode observability",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abekdwight/opencode-observability.git"
+  },
+  "homepage": "https://github.com/abekdwight/opencode-observability#readme",
+  "bugs": {
+    "url": "https://github.com/abekdwight/opencode-observability/issues"
+  },
   "main": "dist/server/plugin/index.js",
   "types": "dist/server/plugin/index.d.ts",
   "exports": {
@@ -88,6 +96,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "concurrently": "^9.2.1",
+    "semantic-release": "^25.0.5",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.8.2",

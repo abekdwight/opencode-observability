@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+# semantic-release pushes tags + creates the GitHub release (contents/issues/
+# pull-requests) and authenticates to npm via OIDC trusted publishing
+# (id-token) — no long-lived NPM_TOKEN, and provenance is generated
+# automatically.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+# Never run two releases at once; do not cancel an in-flight publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # OIDC trusted publishing requires npm >= 11.5.1; runners ship an older npm.
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
