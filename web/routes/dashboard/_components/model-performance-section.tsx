@@ -10,13 +10,13 @@ import {
   YAxis,
 } from "recharts";
 import type { DashboardModelPerformanceStatsRowContract } from "../../../../src/contracts/dashboard";
-import { CHART_THEME } from "../../../lib/chart-theme";
-import { cn } from "../../../lib/cn";
 import {
   Tooltip as RadixTooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../../../components/ui/tooltip";
+import { CHART_THEME } from "../../../lib/chart-theme";
+import { cn } from "../../../lib/cn";
 import {
   formatAxisTps,
   formatDeviation,
@@ -74,7 +74,10 @@ function ModelPerformanceHeaderHelp({
             </svg>
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top" className="model-performance-tooltip max-w-xs">
+        <TooltipContent
+          side="top"
+          className="model-performance-tooltip max-w-xs"
+        >
           {tooltip}
         </TooltipContent>
       </RadixTooltip>

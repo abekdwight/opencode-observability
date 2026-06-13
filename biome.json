@@ -39,7 +39,10 @@
   },
   "overrides": [
     {
-      "includes": ["web/pages/SessionDetail.tsx"],
+      "includes": [
+        "web/components/code-block.tsx",
+        "web/routes/session-detail/_components/mermaid-code-block.tsx"
+      ],
       "linter": {
         "rules": {
           "security": {

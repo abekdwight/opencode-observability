@@ -245,10 +245,24 @@ export const ActivityHeatmap = React.memo(function ActivityHeatmap({
           aria-label="Heatmap color legend"
         >
           <title>Legend</title>
-          <rect x={0} y={0} width={12} height={12} rx={2} fill={palette.empty} />
+          <rect
+            x={0}
+            y={0}
+            width={12}
+            height={12}
+            rx={2}
+            fill={palette.empty}
+          />
           <rect x={14} y={0} width={12} height={12} rx={2} fill={palette.low} />
           <rect x={28} y={0} width={12} height={12} rx={2} fill={palette.mid} />
-          <rect x={42} y={0} width={12} height={12} rx={2} fill={palette.high} />
+          <rect
+            x={42}
+            y={0}
+            width={12}
+            height={12}
+            rx={2}
+            fill={palette.high}
+          />
           <rect x={56} y={0} width={12} height={12} rx={2} fill={palette.max} />
         </svg>
         <span>More</span>

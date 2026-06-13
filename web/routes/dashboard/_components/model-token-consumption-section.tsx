@@ -1,11 +1,5 @@
 import React from "react";
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { DashboardModelTokenConsumptionRowContract } from "../../../../src/contracts/dashboard";
 import { cn } from "../../../lib/cn";
 import { MODEL_PIE_COLORS } from "../_lib/constants";
@@ -210,10 +204,7 @@ export function ModelTokenConsumptionSection({
                       strokeWidth={1.2}
                     >
                       {inputSingleData.map((entry) => (
-                        <Cell
-                          key={`input-${entry.name}`}
-                          fill={entry.color}
-                        />
+                        <Cell key={`input-${entry.name}`} fill={entry.color} />
                       ))}
                     </Pie>
                   )}
@@ -255,10 +246,7 @@ export function ModelTokenConsumptionSection({
                     strokeWidth={1.2}
                   >
                     {outputData.map((entry) => (
-                      <Cell
-                        key={`output-${entry.name}`}
-                        fill={entry.color}
-                      />
+                      <Cell key={`output-${entry.name}`} fill={entry.color} />
                     ))}
                   </Pie>
                 </PieChart>

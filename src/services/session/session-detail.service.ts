@@ -1,5 +1,6 @@
 import type { Database } from "better-sqlite3";
 import type {
+  MessageFileDiffContract,
   SessionModelTokenBreakdown,
   SessionSubagentSummary,
 } from "../../contracts/session.js";
@@ -10,12 +11,12 @@ import {
   formatDuration,
   prettifyPath,
 } from "../../lib/text-format.js";
-import type { MessageFileDiffContract } from "../../contracts/session.js";
 import {
   countSessionCompactionMessages,
   countSessionToolCalls,
   countSessionToolErrors,
   countSubagentSessions,
+  type FileChangePartRecord,
   getSessionRecord,
   getSessionTitleRecord,
   getSessionTokenStats,
@@ -23,12 +24,11 @@ import {
   listFileChangePartsForSessions,
   listSessionMessages,
   listSessionModelTokenBreakdown,
-  listSessionTreeModelTokenBreakdown,
   listSessionRoleCounts,
   listSessionTitlesByIds,
   listSessionTodos,
   listSessionToolParts,
-  type FileChangePartRecord,
+  listSessionTreeModelTokenBreakdown,
   type SessionMessageRecord,
   type SessionRecord,
   type SessionTodoRecord,
@@ -326,7 +326,10 @@ function summarizeToolInput(
 // File diff extraction helpers
 // ---------------------------------------------------------------------------
 
-function countDiffLines(diff: string): { additions: number; deletions: number } {
+function countDiffLines(diff: string): {
+  additions: number;
+  deletions: number;
+} {
   let additions = 0;
   let deletions = 0;
   for (const line of diff.split("\n")) {
@@ -344,9 +347,7 @@ function extractFilePath(record: FileChangePartRecord): string {
       if (typeof input.file_path === "string") return input.file_path;
       // apply_patch: extract from patchText
       if (typeof input.patchText === "string") {
-        const match = input.patchText.match(
-          /\*\*\* (?:Update|Add) File: (.+)/,
-        );
+        const match = input.patchText.match(/\*\*\* (?:Update|Add) File: (.+)/);
         if (match) return match[1].trim();
       }
     }
@@ -403,7 +404,15 @@ function parseFileChangeRecord(
     }
   }
 
-  return { filePath, tool, diff, additions, deletions, isNewFile, fromSubagent };
+  return {
+    filePath,
+    tool,
+    diff,
+    additions,
+    deletions,
+    isNewFile,
+    fromSubagent,
+  };
 }
 
 /**

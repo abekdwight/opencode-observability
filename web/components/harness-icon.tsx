@@ -45,6 +45,7 @@ export function HarnessIcon({
 
   return (
     <span
+      role="img"
       title={label}
       aria-label={label}
       className={cn(

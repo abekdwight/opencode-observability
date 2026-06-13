@@ -31,13 +31,18 @@ export interface ChartTheme {
   monoFont: string;
 }
 
-function readVar(style: CSSStyleDeclaration, name: string, fallback: string): string {
+function readVar(
+  style: CSSStyleDeclaration,
+  name: string,
+  fallback: string,
+): string {
   return style.getPropertyValue(name).trim() || fallback;
 }
 
 export function useChartTheme(): ChartTheme {
   const { resolvedTheme } = useTheme();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resolvedTheme is an intentional recompute trigger so the CSS-variable-derived theme refreshes on theme toggle
   return useMemo(() => {
     const style = getComputedStyle(document.documentElement);
 
@@ -63,8 +68,16 @@ export function useChartTheme(): ChartTheme {
         tickColor: readVar(style, "--color-text-secondary", "#6e6e73"),
         gridColor: readVar(style, "--color-border-faint", "rgba(0,0,0,0.03)"),
       },
-      fontFamily: readVar(style, "--font-sans", 'system-ui, -apple-system, "Segoe UI", sans-serif'),
-      monoFont: readVar(style, "--font-mono", '"SF Mono", "Fira Code", monospace'),
+      fontFamily: readVar(
+        style,
+        "--font-sans",
+        'system-ui, -apple-system, "Segoe UI", sans-serif',
+      ),
+      monoFont: readVar(
+        style,
+        "--font-mono",
+        '"SF Mono", "Fira Code", monospace',
+      ),
     };
     // Re-compute when theme changes
   }, [resolvedTheme]);

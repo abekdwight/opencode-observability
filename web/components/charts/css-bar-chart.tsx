@@ -11,7 +11,9 @@ export const CssBarChart = React.memo(function CssBarChart({
   barColor,
 }: Props) {
   if (items.length === 0) {
-    return <p className="text-sm text-[var(--color-text-secondary)]">No data</p>;
+    return (
+      <p className="text-sm text-[var(--color-text-secondary)]">No data</p>
+    );
   }
 
   const maxCount = Math.max(...items.map((i) => i.count), 1);
@@ -26,10 +28,15 @@ export const CssBarChart = React.memo(function CssBarChart({
               <span className="max-w-[70%] truncate text-[0.82em] font-medium text-[var(--color-text-primary)]">
                 {label}
                 {annotation ? (
-                  <span className="text-[0.9em] font-medium text-[var(--color-text-secondary)]"> · {annotation}</span>
+                  <span className="text-[0.9em] font-medium text-[var(--color-text-secondary)]">
+                    {" "}
+                    · {annotation}
+                  </span>
                 ) : null}
               </span>
-              <span className="ml-2 shrink-0 text-[0.8em] font-semibold text-[var(--color-text-secondary)]">{count.toLocaleString()}</span>
+              <span className="ml-2 shrink-0 text-[0.8em] font-semibold text-[var(--color-text-secondary)]">
+                {count.toLocaleString()}
+              </span>
             </div>
             <div
               className="h-2 overflow-hidden rounded-[var(--radius-sm)]"

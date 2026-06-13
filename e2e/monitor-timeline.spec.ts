@@ -376,9 +376,7 @@ test.describe("Monitor timeline inline chart", () => {
 
     await page.goto("/monitor");
 
-    await expect(
-      page.getByText("source:macbook-pro:7768"),
-    ).toHaveCount(0);
+    await expect(page.getByText("source:macbook-pro:7768")).toHaveCount(0);
     await expect(
       page.getByText("No sessions seen during this page load"),
     ).toBeVisible();

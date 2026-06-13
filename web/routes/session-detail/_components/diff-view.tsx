@@ -33,13 +33,10 @@ export const DiffView = React.memo(function DiffView({ diff }: DiffViewProps) {
         }
 
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: diff lines render in a fixed order and never reorder
           <React.Fragment key={i}>
             {i > 0 ? "\n" : null}
-            {className ? (
-              <span className={className}>{line}</span>
-            ) : (
-              line
-            )}
+            {className ? <span className={className}>{line}</span> : line}
           </React.Fragment>
         );
       })}

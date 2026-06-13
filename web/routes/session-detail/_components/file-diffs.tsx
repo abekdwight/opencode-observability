@@ -66,7 +66,8 @@ export const FileDiffs = React.memo(function FileDiffs({
           "text-[var(--color-text-secondary)]",
           "cursor-pointer transition-all duration-[var(--transition-fast)]",
           "hover:border-[var(--color-accent)] hover:text-[var(--color-text-primary)]",
-          open && "border-[var(--color-accent)] text-[var(--color-text-primary)]",
+          open &&
+            "border-[var(--color-accent)] text-[var(--color-text-primary)]",
         )}
         onClick={() => setOpen((v) => !v)}
       >
@@ -111,6 +112,7 @@ export const FileDiffs = React.memo(function FileDiffs({
             const isExpanded = expandedFiles.has(idx);
             return (
               <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: file diffs render in a stable order; idx disambiguates duplicate paths
                 key={`${d.filePath}-${idx}`}
                 className="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] overflow-hidden"
               >

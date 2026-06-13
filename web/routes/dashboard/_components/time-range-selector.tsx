@@ -1,4 +1,10 @@
 import React from "react";
+import { Button } from "../../../components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../../components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -6,12 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../../components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../../components/ui/popover";
-import { Button } from "../../../components/ui/button";
 import {
   applyDashboardDraftSelection,
   cancelDashboardDraftSelection,
@@ -107,9 +107,11 @@ export function TimeRangeSelector({
             className="text-xs text-[var(--color-text-secondary)]"
             data-testid="dashboard-preset-helper"
           >
-            {PRESET_OPTIONS.find(
-              (o) => o.value === localController.draftSelection.preset,
-            )?.helper}
+            {
+              PRESET_OPTIONS.find(
+                (o) => o.value === localController.draftSelection.preset,
+              )?.helper
+            }
           </span>
         )}
       </div>
@@ -144,9 +146,7 @@ export function TimeRangeSelector({
                   type="date"
                   className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-1.5 text-sm"
                   value={localController.draftSelection.start}
-                  onChange={(e) =>
-                    handleChangeDates({ start: e.target.value })
-                  }
+                  onChange={(e) => handleChangeDates({ start: e.target.value })}
                   data-testid="dashboard-range-start"
                   aria-label="Start date"
                 />
@@ -159,9 +159,7 @@ export function TimeRangeSelector({
                   type="date"
                   className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] px-3 py-1.5 text-sm"
                   value={localController.draftSelection.end}
-                  onChange={(e) =>
-                    handleChangeDates({ end: e.target.value })
-                  }
+                  onChange={(e) => handleChangeDates({ end: e.target.value })}
                   data-testid="dashboard-range-end"
                   aria-label="End date"
                 />

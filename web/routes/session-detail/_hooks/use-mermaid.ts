@@ -19,6 +19,7 @@ export function useMermaid(source: string): {
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mermaidConfigKey is an intentional recompute trigger so the diagram re-renders when the mermaid config changes
   React.useEffect(() => {
     let disposed = false;
     setSvg(null);
@@ -49,9 +50,7 @@ export function useMermaid(source: string): {
         setLoading(false);
       } catch (err) {
         if (disposed) return;
-        setError(
-          err instanceof Error ? err.message : "diagram render failed",
-        );
+        setError(err instanceof Error ? err.message : "diagram render failed");
         setLoading(false);
       }
     };

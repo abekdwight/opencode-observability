@@ -20,7 +20,7 @@
   --color-bg-code: #f0f0f2;
 
   /* Borders */
-  --color-border-default: rgba(0, 0, 0, 0.10);
+  --color-border-default: rgba(0, 0, 0, 0.1);
   --color-border-subtle: rgba(0, 0, 0, 0.06);
   --color-border-faint: rgba(0, 0, 0, 0.03);
 
@@ -109,7 +109,7 @@
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.1);
   --shadow-sidebar: -4px 0 12px rgba(0, 0, 0, 0.04);
 
   /* Transitions */
@@ -150,7 +150,7 @@
   --color-bg-code: #222226;
 
   /* Borders */
-  --color-border-default: rgba(255, 255, 255, 0.10);
+  --color-border-default: rgba(255, 255, 255, 0.1);
   --color-border-subtle: rgba(255, 255, 255, 0.07);
   --color-border-faint: rgba(255, 255, 255, 0.04);
 
@@ -165,13 +165,13 @@
 
   /* Semantic — softer in dark to avoid retinal burn */
   --color-success: #58d372;
-  --color-success-bg: rgba(88, 211, 114, 0.10);
+  --color-success-bg: rgba(88, 211, 114, 0.1);
   --color-warning: #e0ac3b;
   --color-warning-text: #e0ac3b;
-  --color-warning-bg: rgba(224, 172, 59, 0.10);
+  --color-warning-bg: rgba(224, 172, 59, 0.1);
   --color-error: #f27068;
   --color-error-text: #f27068;
-  --color-error-bg: rgba(242, 112, 104, 0.10);
+  --color-error-bg: rgba(242, 112, 104, 0.1);
   --color-error-border: rgba(242, 112, 104, 0.22);
 
   /* Role — user and assistant must be clearly distinguishable */
@@ -189,9 +189,9 @@
   --color-tool-pill-strong-text: #e4e4e7;
   --color-tool-pill-muted-text: #8a8a91;
   --color-tool-pill-hover-border: rgba(255, 255, 255, 0.28);
-  --color-model-chip-bg: rgba(180, 150, 240, 0.10);
+  --color-model-chip-bg: rgba(180, 150, 240, 0.1);
   --color-model-chip-text: #b8a0f0;
-  --color-agent-chip-bg: rgba(88, 211, 114, 0.10);
+  --color-agent-chip-bg: rgba(88, 211, 114, 0.1);
   --color-agent-chip-text: #58d372;
   --color-tps-chip-bg: rgba(255, 255, 255, 0.05);
   --color-tps-chip-text: #8c8c91;

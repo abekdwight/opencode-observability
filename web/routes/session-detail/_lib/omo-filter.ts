@@ -64,9 +64,7 @@ function stripOmoPrefix(text: string): string {
 // ---------------------------------------------------------------------------
 // Detection: does this session contain any OMO content?
 // ---------------------------------------------------------------------------
-export function detectOmoContent(
-  messages: SessionMessageContract[],
-): boolean {
+export function detectOmoContent(messages: SessionMessageContract[]): boolean {
   for (const msg of messages) {
     if (msg.role !== "user") continue;
     if (isSyntheticOmoMessage(msg.text)) return true;

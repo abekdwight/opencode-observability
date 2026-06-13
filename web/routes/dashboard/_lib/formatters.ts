@@ -68,10 +68,7 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-export function formatNullableMetric(
-  value: number | null,
-  digits = 2,
-): string {
+export function formatNullableMetric(value: number | null, digits = 2): string {
   if (value == null || !Number.isFinite(value)) return "\u2014";
   return value.toFixed(digits);
 }
@@ -82,10 +79,7 @@ export function formatLatencySeconds(valueMs: number | null): string {
   return sec >= 100 ? `${sec.toFixed(0)}s` : `${sec.toFixed(1)}s`;
 }
 
-export function formatPercentRatio(
-  value: number | null,
-  digits = 1,
-): string {
+export function formatPercentRatio(value: number | null, digits = 1): string {
   if (value == null || !Number.isFinite(value)) return "\u2014";
   return `${(value * 100).toFixed(digits)}%`;
 }

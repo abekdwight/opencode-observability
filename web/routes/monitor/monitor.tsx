@@ -9,7 +9,10 @@ import {
 } from "../../components/ui/collapsible";
 import { MetricCard } from "../../components/ui/metric-card";
 import { MetricGrid } from "../../components/ui/metric-grid";
-import { isLegacySourceSession, useMonitorFeed } from "../../hooks/use-monitor-feed";
+import {
+  isLegacySourceSession,
+  useMonitorFeed,
+} from "../../hooks/use-monitor-feed";
 import {
   bucketizeEvents,
   classifyEventLane,
@@ -250,7 +253,7 @@ function InlineTimeSeriesChart({
               width={CHART_WIDTH}
               height={CHART_HEIGHT}
               rx="2"
-              style={{ fill: 'var(--color-bg-muted)' }}
+              style={{ fill: "var(--color-bg-muted)" }}
             />
 
             {/* ── Horizontal gridlines (25/50/75 %) ── */}
@@ -264,7 +267,7 @@ function InlineTimeSeriesChart({
                   x2={SVG_PAD_LEFT + CHART_WIDTH}
                   y2={y}
                   strokeWidth="0.5"
-                  style={{ stroke: 'var(--color-border-faint)' }}
+                  style={{ stroke: "var(--color-border-faint)" }}
                 />
               );
             })}
@@ -276,7 +279,7 @@ function InlineTimeSeriesChart({
               x2={SVG_PAD_LEFT + CHART_WIDTH}
               y2={chartBottom}
               strokeWidth="0.75"
-              style={{ stroke: 'var(--color-border-default)' }}
+              style={{ stroke: "var(--color-border-default)" }}
             />
 
             {/* ── Vertical minute gridlines + axis labels ── */}
@@ -295,7 +298,7 @@ function InlineTimeSeriesChart({
                     y2={chartBottom}
                     strokeWidth="0.5"
                     strokeDasharray="3,2"
-                    style={{ stroke: 'var(--color-border-subtle)' }}
+                    style={{ stroke: "var(--color-border-subtle)" }}
                   />
                   <text
                     x={x}
@@ -303,7 +306,7 @@ function InlineTimeSeriesChart({
                     textAnchor="middle"
                     fontSize="7.5"
                     fontFamily="var(--font-sans)"
-                    style={{ fill: 'var(--color-text-tertiary)' }}
+                    style={{ fill: "var(--color-text-tertiary)" }}
                   >
                     {label}
                   </text>
@@ -354,7 +357,7 @@ function InlineTimeSeriesChart({
               fontSize="7.5"
               fontWeight="600"
               fontFamily="var(--font-sans)"
-              style={{ fill: 'var(--color-text-primary)' }}
+              style={{ fill: "var(--color-text-primary)" }}
             >
               Now
             </text>
@@ -366,7 +369,7 @@ function InlineTimeSeriesChart({
               textAnchor="end"
               fontSize="7"
               fontFamily="var(--font-sans)"
-              style={{ fill: 'var(--color-text-tertiary)' }}
+              style={{ fill: "var(--color-text-tertiary)" }}
             >
               5m
             </text>
@@ -801,7 +804,10 @@ export function Monitor() {
             </div>
           </section>
 
-          <Collapsible defaultOpen={false} data-testid="monitor-secondary-details">
+          <Collapsible
+            defaultOpen={false}
+            data-testid="monitor-secondary-details"
+          >
             <CollapsibleTrigger
               className="flex items-center gap-2 w-full p-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-surface)] text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
               data-testid="monitor-secondary-details-toggle"

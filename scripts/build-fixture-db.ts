@@ -8,7 +8,9 @@ const ROOT_SESSION_IDS = [
   "ses_2f6575852ffeLRE8jordztg819",
 ] as const;
 
-const TARGET_PATH = path.resolve("tests/fixtures/opencode-observability.sqlite");
+const TARGET_PATH = path.resolve(
+  "tests/fixtures/opencode-observability.sqlite",
+);
 const TABLES = ["project", "session", "message", "part", "todo"] as const;
 
 function collectSessionIds(source: Database.Database): string[] {
