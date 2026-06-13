@@ -3,7 +3,7 @@ import { getHost, getPort } from "../lib/config.js";
 import { app } from "./app.js";
 import { closeDashboardGateway } from "./dashboard-api.js";
 
-export function startTelemetryServer(): void {
+export function startObservabilityServer(): void {
   const port = getPort();
   const hostname = getHost();
 

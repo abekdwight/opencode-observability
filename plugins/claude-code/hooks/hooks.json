@@ -1,5 +1,5 @@
 {
-  "description": "Open the telemetry viewer for the current session when /monitor is invoked, blocking the prompt before it reaches the model.",
+  "description": "Open the session viewer for the current session when /monitor is invoked, blocking the prompt before it reaches the model.",
   "hooks": {
     "UserPromptExpansion": [
       {

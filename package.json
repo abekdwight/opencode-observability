@@ -13,8 +13,7 @@
     }
   },
   "bin": {
-    "opencode-observability": "dist/server/cli/opencode-observability.js",
-    "opencode-telemetry": "dist/server/cli/opencode-observability.js"
+    "opencode-observability": "dist/server/cli/opencode-observability.js"
   },
   "files": [
     "dist",

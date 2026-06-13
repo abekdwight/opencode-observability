@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptExpansion hook: open the telemetry viewer for this session.
+"""UserPromptExpansion hook: open the session viewer for this session.
 
 Reads the hook payload from stdin. When the expanded command is /monitor,
 opens http://<viewer>/sessions/claude/<session_id> in the browser and blocks
@@ -7,8 +7,8 @@ the expansion so nothing reaches the model (zero tokens), mirroring the
 OpenCode plugin's command.execute.before + cancel behaviour.
 
 Environment:
-  OPENCODE_TELEMETRY_URL       viewer base URL (default http://127.0.0.1:3737)
-  OPENCODE_TELEMETRY_OPEN_CMD  override the browser opener command (testing)
+  OPENCODE_OBSERVABILITY_URL       viewer base URL (default http://127.0.0.1:3737)
+  OPENCODE_OBSERVABILITY_OPEN_CMD  override the browser opener command (testing)
 """
 
 import json
@@ -23,7 +23,7 @@ DEFAULT_BASE_URL = "http://127.0.0.1:3737"
 
 def base_url() -> str:
     return (
-        os.environ.get("OPENCODE_TELEMETRY_URL") or DEFAULT_BASE_URL
+        os.environ.get("OPENCODE_OBSERVABILITY_URL") or DEFAULT_BASE_URL
     ).rstrip("/")
 
 
@@ -36,7 +36,7 @@ def server_reachable(base: str) -> bool:
 
 
 def open_in_browser(url: str) -> bool:
-    override = os.environ.get("OPENCODE_TELEMETRY_OPEN_CMD")
+    override = os.environ.get("OPENCODE_OBSERVABILITY_OPEN_CMD")
     if override:
         command = [*override.split(), url]
     elif sys.platform == "darwin":
@@ -68,7 +68,7 @@ def main() -> None:
     except json.JSONDecodeError:
         return
 
-    # Plugin commands may surface namespaced ("opencode-telemetry:monitor"),
+    # Plugin commands may surface namespaced ("opencode-observability:monitor"),
     # so match on the trailing segment instead of relying on hook matchers.
     command_name = str(payload.get("command_name", ""))
     if command_name.split(":")[-1] != COMMAND_NAME:

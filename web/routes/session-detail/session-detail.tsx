@@ -171,7 +171,7 @@ export function SessionDetailPage(): React.ReactElement | null {
       document.title = `${data.session.title} \u2014 ${data.harness.label}`;
     }
     return () => {
-      document.title = "OpenCode Telemetry";
+      document.title = "OpenCode Observability";
     };
   }, [data]);
 

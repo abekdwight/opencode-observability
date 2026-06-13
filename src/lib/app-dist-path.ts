@@ -7,9 +7,7 @@ function unique(values: string[]): string[] {
 }
 
 function candidateDistDirectories(metaUrl: string): string[] {
-  const fromEnv =
-    process.env.OPENCODE_OBSERVABILITY_APP_DIST_DIR?.trim() ||
-    process.env.OPENCODE_TELEMETRY_APP_DIST_DIR?.trim();
+  const fromEnv = process.env.OPENCODE_OBSERVABILITY_APP_DIST_DIR?.trim();
   const moduleDir = path.dirname(fileURLToPath(metaUrl));
   return unique(
     [

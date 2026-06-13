@@ -85,7 +85,7 @@ export function AppShell() {
             to="/sessions"
             className="flex items-center gap-2 no-underline text-[var(--color-text-primary)] font-semibold text-[0.88em] tracking-tight whitespace-nowrap shrink-0 hover:no-underline"
           >
-            OpenCode Telemetry
+            OpenCode Observability
           </Link>
 
           {/* Segmented Nav */}

@@ -3,9 +3,9 @@ name: monitor
 description: 現在のセッションをテレメトリビューアで開く
 ---
 
-OPENCODE_TELEMETRY_OPEN_MONITOR
+OPENCODE_OBSERVABILITY_OPEN_MONITOR
 
-この指示は通常、opencode-telemetry プラグインの UserPromptSubmit フックが
+この指示は通常、opencode-observability プラグインの UserPromptSubmit フックが
 モデル実行前に横取りし、ブラウザでセッションビューアを開きます。
 
 この指示がモデルに届いている場合、フックが動作していません。

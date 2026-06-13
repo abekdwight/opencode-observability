@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 const FIXTURE_DIR = path.resolve("tests/fixtures");
 export const FIXTURE_DB_PATH = path.join(
   FIXTURE_DIR,
-  "opencode-telemetry.sqlite",
+  "opencode-observability.sqlite",
 );
 
 type SessionSeed = {

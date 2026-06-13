@@ -361,8 +361,8 @@ test.describe("Monitor timeline inline chart", () => {
         ...MONITOR_SNAPSHOT,
         activeRootSessions: [
           {
-            id: "source:abekeishi-mini.local:7768",
-            title: "source:abekeishi-mini.local:7768",
+            id: "source:macbook-pro:7768",
+            title: "source:macbook-pro:7768",
             directory: "(unknown)",
             updatedAt: "2024-01-10T09:01:00.000Z",
             messageCount: 0,
@@ -377,7 +377,7 @@ test.describe("Monitor timeline inline chart", () => {
     await page.goto("/monitor");
 
     await expect(
-      page.getByText("source:abekeishi-mini.local:7768"),
+      page.getByText("source:macbook-pro:7768"),
     ).toHaveCount(0);
     await expect(
       page.getByText("No sessions seen during this page load"),

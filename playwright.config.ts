@@ -25,7 +25,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       PORT: "3838",
-      OPENCODE_DB_PATH: "tests/fixtures/opencode-telemetry.sqlite",
+      OPENCODE_DB_PATH: "tests/fixtures/opencode-observability.sqlite",
       CODEX_STATE_DB_PATH: "tests/fixtures/nonexistent-codex-state.sqlite",
       CLAUDE_PROJECTS_DIR: "tests/fixtures/nonexistent-claude-projects",
     },

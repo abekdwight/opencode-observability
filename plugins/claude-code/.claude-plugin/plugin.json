@@ -1,12 +1,12 @@
 {
-  "name": "opencode-telemetry",
-  "displayName": "OpenCode Telemetry",
+  "name": "opencode-observability",
+  "displayName": "OpenCode Observability",
   "version": "0.1.0",
-  "description": "/monitor で現在の Claude Code セッションをテレメトリビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
+  "description": "/monitor で現在の Claude Code セッションをセッションビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
   "author": {
-    "name": "abekeishi"
+    "name": "abekdwight"
   },
-  "repository": "https://github.com/abekdwight/opencode-telemetry",
+  "repository": "https://github.com/abekdwight/opencode-observability",
   "license": "MIT",
-  "keywords": ["telemetry", "viewer", "session", "monitor"]
+  "keywords": ["observability", "viewer", "session", "monitor"]
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-import { startTelemetryServer } from "../server/start.js";
+import { startObservabilityServer } from "../server/start.js";
 
-startTelemetryServer();
+startObservabilityServer();

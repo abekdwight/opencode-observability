@@ -203,9 +203,7 @@ export const monitorApi = new Hono()
     if (
       !hasValidIngestToken(
         c.req.header("authorization") ?? null,
-        c.req.header("x-opencode-observability-token") ??
-          c.req.header("x-opencode-telemetry-token") ??
-          null,
+        c.req.header("x-opencode-observability-token") ?? null,
       )
     ) {
       return c.json(

@@ -1,11 +1,11 @@
 {
-  "name": "opencode-telemetry",
+  "name": "opencode-observability",
   "interface": {
-    "displayName": "OpenCode Telemetry"
+    "displayName": "OpenCode Observability"
   },
   "plugins": [
     {
-      "name": "opencode-telemetry",
+      "name": "opencode-observability",
       "source": {
         "source": "local",
         "path": "./plugins/codex"

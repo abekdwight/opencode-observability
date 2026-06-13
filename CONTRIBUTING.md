@@ -9,7 +9,7 @@ npm ci
 fixture DB で作業する場合:
 
 ```fish
-set -x OPENCODE_DB_PATH tests/fixtures/opencode-telemetry.sqlite
+set -x OPENCODE_DB_PATH tests/fixtures/opencode-observability.sqlite
 ```
 
 ## Validation

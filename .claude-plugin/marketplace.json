@@ -1,16 +1,16 @@
 {
-  "name": "opencode-telemetry",
+  "name": "opencode-observability",
   "description": "OpenCode / Codex / Claude Code のセッション履歴ビューア連携プラグイン",
   "owner": {
-    "name": "abekeishi"
+    "name": "abekdwight"
   },
   "plugins": [
     {
-      "name": "opencode-telemetry",
+      "name": "opencode-observability",
       "source": "./plugins/claude-code",
-      "description": "/monitor で現在の Claude Code セッションをテレメトリビューアで開く（フック処理・モデル不使用）",
+      "description": "/monitor で現在の Claude Code セッションをセッションビューアで開く（フック処理・モデル不使用）",
       "author": {
-        "name": "abekeishi"
+        "name": "abekdwight"
       }
     }
   ]

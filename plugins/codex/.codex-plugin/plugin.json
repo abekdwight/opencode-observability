@@ -1,13 +1,13 @@
 {
-  "name": "opencode-telemetry",
+  "name": "opencode-observability",
   "version": "0.1.0",
-  "description": "現在の Codex セッションをテレメトリビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
+  "description": "現在の Codex セッションをセッションビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
   "author": {
-    "name": "abekeishi"
+    "name": "abekdwight"
   },
-  "repository": "https://github.com/abekdwight/opencode-telemetry",
+  "repository": "https://github.com/abekdwight/opencode-observability",
   "license": "MIT",
-  "keywords": ["telemetry", "viewer", "session", "monitor"],
+  "keywords": ["observability", "viewer", "session", "monitor"],
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json"
 }

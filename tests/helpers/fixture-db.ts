@@ -3,7 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 export const FIXTURE_DB_PATH = path.resolve(
-  `tests/fixtures/opencode-telemetry-${process.pid}.sqlite`,
+  `tests/fixtures/opencode-observability-${process.pid}.sqlite`,
 );
 export const ROOT_SESSION_ID = "ses-root-1";
 export const CHILD_SESSION_ID = "ses-child-1";

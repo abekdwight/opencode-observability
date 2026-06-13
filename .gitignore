@@ -6,7 +6,7 @@ test-results/
 # AI workspace artifacts
 .sisyphus/
 .claude/handover/
-tests/fixtures/opencode-telemetry-*.sqlite
+tests/fixtures/opencode-observability-*.sqlite
 .serena/project.yml
 __pycache__/
 

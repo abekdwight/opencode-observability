@@ -95,87 +95,41 @@ function env(key: string): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
-function envWithFallback(key: string, legacyKey: string): string | undefined {
-  return env(key) ?? env(legacyKey);
-}
-
 const INGEST_URL =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_INGEST_URL",
-    "OPENCODE_TELEMETRY_INGEST_URL",
-  ) || "http://127.0.0.1:3737/api/monitor/ingest";
+  env("OPENCODE_OBSERVABILITY_INGEST_URL") ||
+  "http://127.0.0.1:3737/api/monitor/ingest";
 const HEARTBEAT_INTERVAL_MS = Math.max(
   1_000,
-  Number(
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_HEARTBEAT_MS",
-      "OPENCODE_TELEMETRY_HEARTBEAT_MS",
-    ) || "10000",
-  ),
+  Number(env("OPENCODE_OBSERVABILITY_HEARTBEAT_MS") || "10000"),
 );
 const INGEST_TOKEN = process.env.OPENCODE_MONITOR_INGEST_TOKEN?.trim() || null;
 const INSTANCE_ID =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_INSTANCE_ID",
-    "OPENCODE_TELEMETRY_INSTANCE_ID",
-  ) || `${os.hostname()}:${process.pid}`;
+  env("OPENCODE_OBSERVABILITY_INSTANCE_ID") ||
+  `${os.hostname()}:${process.pid}`;
 const SOURCE_LABEL =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_SOURCE_LABEL",
-    "OPENCODE_TELEMETRY_SOURCE_LABEL",
-  ) || "opencode-observability";
-const AUTOSTART_ENABLED =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_AUTOSTART",
-    "OPENCODE_TELEMETRY_AUTOSTART",
-  ) !== "0";
-const COMMANDS_ENABLED =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_COMMANDS_ENABLED",
-    "OPENCODE_TELEMETRY_COMMANDS_ENABLED",
-  ) !== "0";
+  env("OPENCODE_OBSERVABILITY_SOURCE_LABEL") || "opencode-observability";
+const AUTOSTART_ENABLED = env("OPENCODE_OBSERVABILITY_AUTOSTART") !== "0";
+const COMMANDS_ENABLED = env("OPENCODE_OBSERVABILITY_COMMANDS_ENABLED") !== "0";
 const MONITOR_COMMAND_NAME = (() => {
-  const value =
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_MONITOR_COMMAND",
-      "OPENCODE_TELEMETRY_MONITOR_COMMAND",
-    ) || "monitor";
+  const value = env("OPENCODE_OBSERVABILITY_MONITOR_COMMAND") || "monitor";
   const normalized = value.trim().replace(/^\//u, "");
   return normalized.length > 0 ? normalized : "monitor";
 })();
 const MONITOR_COMMAND_AUTO_OPEN =
-  envWithFallback(
-    "OPENCODE_OBSERVABILITY_MONITOR_OPEN_ON_COMMAND",
-    "OPENCODE_TELEMETRY_MONITOR_OPEN_ON_COMMAND",
-  ) !== "0";
+  env("OPENCODE_OBSERVABILITY_MONITOR_OPEN_ON_COMMAND") !== "0";
 const AUTOSTART_TIMEOUT_MS = Math.max(
   1_000,
-  Number(
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_AUTOSTART_TIMEOUT_MS",
-      "OPENCODE_TELEMETRY_AUTOSTART_TIMEOUT_MS",
-    ) || "20000",
-  ),
+  Number(env("OPENCODE_OBSERVABILITY_AUTOSTART_TIMEOUT_MS") || "20000"),
 );
 const AUTOSTART_POLL_INTERVAL_MS = 250;
 const HEALTHCHECK_TIMEOUT_MS = 800;
 const COMPACTION_ALERT_THRESHOLD = Math.max(
   1,
-  Number(
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_COMPACTION_ALERT_THRESHOLD",
-      "OPENCODE_TELEMETRY_COMPACTION_ALERT_THRESHOLD",
-    ) || "3",
-  ),
+  Number(env("OPENCODE_OBSERVABILITY_COMPACTION_ALERT_THRESHOLD") || "3"),
 );
 const STARTUP_LOCK_STALE_MS = Math.max(
   1_000,
-  Number(
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_LOCK_STALE_MS",
-      "OPENCODE_TELEMETRY_LOCK_STALE_MS",
-    ) || "30000",
-  ),
+  Number(env("OPENCODE_OBSERVABILITY_LOCK_STALE_MS") || "30000"),
 );
 
 function toIso(value?: number): string {
@@ -289,18 +243,12 @@ function resolveServerCommand(metaUrl: string): {
   const moduleDir = path.dirname(fileURLToPath(metaUrl));
   const command =
     resolveScriptRuntimeCommand() ??
-    envWithFallback(
-      "OPENCODE_OBSERVABILITY_NODE_PATH",
-      "OPENCODE_TELEMETRY_NODE_PATH",
-    ) ??
+    env("OPENCODE_OBSERVABILITY_NODE_PATH") ??
     "node";
   const jsCandidates = [
     path.resolve(moduleDir, "../cli/opencode-observability.js"),
     path.resolve(moduleDir, "../../dist/server/cli/opencode-observability.js"),
     path.resolve(process.cwd(), "dist/server/cli/opencode-observability.js"),
-    path.resolve(moduleDir, "../cli/opencode-telemetry.js"),
-    path.resolve(moduleDir, "../../dist/server/cli/opencode-telemetry.js"),
-    path.resolve(process.cwd(), "dist/server/cli/opencode-telemetry.js"),
   ];
 
   for (const candidate of jsCandidates) {
@@ -1363,7 +1311,5 @@ Reply with the monitor URL shown by the user message.
     },
   };
 };
-
-export const OpencodeTelemetryPlugin = OpencodeObservabilityPlugin;
 
 export default OpencodeObservabilityPlugin;
