@@ -368,6 +368,7 @@ test.describe("session detail overview", () => {
               fullInput: '{"name":"create-skill"}',
               fullOutput: "skill loaded",
               durationMs: 50,
+              question: null,
             },
           ],
           subagentLinks: [],

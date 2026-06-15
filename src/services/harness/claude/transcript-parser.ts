@@ -1,6 +1,12 @@
+import {
+  QUESTION_TOOL,
+  questionToPlainText,
+} from "../../../contracts/question.js";
 import type {
   SessionMessageContract,
   SessionModelTokenBreakdown,
+  SessionQuestionContract,
+  SessionQuestionItemContract,
   SessionTodoContract,
   SessionToolCallContract,
 } from "../../../contracts/session.js";
@@ -103,6 +109,12 @@ export function parseClaudeTranscript(content: string): ParsedClaudeTranscript {
 interface ToolResult {
   output: string;
   isError: boolean;
+  /**
+   * The structured result Claude attaches at the user RECORD root (sibling of
+   * `message`). For AskUserQuestion this carries the selected answers keyed by
+   * question text; null for tools that have no structured result.
+   */
+  toolUseResult: Record<string, unknown> | null;
 }
 
 /** Map tool_use_id → its result, scanned from user tool_result blocks. */
@@ -112,12 +124,18 @@ function buildToolResultMap(records: ClaudeRecord[]): Map<string, ToolResult> {
     if (record.type !== "user") continue;
     const message = record.raw.message;
     if (!isObject(message) || !Array.isArray(message.content)) continue;
+    // toolUseResult sits beside `message` at the record root and applies to the
+    // tool_use this record answers (one tool_result block per such record).
+    const toolUseResult = isObject(record.raw.toolUseResult)
+      ? record.raw.toolUseResult
+      : null;
     for (const block of message.content) {
       if (!isObject(block) || block.type !== "tool_result") continue;
       if (typeof block.tool_use_id !== "string") continue;
       map.set(block.tool_use_id, {
         output: contentToText(block.content),
         isError: block.is_error === true,
+        toolUseResult,
       });
     }
   }
@@ -148,11 +166,79 @@ function summarizeToolInput(input: unknown): string {
   return truncate(safeJson(input), 120);
 }
 
+/**
+ * An answer value in `toolUseResult.answers` is either a single selected label
+ * (string) or several (array). Normalize both to a string array; a missing
+ * value (unanswered) yields an empty array.
+ */
+function toAnswerArray(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is string => typeof entry === "string");
+  }
+  return [];
+}
+
+/**
+ * Build the structured question payload for a Claude `AskUserQuestion` call.
+ * The selected answers come from the record-level `toolUseResult.answers` map
+ * (keyed by question text), NOT from the tool_result prose.
+ */
+function buildAskUserQuestion(
+  input: unknown,
+  toolUseResult: Record<string, unknown> | null,
+): SessionQuestionContract {
+  const rawQuestions =
+    isObject(input) && Array.isArray(input.questions) ? input.questions : [];
+  const answers =
+    toolUseResult && isObject(toolUseResult.answers)
+      ? toolUseResult.answers
+      : {};
+  const questions: SessionQuestionItemContract[] = [];
+  for (const raw of rawQuestions) {
+    if (!isObject(raw)) continue;
+    const questionText = typeof raw.question === "string" ? raw.question : "";
+    questions.push({
+      header: typeof raw.header === "string" ? raw.header : "",
+      question: questionText,
+      multiSelect: Boolean(raw.multiSelect),
+      options: Array.isArray(raw.options)
+        ? raw.options.filter(isObject).map((option) => ({
+            label: typeof option.label === "string" ? option.label : "",
+            description:
+              typeof option.description === "string" ? option.description : "",
+          }))
+        : [],
+      selected: toAnswerArray(answers[questionText]),
+      note: null,
+    });
+  }
+  return { questions };
+}
+
 function buildToolCall(
   block: Record<string, unknown>,
   result: ToolResult | undefined,
 ): SessionToolCallContract {
   const rawName = typeof block.name === "string" ? block.name : "tool";
+  // AskUserQuestion is a user interaction, not an ordinary tool. Normalize it
+  // to the shared "question" contract and carry the structured payload.
+  if (rawName === "AskUserQuestion") {
+    const question = buildAskUserQuestion(
+      block.input,
+      result?.toolUseResult ?? null,
+    );
+    return {
+      tool: QUESTION_TOOL,
+      input: `${question.questions.length}件の質問`,
+      status: result ? (result.isError ? "error" : "completed") : "unknown",
+      error: "",
+      fullInput: "",
+      fullOutput: questionToPlainText(question),
+      durationMs: 0,
+      question,
+    };
+  }
   // Claude records a Skill invocation as the tool "Skill" with the skill name
   // in input.skill. Normalize it to the shared lowercase "skill" contract with
   // the skill name as the label so the sidebar's skill aggregation recognizes
@@ -173,6 +259,7 @@ function buildToolCall(
     fullInput: safeJson(block.input ?? {}),
     fullOutput: result ? result.output : "",
     durationMs: 0,
+    question: null,
   };
 }
 
@@ -190,6 +277,7 @@ function buildThinkingCall(thinking: string): SessionToolCallContract {
     fullInput: "",
     fullOutput: thinking.trim(),
     durationMs: 0,
+    question: null,
   };
 }
 

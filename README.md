@@ -118,6 +118,20 @@ Every option has a sensible default — the table below is for tuning. Copy `.en
 | `OPENCODE_OBSERVABILITY_AUTOSTART` | `1` | Let the OpenCode plugin auto-start the monitor. Set `0` to disable. |
 | `OPENCODE_OBSERVABILITY_URL` | `http://127.0.0.1:3737` | Viewer base URL used by the Claude Code / Codex hooks. |
 
+## 🩺 Troubleshooting
+
+### OpenCode / Codex history is empty
+
+If the **Sessions** page lists Claude Code sessions but **OpenCode and Codex are missing** (`source: missing-database`), your OpenCode plugin cache is probably holding a broken **0.1.0** build. OpenCode caches plugins under a `@latest` directory and reuses it, so simply restarting OpenCode does not always pull the fix.
+
+Clear the cached plugin and restart OpenCode so it re-fetches the latest version:
+
+```bash
+rm -rf ~/.cache/opencode/packages/opencode-observability@latest
+```
+
+Versions **0.1.1 and later** use Node's built-in `node:sqlite` instead of a native module, so there is no install-time build step that OpenCode's script-less install could skip — once you are on 0.1.1+, this cannot recur.
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -147,7 +161,7 @@ src/
 web/               React + Vite app shell (Tailwind, Radix UI, Recharts)
 ```
 
-**Stack:** TypeScript · [Hono](https://hono.dev) · [React 19](https://react.dev) + [Vite](https://vite.dev) · better-sqlite3 · [Tailwind CSS](https://tailwindcss.com) · [Radix UI](https://www.radix-ui.com) · [Shiki](https://shiki.style) · [Mermaid](https://mermaid.js.org) · [Recharts](https://recharts.org).
+**Stack:** TypeScript · [Hono](https://hono.dev) · [React 19](https://react.dev) + [Vite](https://vite.dev) · [`node:sqlite`](https://nodejs.org/api/sqlite.html) · [Tailwind CSS](https://tailwindcss.com) · [Radix UI](https://www.radix-ui.com) · [Shiki](https://shiki.style) · [Mermaid](https://mermaid.js.org) · [Recharts](https://recharts.org).
 
 ## 🔒 Privacy & Safety
 

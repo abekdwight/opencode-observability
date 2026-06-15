@@ -1,5 +1,11 @@
+import {
+  QUESTION_TOOL,
+  questionToPlainText,
+} from "../../../contracts/question.js";
 import type {
   SessionMessageContract,
+  SessionQuestionContract,
+  SessionQuestionItemContract,
   SessionTodoContract,
   SessionToolCallContract,
   SessionToolEventContract,
@@ -132,14 +138,76 @@ function parseArguments(argumentsStr: unknown): unknown {
   }
 }
 
-function extractRequestUserInputQuestions(args: unknown): string[] {
-  if (!isObject(args) || !Array.isArray(args.questions)) return [];
-  return args.questions
-    .filter(
-      (q: unknown): q is Record<string, unknown> =>
-        isObject(q) && typeof q.question === "string",
-    )
-    .map((q) => q.question as string);
+/**
+ * Build the structured question payload for a Codex `request_user_input`
+ * call, plus the ordered question ids so the matching output can map each
+ * answer set back to its question by id. Codex has no multi-select flag, so
+ * every question is `multiSelect: false`. Selections are filled on the output.
+ */
+function buildRequestUserInputQuestion(args: unknown): {
+  question: SessionQuestionContract;
+  questionIds: string[];
+} {
+  const rawQuestions =
+    isObject(args) && Array.isArray(args.questions) ? args.questions : [];
+  const questions: SessionQuestionItemContract[] = [];
+  const questionIds: string[] = [];
+  for (const raw of rawQuestions) {
+    if (!isObject(raw)) continue;
+    questions.push({
+      header: typeof raw.header === "string" ? raw.header : "",
+      question: typeof raw.question === "string" ? raw.question : "",
+      multiSelect: false,
+      options: Array.isArray(raw.options)
+        ? raw.options.filter(isObject).map((option) => ({
+            label: typeof option.label === "string" ? option.label : "",
+            description:
+              typeof option.description === "string" ? option.description : "",
+          }))
+        : [],
+      selected: [],
+      note: null,
+    });
+    questionIds.push(typeof raw.id === "string" ? raw.id : "");
+  }
+  return { question: { questions }, questionIds };
+}
+
+const USER_NOTE_PREFIX = "user_note: ";
+
+/**
+ * Apply a Codex answer set to one question item: entries prefixed with
+ * `user_note: ` become the note (last wins, prefix stripped), "None of the
+ * above" is dropped, and everything else is a selected value.
+ */
+function applyRequestUserInputAnswers(
+  item: SessionQuestionItemContract,
+  entries: unknown,
+): void {
+  if (!Array.isArray(entries)) return;
+  for (const entry of entries) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    if (entry.startsWith(USER_NOTE_PREFIX)) {
+      item.note = entry.slice(USER_NOTE_PREFIX.length);
+      continue;
+    }
+    if (entry === "None of the above") continue;
+    item.selected.push(entry);
+  }
+}
+
+function extractRequestUserInputAnswerMap(
+  outputText: string,
+): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(outputText);
+    if (isObject(parsed) && isObject(parsed.answers)) {
+      return parsed.answers;
+    }
+  } catch {
+    /* malformed output: leave answers empty */
+  }
+  return {};
 }
 
 function extractFunctionCallOutputText(output: unknown): string {
@@ -148,30 +216,6 @@ function extractFunctionCallOutputText(output: unknown): string {
     return output.output;
   }
   return "";
-}
-
-function extractRequestUserInputAnswers(outputText: string): string[] {
-  try {
-    const parsed = JSON.parse(outputText);
-    if (!isObject(parsed) || !isObject(parsed.answers)) return [];
-    const answers: string[] = [];
-    for (const questionAnswers of Object.values(parsed.answers)) {
-      if (!isObject(questionAnswers) || !Array.isArray(questionAnswers.answers))
-        continue;
-      for (const entry of questionAnswers.answers) {
-        if (typeof entry !== "string" || entry.length === 0) continue;
-        if (entry === "None of the above") continue;
-        answers.push(
-          entry.startsWith("user_note: ")
-            ? entry.slice("user_note: ".length)
-            : entry,
-        );
-      }
-    }
-    return answers;
-  } catch {
-    return [];
-  }
 }
 
 /** exec_command outputs embed "Process exited with code N". */
@@ -291,6 +335,8 @@ interface PendingToolCall {
   call: SessionToolCallContract;
   event: SessionToolEventContract;
   startedAtMs: number;
+  /** Question ids aligned to call.question.questions; empty for non-question calls. */
+  questionIds: string[];
 }
 
 export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
@@ -411,6 +457,7 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
           fullInput: "",
           fullOutput: text,
           durationMs: 0,
+          question: null,
         });
         continue;
       }
@@ -419,29 +466,43 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
         const name = typeof payload.name === "string" ? payload.name : "tool";
         const args = parseArguments(payload.arguments);
 
-        if (name === "request_user_input") {
-          for (const question of extractRequestUserInputQuestions(args)) {
-            pushAssistant(question, line.timestampMs);
-          }
-          continue;
-        }
-
         if (name === "update_plan") {
           const plan = extractPlanTodos(args);
           if (plan) todos = plan;
         }
 
-        const call: SessionToolCallContract = {
-          tool: name,
-          input: summarizeToolInput(args),
-          status: "pending",
-          error: "",
-          fullInput: capToolText(
-            typeof args === "string" ? args : safeJson(args),
-          ),
-          fullOutput: "",
-          durationMs: 0,
-        };
+        let call: SessionToolCallContract;
+        let questionIds: string[] = [];
+        if (name === "request_user_input") {
+          // The question is the tool call; answers arrive on its output and
+          // are mapped back to each question by id (see questionIds).
+          const built = buildRequestUserInputQuestion(args);
+          questionIds = built.questionIds;
+          call = {
+            tool: QUESTION_TOOL,
+            input: `${built.question.questions.length}件の質問`,
+            status: "pending",
+            error: "",
+            fullInput: "",
+            fullOutput: "",
+            durationMs: 0,
+            question: built.question,
+          };
+        } else {
+          call = {
+            tool: name,
+            input: summarizeToolInput(args),
+            status: "pending",
+            error: "",
+            fullInput: capToolText(
+              typeof args === "string" ? args : safeJson(args),
+            ),
+            fullOutput: "",
+            durationMs: 0,
+            question: null,
+          };
+        }
+
         const event: SessionToolEventContract = {
           ...call,
           createdAt: toIso(line.timestampMs),
@@ -453,6 +514,7 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
             call,
             event,
             startedAtMs: line.timestampMs,
+            questionIds,
           });
         }
         continue;
@@ -463,17 +525,35 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
         const callId =
           typeof payload.call_id === "string" ? payload.call_id : "";
         const pending = pendingCalls.get(callId);
+        if (!pending) continue;
 
-        if (!pending) {
-          // request_user_input answers come back as outputs without a
-          // tracked call: surface them as the user messages they are.
-          for (const answer of extractRequestUserInputAnswers(outputText)) {
-            pushUser(answer, line.timestampMs);
-          }
+        pendingCalls.delete(callId);
+        const durationMs = Math.max(0, line.timestampMs - pending.startedAtMs);
+
+        if (pending.call.question) {
+          // Map each answer set back to its question by id, then render the
+          // resolved card as the call's plain-text output. A question is never
+          // a tool error, so exit-code detection does not apply.
+          const answerMap = extractRequestUserInputAnswerMap(outputText);
+          const { questions } = pending.call.question;
+          questions.forEach((item, index) => {
+            const byId = answerMap[pending.questionIds[index]];
+            const entries = isObject(byId) ? byId.answers : undefined;
+            applyRequestUserInputAnswers(item, entries);
+          });
+          const resolved: Pick<
+            SessionToolCallContract,
+            "status" | "fullOutput" | "durationMs"
+          > = {
+            status: "completed",
+            fullOutput: questionToPlainText(pending.call.question),
+            durationMs,
+          };
+          Object.assign(pending.call, resolved);
+          Object.assign(pending.event, resolved);
           continue;
         }
 
-        pendingCalls.delete(callId);
         const exitError = detectExitCodeError(outputText);
         const resolved: Pick<
           SessionToolCallContract,
@@ -482,7 +562,7 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
           status: exitError ? "error" : "completed",
           error: exitError ?? "",
           fullOutput: capToolText(outputText),
-          durationMs: Math.max(0, line.timestampMs - pending.startedAtMs),
+          durationMs,
         };
         Object.assign(pending.call, resolved);
         Object.assign(pending.event, resolved);

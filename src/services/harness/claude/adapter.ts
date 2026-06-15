@@ -4,6 +4,7 @@ import type {
   HarnessSessionDetailContract,
   HarnessSessionSummaryContract,
 } from "../../../contracts/harness.js";
+import { isOperationalToolError } from "../../../contracts/question.js";
 import { calcActiveDurationFromTimeline } from "../../../lib/duration.js";
 import {
   type ClaudeSessionFileRef,
@@ -152,7 +153,7 @@ function getSessionDetail(id: string): HarnessSessionDetailContract | null {
 
   const toolErrorCount = messages
     .flatMap((message) => message.toolCalls)
-    .filter((call) => call.status === "error").length;
+    .filter(isOperationalToolError).length;
 
   return {
     kind: "harness.session.detail",
