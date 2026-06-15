@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { Database } from "../../src/lib/sqlite.js";
 
 export const FIXTURE_DB_PATH = path.resolve(
   `tests/fixtures/opencode-observability-${process.pid}.sqlite`,

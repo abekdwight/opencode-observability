@@ -101,7 +101,7 @@ function stampsEqual(
  * worker on idle). `now` is always injected for deterministic tests.
  */
 export class DashboardAggregator {
-  private readonly db: import("better-sqlite3").Database;
+  private readonly db: import("../../../lib/sqlite.js").Database;
   private readonly chunkSize: number;
   private readonly stampBatchSize: number;
   private readonly detector: DashboardChangeDetector;
@@ -125,7 +125,7 @@ export class DashboardAggregator {
   private projectionMemo = new Map<string, ProjectionMemoEntry>();
 
   constructor(
-    db: import("better-sqlite3").Database,
+    db: import("../../../lib/sqlite.js").Database,
     options: { chunkSize?: number; stampBatchSize?: number } = {},
   ) {
     this.db = db;

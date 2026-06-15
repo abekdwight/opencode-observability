@@ -1,6 +1,6 @@
 import { resolveRepoBucketKey } from "./repo-root.js";
 
-type SqliteDatabase = import("better-sqlite3").Database;
+type SqliteDatabase = import("./sqlite.js").Database;
 
 export interface TimelineEntry {
   role: "user" | "assistant";

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
 import { getOpenCodeDbPath } from "../src/lib/config.js";
+import { Database } from "../src/lib/sqlite.js";
 
 const ROOT_SESSION_IDS = [
   "ses_2f6922df2ffeFyt7qS5W74Tm5Z",
@@ -13,7 +13,7 @@ const TARGET_PATH = path.resolve(
 );
 const TABLES = ["project", "session", "message", "part", "todo"] as const;
 
-function collectSessionIds(source: Database.Database): string[] {
+function collectSessionIds(source: Database): string[] {
   const queue = [...ROOT_SESSION_IDS];
   const visited = new Set<string>();
 
@@ -41,7 +41,7 @@ function collectSessionIds(source: Database.Database): string[] {
   return [...visited];
 }
 
-function createTables(source: Database.Database, target: Database.Database) {
+function createTables(source: Database, target: Database) {
   for (const table of TABLES) {
     const row = source
       .prepare(
@@ -58,8 +58,8 @@ function createTables(source: Database.Database, target: Database.Database) {
 }
 
 function copyRows(
-  source: Database.Database,
-  target: Database.Database,
+  source: Database,
+  target: Database,
   table: (typeof TABLES)[number],
   whereClause: string,
   params: unknown[],

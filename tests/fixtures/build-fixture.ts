@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { Database } from "../../src/lib/sqlite.js";
 
 const FIXTURE_DIR = path.resolve("tests/fixtures");
 export const FIXTURE_DB_PATH = path.join(
@@ -52,7 +52,7 @@ type PartSeed = {
   data: Record<string, unknown>;
 };
 
-function createSchema(db: Database.Database): void {
+function createSchema(db: Database): void {
   db.exec(`
     PRAGMA foreign_keys = OFF;
 
@@ -121,7 +121,7 @@ function createSchema(db: Database.Database): void {
   `);
 }
 
-function insertProjects(db: Database.Database): void {
+function insertProjects(db: Database): void {
   const stmt = db.prepare(`
     INSERT INTO project (
       id, worktree, vcs, name, icon_url, icon_color, time_created, time_updated,
@@ -147,7 +147,7 @@ function insertProjects(db: Database.Database): void {
   });
 }
 
-function insertSessions(db: Database.Database, sessions: SessionSeed[]): void {
+function insertSessions(db: Database, sessions: SessionSeed[]): void {
   const stmt = db.prepare(`
     INSERT INTO session (
       id, project_id, parent_id, slug, directory, title, version, share_url,
@@ -171,7 +171,7 @@ function insertSessions(db: Database.Database, sessions: SessionSeed[]): void {
   }
 }
 
-function insertMessages(db: Database.Database, messages: MessageSeed[]): void {
+function insertMessages(db: Database, messages: MessageSeed[]): void {
   const stmt = db.prepare(`
     INSERT INTO message (id, session_id, time_created, time_updated, data)
     VALUES (@id, @sessionId, @timeCreated, @timeCreated, @data)
@@ -195,7 +195,7 @@ function insertMessages(db: Database.Database, messages: MessageSeed[]): void {
   }
 }
 
-function insertParts(db: Database.Database, parts: PartSeed[]): void {
+function insertParts(db: Database, parts: PartSeed[]): void {
   const stmt = db.prepare(`
     INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
     VALUES (@id, @messageId, @sessionId, @timeCreated, @timeCreated, @data)
@@ -212,7 +212,7 @@ function insertParts(db: Database.Database, parts: PartSeed[]): void {
   }
 }
 
-function insertTodos(db: Database.Database): void {
+function insertTodos(db: Database): void {
   const stmt = db.prepare(`
     INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated)
     VALUES (?, ?, ?, ?, ?, ?, ?)

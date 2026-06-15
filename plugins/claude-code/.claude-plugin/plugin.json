@@ -1,8 +1,8 @@
 {
-  "name": "opencode-observability",
+  "name": "oc",
   "displayName": "OpenCode Observability",
   "version": "0.1.0",
-  "description": "/monitor で現在の Claude Code セッションをセッションビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
+  "description": "/oc:monitor で現在の Claude Code セッションをセッションビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
   "author": {
     "name": "abekdwight"
   },

@@ -1,10 +1,10 @@
-import type Database from "better-sqlite3";
 import type {
   MonitorSessionSummary,
   MonitorSnapshotContract,
 } from "../contracts/monitor.js";
 import { getMonitorActiveWindowMs } from "../lib/config.js";
 import { buildMessageTotalTokensSql } from "../lib/message-token-sql.js";
+import type { Database } from "../lib/sqlite.js";
 
 interface SessionRow {
   id: string;
@@ -37,16 +37,12 @@ function computeInputRatioPercent(
 
 const MESSAGE_TOTAL_TOKENS_SQL = buildMessageTotalTokensSql("data");
 
-function getCount(
-  db: Database.Database,
-  sql: string,
-  params: unknown[] = [],
-): number {
+function getCount(db: Database, sql: string, params: unknown[] = []): number {
   const row = db.prepare(sql).get(...params) as { cnt?: number } | undefined;
   return asNumber(row?.cnt);
 }
 
-function countToolCalls(db: Database.Database, sessionId: string): number {
+function countToolCalls(db: Database, sessionId: string): number {
   return getCount(
     db,
     `SELECT COUNT(*) AS cnt FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool'`,
@@ -54,7 +50,7 @@ function countToolCalls(db: Database.Database, sessionId: string): number {
   );
 }
 
-function countToolErrors(db: Database.Database, sessionId: string): number {
+function countToolErrors(db: Database, sessionId: string): number {
   return getCount(
     db,
     `SELECT COUNT(*) AS cnt FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'error'`,
@@ -62,10 +58,7 @@ function countToolErrors(db: Database.Database, sessionId: string): number {
   );
 }
 
-function countCompactionMessages(
-  db: Database.Database,
-  sessionId: string,
-): number {
+function countCompactionMessages(db: Database, sessionId: string): number {
   return getCount(
     db,
     `SELECT COUNT(*) AS cnt FROM message WHERE session_id = ? AND (
@@ -75,10 +68,7 @@ function countCompactionMessages(
   );
 }
 
-function countSubagentSessions(
-  db: Database.Database,
-  sessionId: string,
-): number {
+function countSubagentSessions(db: Database, sessionId: string): number {
   return getCount(
     db,
     `SELECT COUNT(*) AS cnt FROM session WHERE parent_id = ?`,
@@ -87,13 +77,13 @@ function countSubagentSessions(
 }
 
 function buildRootSessionSummary(
-  db: Database.Database,
+  db: Database,
   row: SessionRow,
 ): MonitorSessionSummary {
-  const messageCount = asNumber(
-    db
-      .prepare(`SELECT COUNT(*) AS cnt FROM message WHERE session_id = ?`)
-      .get(row.id),
+  const messageCount = getCount(
+    db,
+    `SELECT COUNT(*) AS cnt FROM message WHERE session_id = ?`,
+    [row.id],
   );
   const toolCallCount = countToolCalls(db, row.id);
   const compactionCount = countCompactionMessages(db, row.id);
@@ -149,7 +139,7 @@ function placeholders(size: number): string {
 }
 
 function listActiveRootSessions(
-  db: Database.Database,
+  db: Database,
   nowMs: number,
   activeWindowMs: number,
 ): SessionRow[] {
@@ -166,7 +156,7 @@ function listActiveRootSessions(
 }
 
 export function buildMonitorSnapshotContract(
-  db: Database.Database,
+  db: Database,
 ): MonitorSnapshotContract {
   const nowMs = Date.now();
   const activeWindowMs = getMonitorActiveWindowMs();

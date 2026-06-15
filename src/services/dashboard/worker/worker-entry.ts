@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import Database from "better-sqlite3";
+import { Database } from "../../../lib/sqlite.js";
 import { InlineDashboardGateway } from "../inline-gateway.js";
 import type {
   DashboardWorkerEndpoint,

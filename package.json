@@ -34,7 +34,7 @@
     "@opencode-ai/plugin": ">=1.0.0"
   },
   "engines": {
-    "node": ">=22.0.0",
+    "node": ">=22.14.0",
     "npm": ">=10.0.0"
   },
   "scripts": {
@@ -70,7 +70,6 @@
     "@radix-ui/react-tooltip": "1.2.9",
     "@tailwindcss/vite": "4.3.1",
     "@vitejs/plugin-react": "6.0.2",
-    "better-sqlite3": "12.10.0",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
     "hono": "4.12.25",
@@ -90,7 +89,6 @@
     "@biomejs/biome": "2.5.0",
     "@opencode-ai/plugin": "1.17.4",
     "@playwright/test": "1.60.0",
-    "@types/better-sqlite3": "7.6.13",
     "@types/node": "22.19.21",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",

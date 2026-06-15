@@ -8,7 +8,7 @@ import {
   readTableWatermarks,
 } from "../../../repositories/dashboard/dashboard-queries.js";
 
-type SqliteDatabase = import("better-sqlite3").Database;
+type SqliteDatabase = import("../../../lib/sqlite.js").Database;
 
 // Roots active within this trailing window are re-stamped every cycle to catch
 // in-place message/part UPDATEs that rowid-append detection cannot see.

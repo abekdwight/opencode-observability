@@ -1,5 +1,5 @@
-import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { Database } from "../../src/lib/sqlite.js";
 import { app } from "../../src/server/app.js";
 import {
   CHILD_SESSION_ID,

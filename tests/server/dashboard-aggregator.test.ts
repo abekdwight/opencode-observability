@@ -1,10 +1,10 @@
-import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   normalizeDashboardSelectionInput,
   toLocalDayStartMs,
 } from "../../src/lib/dashboard-time.js";
 import { getDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { DashboardAggregator } from "../../src/services/dashboard/aggregator/aggregator.js";
 import { restoreDbPath, useFixtureDb } from "../helpers/fixture-db.js";
 
@@ -20,7 +20,7 @@ function selection(view: "daily" | "hourly" = "daily") {
   return result.selection;
 }
 
-let db: Database.Database;
+let db: Database;
 
 beforeEach(() => {
   vi.useFakeTimers();
