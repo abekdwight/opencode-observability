@@ -1,7 +1,7 @@
-import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { normalizeDashboardSelectionInput } from "../../src/lib/dashboard-time.js";
 import { getDb, getWritableDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { DashboardAggregator } from "../../src/services/dashboard/aggregator/aggregator.js";
 import { classifyError } from "../../src/services/dashboard/aggregator/session-atom.js";
 import {
@@ -26,7 +26,7 @@ function selection(view: "daily" | "hourly" = "daily") {
   return result.selection;
 }
 
-let db: Database.Database;
+let db: Database;
 
 beforeEach(() => {
   vi.useFakeTimers();

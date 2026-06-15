@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   buildDashboardSelectionBounds,
@@ -6,6 +5,7 @@ import {
   toLocalDayStartMs,
 } from "../../src/lib/dashboard-time.js";
 import { getDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { InlineDashboardGateway } from "../../src/services/dashboard/inline-gateway.js";
 import { restoreDbPath, useFixtureDb } from "../helpers/fixture-db.js";
 
@@ -152,7 +152,7 @@ describe("dashboard selection bounds", () => {
 });
 
 describe("dashboard hourly aggregation via gateway", () => {
-  let db: Database.Database;
+  let db: Database;
 
   beforeEach(() => {
     vi.useFakeTimers();

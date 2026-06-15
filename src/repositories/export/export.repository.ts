@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { Database } from "../../lib/sqlite.js";
 
 export interface ExportSessionRecord {
   id: string;
@@ -46,7 +46,7 @@ function isCompactionWhere(alias: string): string {
 }
 
 export function listExportRootSessions(
-  db: Database.Database,
+  db: Database,
   filters: ExportSessionFilters = {},
 ): ExportSessionRecord[] {
   const hasWorktreeFilter = typeof filters.worktree === "string";
@@ -65,7 +65,7 @@ export function listExportRootSessions(
 }
 
 export function getExportSession(
-  db: Database.Database,
+  db: Database,
   sessionId: string,
 ): ExportSessionRecord | null {
   return (
@@ -81,7 +81,7 @@ export function getExportSession(
 }
 
 export function countExportableMessages(
-  db: Database.Database,
+  db: Database,
   sessionId: string,
 ): number {
   const row = db
@@ -97,7 +97,7 @@ export function countExportableMessages(
 }
 
 export function listExportableMessages(
-  db: Database.Database,
+  db: Database,
   sessionId: string,
 ): ExportMessageRecord[] {
   return db
@@ -125,7 +125,7 @@ export function listExportableMessages(
 }
 
 export function getExportableMessageById(
-  db: Database.Database,
+  db: Database,
   messageId: string,
 ): ExportMessageRecord | null {
   return (
@@ -154,7 +154,7 @@ export function getExportableMessageById(
 }
 
 export function listPartsForMessages(
-  db: Database.Database,
+  db: Database,
   messageIds: string[],
 ): ExportPartRecord[] {
   if (messageIds.length === 0) return [];
@@ -171,7 +171,7 @@ export function listPartsForMessages(
 }
 
 export function getPartById(
-  db: Database.Database,
+  db: Database,
   partId: string,
 ): ExportPartRecord | null {
   return (
@@ -190,7 +190,7 @@ export function getPartById(
 }
 
 export function getTriggerMessageIdForChildSession(
-  db: Database.Database,
+  db: Database,
   childSessionId: string,
 ): string | null {
   const row = db

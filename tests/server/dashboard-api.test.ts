@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import {
   afterAll,
   afterEach,
@@ -16,6 +15,7 @@ import type {
 } from "../../src/contracts/dashboard.js";
 import { normalizeDashboardSelectionInput } from "../../src/lib/dashboard-time.js";
 import { getDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { createApiApp } from "../../src/server/app.js";
 import { resetDashboardGatewayForTests } from "../../src/server/dashboard-api.js";
 import { InlineDashboardGateway } from "../../src/services/dashboard/inline-gateway.js";
@@ -192,7 +192,7 @@ describe("GET /api/dashboard/* routes", () => {
 
   test("heavy endpoints report building before atoms warm up, then ready", () => {
     // Drive an InlineGateway with autoDrain disabled to observe the transition.
-    const db: Database.Database = getDb();
+    const db: Database = getDb();
     try {
       const gateway = new InlineDashboardGateway(db, {
         autoDrain: false,

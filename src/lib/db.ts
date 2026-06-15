@@ -1,14 +1,14 @@
-import Database from "better-sqlite3";
 import { getOpenCodeDbPath } from "./config.js";
+import { Database } from "./sqlite.js";
 
-export function getDb(): Database.Database {
+export function getDb(): Database {
   return new Database(getOpenCodeDbPath(), {
     readonly: true,
     fileMustExist: true,
   });
 }
 
-export function getWritableDb(): Database.Database {
+export function getWritableDb(): Database {
   return new Database(getOpenCodeDbPath(), {
     readonly: false,
     fileMustExist: true,

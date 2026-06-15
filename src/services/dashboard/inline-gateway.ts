@@ -44,14 +44,14 @@ function selectionWindow(
 export class InlineDashboardGateway
   implements DashboardGateway, AsyncDashboardGateway
 {
-  private readonly db: import("better-sqlite3").Database;
+  private readonly db: import("../../lib/sqlite.js").Database;
   private readonly aggregator: DashboardAggregator;
   private readonly autoDrain: boolean;
   private readonly driveOnRequest: boolean;
   private readonly now: () => number;
 
   constructor(
-    db: import("better-sqlite3").Database,
+    db: import("../../lib/sqlite.js").Database,
     options: InlineGatewayOptions = {},
   ) {
     this.db = db;
