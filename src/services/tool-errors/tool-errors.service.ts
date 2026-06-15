@@ -144,6 +144,7 @@ export function buildToolErrorsOverviewView(): ToolErrorsOverviewView {
       FROM part p
       WHERE json_extract(p.data, '$.type') = 'tool'
         AND json_extract(p.data, '$.state.status') = 'error'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
     `,
@@ -160,6 +161,7 @@ export function buildToolErrorsOverviewView(): ToolErrorsOverviewView {
       FROM part p
       WHERE json_extract(p.data, '$.type') = 'tool'
         AND json_extract(p.data, '$.state.status') = 'error'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
       GROUP BY tool
@@ -179,6 +181,7 @@ export function buildToolErrorsOverviewView(): ToolErrorsOverviewView {
              COUNT(*) AS cnt
       FROM part p
       WHERE json_extract(p.data, '$.type') = 'tool'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
       GROUP BY tool
@@ -217,6 +220,7 @@ export function buildToolErrorsOverviewView(): ToolErrorsOverviewView {
       FROM part p
       WHERE json_extract(p.data, '$.type') = 'tool'
         AND json_extract(p.data, '$.state.status') = 'error'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
       ORDER BY p.time_created DESC
@@ -293,6 +297,7 @@ export function buildToolErrorsView(rawTool: string): ToolErrorsView {
       WHERE json_extract(p.data, '$.type') = 'tool'
         AND ${toolFilterSql}
         AND json_extract(p.data, '$.state.status') = 'error'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
       GROUP BY day ORDER BY day
@@ -322,6 +327,7 @@ export function buildToolErrorsView(rawTool: string): ToolErrorsView {
       WHERE json_extract(p.data, '$.type') = 'tool'
         AND ${toolFilterSql}
         AND json_extract(p.data, '$.state.status') = 'error'
+        AND json_extract(p.data, '$.tool') != 'question'
         AND date(p.time_created/1000, 'unixepoch', 'localtime') >= ?
         AND date(p.time_created/1000, 'unixepoch', 'localtime') < ?
       ORDER BY p.time_created DESC LIMIT 200

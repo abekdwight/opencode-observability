@@ -1,7 +1,10 @@
 import React from "react";
 import { Link, useParams } from "react-router-dom";
 import { isHarnessId } from "../../../../src/contracts/harness.js";
-import type { SessionMessageContract } from "../../../../src/contracts/session.js";
+import type {
+  SessionMessageContract,
+  SessionToolCallContract,
+} from "../../../../src/contracts/session.js";
 import { MarkdownContent } from "../../../components/markdown-content";
 import { cn } from "../../../lib/cn";
 import { formatDurationShort, formatTimestampShort } from "../../../lib/format";
@@ -9,7 +12,62 @@ import { sessionPath } from "../../../lib/harness";
 import { COLLAPSE_HEIGHT } from "../_lib/constants";
 import { FileDiffs } from "./file-diffs";
 import { MermaidCodeBlock } from "./mermaid-code-block";
+import { QuestionCard } from "./question-card";
 import { ToolTimeline } from "./tool-timeline";
+
+/**
+ * Walk `toolCalls` in source order, grouping consecutive ordinary tool calls
+ * into a single ToolTimeline and rendering each question tool call as a
+ * QuestionCard at its original position.
+ *
+ * Preserves the `compact` flag (ToolTimeline) and the `toolsVisible` gate
+ * (the caller already checks this before invoking us).
+ */
+function renderToolsInOrder(
+  calls: SessionToolCallContract[],
+  msgIdx: number,
+  openDetails: Set<string>,
+  onToggleDetail: (id: string) => void,
+  compact: boolean,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let run: SessionToolCallContract[] = [];
+  let runStart = 0;
+
+  const flushRun = () => {
+    if (run.length === 0) return;
+    nodes.push(
+      <ToolTimeline
+        key={`tool-run-${msgIdx}-${runStart}`}
+        calls={run}
+        msgIdx={msgIdx}
+        openDetails={openDetails}
+        onToggleDetail={onToggleDetail}
+        compact={compact}
+      />,
+    );
+    run = [];
+  };
+
+  calls.forEach((tc, callIdx) => {
+    if (tc.question != null) {
+      flushRun();
+      // Use the first question's text as a stable content-derived key so the
+      // key is semantically meaningful (not a bare index).
+      const firstQ = tc.question.questions[0]?.question ?? "";
+      const questionKey = `question-${msgIdx}-${tc.tool}-${firstQ.slice(0, 32)}`;
+      nodes.push(<QuestionCard key={questionKey} question={tc.question} />);
+      runStart = callIdx + 1;
+    } else {
+      if (run.length === 0) runStart = callIdx;
+      run.push(tc);
+    }
+  });
+
+  flushRun();
+
+  return nodes;
+}
 
 export interface MessageRowProps {
   msg: SessionMessageContract;
@@ -195,16 +253,16 @@ export const MessageRow = React.memo(function MessageRow({
         </div>
       ) : null}
       {subagentLinks}
-      {/* Tool timeline */}
-      {toolsVisible && msg.toolCalls.length > 0 ? (
-        <ToolTimeline
-          calls={msg.toolCalls}
-          msgIdx={msgIdx}
-          openDetails={openDetails}
-          onToggleDetail={onToggleDetail}
-          compact={!hasMessageText}
-        />
-      ) : null}
+      {/* Tool timeline + question cards — rendered in source order */}
+      {toolsVisible && msg.toolCalls.length > 0
+        ? renderToolsInOrder(
+            msg.toolCalls,
+            msgIdx,
+            openDetails,
+            onToggleDetail,
+            !hasMessageText,
+          )
+        : null}
       {/* File diffs */}
       {msg.fileDiffs?.length > 0 ? <FileDiffs diffs={msg.fileDiffs} /> : null}
       {hasMessageText ? (

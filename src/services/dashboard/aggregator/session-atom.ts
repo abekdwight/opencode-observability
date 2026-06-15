@@ -1,3 +1,4 @@
+import { isQuestionTool } from "../../../contracts/question.js";
 import { classifyTool } from "../../../lib/analytics.js";
 import { resolveRepoBucketKey } from "../../../lib/repo-root.js";
 import type {
@@ -221,7 +222,11 @@ function applyPart(
   const day = ensureDay(days, part.day);
   const toolName = part.tool ?? "unknown";
   const status = part.status ?? "unknown";
-  const isError = status === "error";
+  // A question tool may carry status "error" (unanswered), but it is a user
+  // interaction, not a tool failure: it never counts toward any error or
+  // reliability metric, though it still counts as a generic tool call.
+  const isQuestion = isQuestionTool(toolName);
+  const isError = status === "error" && !isQuestion;
 
   day.toolCalls += 1;
   incrementMap(day.toolUsage, toolName, 1);
@@ -232,22 +237,24 @@ function applyPart(
     incrementMap(day.toolErrorsByTool, toolName, 1);
   }
 
-  let reliability = day.toolReliability.get(toolName);
-  if (!reliability) {
-    reliability = {
-      tool: toolName,
-      success: 0,
-      error: 0,
-      total: 0,
-    } satisfies DashboardToolReliabilityTotals;
-    day.toolReliability.set(toolName, reliability);
+  if (!isQuestion) {
+    let reliability = day.toolReliability.get(toolName);
+    if (!reliability) {
+      reliability = {
+        tool: toolName,
+        success: 0,
+        error: 0,
+        total: 0,
+      } satisfies DashboardToolReliabilityTotals;
+      day.toolReliability.set(toolName, reliability);
+    }
+    if (isError) {
+      reliability.error += 1;
+    } else {
+      reliability.success += 1;
+    }
+    reliability.total += 1;
   }
-  if (isError) {
-    reliability.error += 1;
-  } else {
-    reliability.success += 1;
-  }
-  reliability.total += 1;
 
   // MCP classification: builtin tools roll up under "builtin"; everything else
   // groups by its extracted server name.

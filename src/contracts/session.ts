@@ -47,6 +47,37 @@ export type SessionToolStatus =
   | "error"
   | "unknown";
 
+export interface SessionQuestionOptionContract {
+  label: string;
+  /** "" when the harness provides no description for the option. */
+  description: string;
+}
+
+export interface SessionQuestionItemContract {
+  /** Short label for the question; "" when absent. */
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: SessionQuestionOptionContract[];
+  /**
+   * The user's chosen value(s). Each entry is an option label when it matches
+   * one of `options`, or free-text when the user answered outside the options.
+   * Empty when the question was left unanswered.
+   */
+  selected: string[];
+  /** Free-text note attached to the answer; null when none was given. */
+  note: string | null;
+}
+
+/**
+ * A user-question interaction (OpenCode `question`, Codex `request_user_input`,
+ * Claude `AskUserQuestion`). Carried on the tool call that invoked it; null on
+ * every non-question tool call.
+ */
+export interface SessionQuestionContract {
+  questions: SessionQuestionItemContract[];
+}
+
 export interface SessionToolCallContract {
   tool: string;
   input: string;
@@ -55,6 +86,8 @@ export interface SessionToolCallContract {
   fullInput: string;
   fullOutput: string;
   durationMs: number;
+  /** Structured payload for user-question tools; null for ordinary tools. */
+  question: SessionQuestionContract | null;
 }
 
 export interface SessionToolEventContract extends SessionToolCallContract {

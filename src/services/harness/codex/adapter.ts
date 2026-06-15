@@ -4,6 +4,7 @@ import type {
   HarnessSessionDetailContract,
   HarnessSessionSummaryContract,
 } from "../../../contracts/harness.js";
+import { isOperationalToolError } from "../../../contracts/question.js";
 import { getCodexDb } from "../../../lib/codex-db.js";
 import { calcActiveDurationFromTimeline } from "../../../lib/duration.js";
 import {
@@ -130,7 +131,7 @@ function getSessionDetail(id: string): HarnessSessionDetailContract | null {
       : null;
 
     const toolErrorCount = parsed.toolEvents.filter(
-      (event) => event.status === "error",
+      isOperationalToolError,
     ).length;
 
     const models =

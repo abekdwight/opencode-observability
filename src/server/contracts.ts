@@ -200,7 +200,8 @@ export function buildMonitorSnapshotContract(
            JOIN part p ON p.session_id = s.id
            WHERE s.id IN (${rootIdPlaceholders})
              AND json_extract(p.data, '$.type') = 'tool'
-             AND json_extract(p.data, '$.state.status') = 'error'`,
+             AND json_extract(p.data, '$.state.status') = 'error'
+             AND json_extract(p.data, '$.tool') != 'question'`,
           activeRootIds,
         )
       : 0;

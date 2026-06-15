@@ -217,7 +217,7 @@ describe("parseCodexRollout", () => {
     expect(parsed.toolEvents[0].createdAt).toBe("2026-01-01T00:00:03.000Z");
   });
 
-  test("maps request_user_input questions and answers to messages", () => {
+  test("builds a structured question tool call from request_user_input", () => {
     const content = rollout([
       {
         timestamp: "2026-01-01T00:00:00.000Z",
@@ -226,7 +226,23 @@ describe("parseCodexRollout", () => {
           type: "function_call",
           name: "request_user_input",
           arguments: JSON.stringify({
-            questions: [{ question: "どちらにしますか？" }],
+            questions: [
+              {
+                id: "q1",
+                header: "方針",
+                question: "どちらにしますか？",
+                options: [
+                  { label: "案A", description: "速い" },
+                  { label: "案B", description: "安全" },
+                ],
+              },
+              {
+                id: "q2",
+                header: "確認",
+                question: "進めてよいですか？",
+                options: [{ label: "はい", description: "" }],
+              },
+            ],
           }),
           call_id: "call-q",
         },
@@ -242,6 +258,7 @@ describe("parseCodexRollout", () => {
               q1: {
                 answers: ["案A", "user_note: 補足", "None of the above"],
               },
+              q2: { answers: ["はい"] },
             },
           }),
         },
@@ -250,14 +267,48 @@ describe("parseCodexRollout", () => {
 
     const parsed = parseCodexRollout(content);
 
+    // No flattened assistant/user messages remain for the question — only the
+    // assistant shell that carries the question tool call.
     expect(
       parsed.messages.map((message) => [message.role, message.text]),
-    ).toEqual([
-      ["assistant", "どちらにしますか？"],
-      ["user", "案A"],
-      ["user", "補足"],
-    ]);
-    expect(parsed.toolEvents).toEqual([]);
+    ).toEqual([["assistant", ""]]);
+
+    const shell = parsed.messages[0];
+    expect(shell.toolCalls).toHaveLength(1);
+    const call = shell.toolCalls[0];
+    expect(call.tool).toBe("question");
+    expect(call.input).toBe("2件の質問");
+    expect(call.status).toBe("completed");
+    // Options are preserved; "None of the above" is dropped; the user_note is
+    // stripped of its prefix and lands in note, not selected. multiSelect is
+    // always false for Codex.
+    expect(call.question).toEqual({
+      questions: [
+        {
+          header: "方針",
+          question: "どちらにしますか？",
+          multiSelect: false,
+          options: [
+            { label: "案A", description: "速い" },
+            { label: "案B", description: "安全" },
+          ],
+          selected: ["案A"],
+          note: "補足",
+        },
+        {
+          header: "確認",
+          question: "進めてよいですか？",
+          multiSelect: false,
+          options: [{ label: "はい", description: "" }],
+          selected: ["はい"],
+          note: null,
+        },
+      ],
+    });
+
+    // The question tool call is also surfaced as a tool event, never an error.
+    expect(parsed.toolEvents.map((event) => event.tool)).toEqual(["question"]);
+    expect(parsed.toolEvents[0].status).toBe("completed");
   });
 
   test("marks unresolved calls as unknown at EOF", () => {
