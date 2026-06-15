@@ -89,7 +89,7 @@
     "@biomejs/biome": "2.5.0",
     "@opencode-ai/plugin": "1.17.4",
     "@playwright/test": "1.60.0",
-    "@types/node": "22.19.21",
+    "@types/node": "25.9.3",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "concurrently": "10.0.3",
