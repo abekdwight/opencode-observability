@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import {
   EXPORT_SCHEMA_VERSION,
   type ExportContextWindowContract,
@@ -13,6 +12,7 @@ import {
   findForbiddenFieldPaths,
   isExportPartType,
 } from "../../contracts/export.js";
+import type { Database } from "../../lib/sqlite.js";
 import {
   countExportableMessages,
   type ExportMessageRecord,
@@ -209,7 +209,7 @@ function getChildSessionIds(parts: ExportPartRecord[]): string[] {
 }
 
 function buildBundleWithTrigger(
-  db: Database.Database,
+  db: Database,
   message: ExportMessageRecord,
   sessionMessageIndex: number,
   parts: ExportPartRecord[],
@@ -244,7 +244,7 @@ function buildBundleWithTrigger(
 }
 
 export function buildExportSessionsContract(
-  db: Database.Database,
+  db: Database,
   filters: { worktree?: string } = {},
 ): ExportSessionsContract {
   return {
@@ -267,7 +267,7 @@ export function buildExportSessionsContract(
 }
 
 export function buildExportMessageBundlesBySession(
-  db: Database.Database,
+  db: Database,
   sessionId: string,
 ): ExportMessageBundlesContract | null {
   const session = getExportSession(db, sessionId);
@@ -303,7 +303,7 @@ export function buildExportMessageBundlesBySession(
 }
 
 export function buildExportPartById(
-  db: Database.Database,
+  db: Database,
   partId: string,
 ): ExportPartsContract | null {
   const part = getPartById(db, partId);
@@ -352,7 +352,7 @@ function previewFromBundle(bundle: ExportMessageBundleContract): string | null {
 }
 
 export function buildExportContextWindow(
-  db: Database.Database,
+  db: Database,
   sessionId: string,
   aroundMessageId: string,
   before: number,
@@ -384,7 +384,7 @@ export function buildExportContextWindow(
 }
 
 export function buildExportMessageBundleById(
-  db: Database.Database,
+  db: Database,
   messageId: string,
 ): ExportMessageBundlesContract | null {
   const message = getExportableMessageById(db, messageId);

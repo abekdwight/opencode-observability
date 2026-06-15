@@ -1,4 +1,3 @@
-import type { Database } from "better-sqlite3";
 import type {
   MessageFileDiffContract,
   SessionModelTokenBreakdown,
@@ -6,6 +5,7 @@ import type {
 } from "../../contracts/session.js";
 import type { SignalLevel } from "../../contracts/shared.js";
 import { calcSessionActiveDurations } from "../../lib/duration.js";
+import type { Database } from "../../lib/sqlite.js";
 import {
   escapeHtml,
   formatDuration,

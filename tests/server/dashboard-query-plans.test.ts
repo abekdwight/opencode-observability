@@ -1,6 +1,6 @@
-import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { getDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { explainDashboardQueryPlans } from "../../src/repositories/dashboard/dashboard-queries.js";
 import {
   ROOT_SESSION_ID,
@@ -15,7 +15,7 @@ import {
 // matching "SCAN message" / "SCAN part" regardless of suffix.
 const FORBIDDEN_SCAN = /\bSCAN (message|part)\b/;
 
-let db: Database.Database;
+let db: Database;
 
 beforeEach(() => {
   useFixtureDb();

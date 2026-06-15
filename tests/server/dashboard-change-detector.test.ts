@@ -1,7 +1,7 @@
-import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { toLocalDayStartMs } from "../../src/lib/dashboard-time.js";
 import { getDb, getWritableDb } from "../../src/lib/db.js";
+import type { Database } from "../../src/lib/sqlite.js";
 import { DashboardChangeDetector } from "../../src/services/dashboard/aggregator/change-detector.js";
 import {
   CHILD_SESSION_ID,
@@ -20,7 +20,7 @@ const HORIZON = {
   endMs: toLocalDayStartMs("2024-01-12"),
 };
 
-let detectorDb: Database.Database;
+let detectorDb: Database;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -35,7 +35,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function withWritableDb(callback: (db: Database.Database) => void): void {
+function withWritableDb(callback: (db: Database) => void): void {
   const db = getWritableDb();
   try {
     db.exec("PRAGMA foreign_keys = ON");

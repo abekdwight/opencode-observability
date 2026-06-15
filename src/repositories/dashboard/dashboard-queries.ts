@@ -1,4 +1,4 @@
-type SqliteDatabase = import("better-sqlite3").Database;
+type SqliteDatabase = import("../../lib/sqlite.js").Database;
 
 import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
 

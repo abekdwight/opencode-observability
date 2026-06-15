@@ -1,5 +1,5 @@
-import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { Database } from "../../src/lib/sqlite.js";
 import {
   FIXTURE_DB_PATH,
   restoreDbPath,

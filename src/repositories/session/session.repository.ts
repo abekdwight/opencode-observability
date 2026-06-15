@@ -1,5 +1,5 @@
-import type { Database } from "better-sqlite3";
 import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
+import type { Database } from "../../lib/sqlite.js";
 
 export interface SessionRecord {
   id: string;
