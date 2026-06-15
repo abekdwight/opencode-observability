@@ -70,13 +70,13 @@ The plugin streams live session events and heartbeats to the monitor. If the mon
 
 ### Bonus: Claude Code & Codex
 
-OpenCode is the focus, but since the viewer is harness-agnostic this repo also ships marketplace plugins that add a `/monitor` command to Claude Code and Codex, opening the **current** session in the viewer. Each hook runs **before the model**, so it costs **zero tokens**.
+OpenCode is the focus, but since the viewer is harness-agnostic this repo also ships marketplace plugins that add a monitor command to Claude Code (`/oc:monitor`) and Codex (`@monitor`), opening the **current** session in the viewer. Each hook runs **before the model**, so it costs **zero tokens**.
 
 **Claude Code**
 
 ```text
 /plugin marketplace add abekdwight/opencode-observability
-/plugin install opencode-observability@opencode-observability
+/plugin install oc@opencode-observability
 ```
 
 **Codex**
@@ -86,7 +86,7 @@ codex plugin marketplace add abekdwight/opencode-observability
 codex plugin add opencode-observability@opencode-observability
 ```
 
-Run `/monitor` (Codex also exposes it as the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. The viewer server must already be running (`npx opencode-observability`); otherwise the hook explains how to start it. Hook scripts use only the Python 3 standard library.
+Run `/oc:monitor` in Claude Code (Codex uses `/monitor` or the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. The viewer server must already be running (`npx opencode-observability`); otherwise the hook explains how to start it. Hook scripts use only the Python 3 standard library.
 
 ## 🗺️ What's Inside
 

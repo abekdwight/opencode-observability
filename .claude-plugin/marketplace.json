@@ -6,9 +6,9 @@
   },
   "plugins": [
     {
-      "name": "opencode-observability",
+      "name": "oc",
       "source": "./plugins/claude-code",
-      "description": "/monitor で現在の Claude Code セッションをセッションビューアで開く（フック処理・モデル不使用）",
+      "description": "/oc:monitor で現在の Claude Code セッションをセッションビューアで開く（フック処理・モデル不使用）",
       "author": {
         "name": "abekdwight"
       }

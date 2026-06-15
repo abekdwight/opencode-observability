@@ -68,7 +68,7 @@ def main() -> None:
     except json.JSONDecodeError:
         return
 
-    # Plugin commands may surface namespaced ("opencode-observability:monitor"),
+    # Plugin commands may surface namespaced ("oc:monitor"),
     # so match on the trailing segment instead of relying on hook matchers.
     command_name = str(payload.get("command_name", ""))
     if command_name.split(":")[-1] != COMMAND_NAME:
