@@ -193,7 +193,7 @@ export function countSessionToolErrors(
   return (
     db
       .prepare(
-        `SELECT COUNT(*) AS cnt FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'error'`,
+        `SELECT COUNT(*) AS cnt FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'error' AND json_extract(data, '$.tool') != 'question'`,
       )
       .get(sessionId) as { cnt: number }
   ).cnt;

@@ -206,6 +206,106 @@ describe("claude transcript parser", () => {
     expect(messages[3].agent).toBe("subagent");
   });
 
+  test("builds a structured question from AskUserQuestion and toolUseResult", () => {
+    const content = transcript([
+      {
+        type: "assistant",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: {
+          id: "msg-q",
+          model: "claude-fable-5",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool-q",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    header: "方針",
+                    question: "どの方針にしますか？",
+                    multiSelect: false,
+                    options: [
+                      { label: "速度優先", description: "速い" },
+                      { label: "安全優先", description: "堅実" },
+                    ],
+                  },
+                  {
+                    header: "対象",
+                    question: "対象を選んでください",
+                    multiSelect: true,
+                    options: [
+                      { label: "API", description: "" },
+                      { label: "UI", description: "" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        timestamp: "2026-01-01T00:00:05.000Z",
+        // The structured answer lives at the record root, beside `message`.
+        toolUseResult: {
+          answers: {
+            // String value (single select) and array value (multi select).
+            "どの方針にしますか？": "速度優先",
+            対象を選んでください: ["API", "UI"],
+          },
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-q",
+              content: "ユーザーが回答しました",
+              is_error: false,
+            },
+          ],
+        },
+      },
+    ]);
+
+    const { records } = parseClaudeTranscript(content);
+    const messages = buildClaudeMessages(records, { includeThinking: true });
+
+    const call = messages[0].toolCalls[0];
+    // AskUserQuestion is normalized to the shared "question" tool name.
+    expect(call.tool).toBe("question");
+    expect(call.input).toBe("2件の質問");
+    expect(call.question).toEqual({
+      questions: [
+        {
+          header: "方針",
+          question: "どの方針にしますか？",
+          multiSelect: false,
+          options: [
+            { label: "速度優先", description: "速い" },
+            { label: "安全優先", description: "堅実" },
+          ],
+          selected: ["速度優先"],
+          note: null,
+        },
+        {
+          header: "対象",
+          question: "対象を選んでください",
+          multiSelect: true,
+          options: [
+            { label: "API", description: "" },
+            { label: "UI", description: "" },
+          ],
+          selected: ["API", "UI"],
+          note: null,
+        },
+      ],
+    });
+  });
+
   test("extracts session metadata with deduplicated token totals", () => {
     const { records } = parseClaudeTranscript(SAMPLE);
     expect(extractClaudeMeta(records)).toEqual({

@@ -1,6 +1,8 @@
+import { questionToPlainText } from "../../contracts/question.js";
 import type {
   MessageFileDiffContract,
   SessionModelTokenBreakdown,
+  SessionQuestionContract,
   SessionSubagentSummary,
 } from "../../contracts/session.js";
 import type { SignalLevel } from "../../contracts/shared.js";
@@ -50,6 +52,7 @@ export interface ToolCallItem {
   fullInput: string;
   fullOutput: string;
   durationMs: number;
+  question: SessionQuestionContract | null;
 }
 
 export interface ToolEventItem extends ToolCallItem {
@@ -322,6 +325,46 @@ function summarizeToolInput(
   return "";
 }
 
+interface OpenCodeRawQuestion {
+  question?: unknown;
+  header?: unknown;
+  multiple?: unknown;
+  options?: unknown;
+}
+
+/**
+ * Build the structured question payload for an OpenCode `question` tool call.
+ * `answers` maps positionally to `questions` (answers[i] holds the selected
+ * labels — or free-text custom answers — for questions[i]); an unanswered
+ * question (status "error") has an empty/absent answer entry.
+ */
+function buildOpenCodeQuestion(
+  questions: OpenCodeRawQuestion[],
+  answers: string[][],
+): SessionQuestionContract {
+  return {
+    questions: questions.map((q, index) => ({
+      header: typeof q.header === "string" ? q.header : "",
+      question: typeof q.question === "string" ? q.question : "",
+      multiSelect: Boolean(q.multiple),
+      options: Array.isArray(q.options)
+        ? q.options
+            .filter(
+              (o): o is Record<string, unknown> =>
+                o != null && typeof o === "object",
+            )
+            .map((o) => ({
+              label: typeof o.label === "string" ? o.label : "",
+              description:
+                typeof o.description === "string" ? o.description : "",
+            }))
+        : [],
+      selected: Array.isArray(answers[index]) ? answers[index] : [],
+      note: null,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // File diff extraction helpers
 // ---------------------------------------------------------------------------
@@ -544,9 +587,11 @@ export function buildSessionRouteView(
         state?: {
           status?: unknown;
           error?: unknown;
-          input?: Record<string, unknown>;
+          input?: Record<string, unknown> & {
+            questions?: OpenCodeRawQuestion[];
+          };
           output?: unknown;
-          metadata?: { sessionId?: string };
+          metadata?: { sessionId?: string; answers?: string[][] };
           time?: { start?: number; end?: number };
         };
       };
@@ -564,33 +609,55 @@ export function buildSessionRouteView(
 
       const toolName =
         typeof parsedData.tool === "string" ? parsedData.tool : "unknown";
-      const inputSummary = summarizeToolInput(parsedData.state?.input);
-      const fullInput = parsedData.state?.input
-        ? JSON.stringify(parsedData.state.input, null, 2)
-        : "";
-      const rawOutput = parsedData.state?.output;
-      const fullOutput =
-        rawOutput != null
-          ? (typeof rawOutput === "string"
-              ? rawOutput
-              : JSON.stringify(rawOutput, null, 2)
-            ).substring(0, 2000)
-          : "";
       const timings = parsedData.state?.time;
       const toolDurationMs =
         timings?.start && timings?.end ? timings.end - timings.start : 0;
+      const status = parseToolStatus(
+        parsedData.state?.status ?? parsedData.status,
+      );
+      const error = clampText(
+        parseToolError(parsedData.state?.error ?? parsedData.error),
+      );
 
-      const toolCall = {
-        tool: toolName,
-        input: inputSummary,
-        status: parseToolStatus(parsedData.state?.status ?? parsedData.status),
-        error: clampText(
-          parseToolError(parsedData.state?.error ?? parsedData.error),
-        ),
-        fullInput,
-        fullOutput,
-        durationMs: toolDurationMs,
-      };
+      let toolCall: ToolCallItem;
+      if (toolName === "question") {
+        const rawQuestions = parsedData.state?.input?.questions ?? [];
+        const answers = parsedData.state?.metadata?.answers ?? [];
+        const question = buildOpenCodeQuestion(rawQuestions, answers);
+        toolCall = {
+          tool: toolName,
+          input: `${rawQuestions.length}件の質問`,
+          status,
+          error,
+          fullInput: "",
+          fullOutput: questionToPlainText(question),
+          durationMs: toolDurationMs,
+          question,
+        };
+      } else {
+        const inputSummary = summarizeToolInput(parsedData.state?.input);
+        const fullInput = parsedData.state?.input
+          ? JSON.stringify(parsedData.state.input, null, 2)
+          : "";
+        const rawOutput = parsedData.state?.output;
+        const fullOutput =
+          rawOutput != null
+            ? (typeof rawOutput === "string"
+                ? rawOutput
+                : JSON.stringify(rawOutput, null, 2)
+              ).substring(0, 2000)
+            : "";
+        toolCall = {
+          tool: toolName,
+          input: inputSummary,
+          status,
+          error,
+          fullInput,
+          fullOutput,
+          durationMs: toolDurationMs,
+          question: null,
+        };
+      }
 
       const calls = messageToolCalls.get(message_id) || [];
       calls.push(toolCall);

@@ -117,7 +117,7 @@ export function MessageList({
 
         return (
           <div
-            key={`${item.msg.createdAt}-${item.msg.role}-${item.msg.text.slice(0, 32)}`}
+            key={`msg-${item.originalIdx}`}
             className={cn(
               "px-[var(--space-2xl)] mx-auto w-full",
               maxWidthClass,

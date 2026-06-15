@@ -179,6 +179,7 @@ function getSessionDetail(id: string): HarnessSessionDetailContract | null {
           fullInput: call.fullInput,
           fullOutput: call.fullOutput,
           durationMs: call.durationMs,
+          question: call.question,
         })),
         subagentLinks: message.subagentLinks.map((link) => ({
           id: link.id,
@@ -195,6 +196,7 @@ function getSessionDetail(id: string): HarnessSessionDetailContract | null {
         fullInput: event.fullInput,
         fullOutput: event.fullOutput,
         durationMs: event.durationMs,
+        question: event.question,
         createdAt: toIsoFromUnknown(event.time_created),
       })),
       todos: routeView.todos.map((todo) => ({
