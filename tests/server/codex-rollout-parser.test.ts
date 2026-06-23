@@ -311,6 +311,190 @@ describe("parseCodexRollout", () => {
     expect(parsed.toolEvents[0].status).toBe("completed");
   });
 
+  test("derives Codex skill loads from successful exec_command SKILL.md reads", () => {
+    const content = rollout([
+      {
+        timestamp: "2026-01-01T00:00:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: [
+              "cat /Users/test/.agents/skills/code-debug-skill/SKILL.md",
+              "sed -n '1,240p' ~/.codex/plugins/cache/openai-bundled/browser/26.616.71553/skills/control-in-app-browser/SKILL.md",
+              "sed -n '1,240p' ~/.codex/skills/.system/imagegen/SKILL.md",
+              "sed -n '1,260p' ~/.codex/vendor_imports/skills/skills/.curated/hatch-pet/SKILL.md",
+              'rg -n "SKILL.md" src tests',
+            ].join(" && "),
+          }),
+          call_id: "call-skill-loads",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-skill-loads",
+          output:
+            "Process exited with code 0\n---\nname: code-debug-skill\n---",
+        },
+      },
+    ]);
+
+    const parsed = parseCodexRollout(content);
+    const shell = parsed.messages[0];
+
+    expect(shell.toolCalls.map((call) => [call.tool, call.input])).toEqual([
+      ["exec_command", expect.stringContaining("code-debug-skill/SKILL.md")],
+      ["skill", "code-debug-skill"],
+      ["skill", "control-in-app-browser"],
+      ["skill", "imagegen"],
+      ["skill", "hatch-pet"],
+    ]);
+    expect(parsed.toolEvents.map((event) => [event.tool, event.input])).toEqual(
+      [
+        ["exec_command", expect.stringContaining("code-debug-skill/SKILL.md")],
+        ["skill", "code-debug-skill"],
+        ["skill", "control-in-app-browser"],
+        ["skill", "imagegen"],
+        ["skill", "hatch-pet"],
+      ],
+    );
+    expect(shell.toolCalls[1]).toMatchObject({
+      status: "completed",
+      error: "",
+      durationMs: 2000,
+      fullInput: expect.stringContaining("codex_skill_file_read"),
+      fullOutput: "",
+      question: null,
+    });
+  });
+
+  test("does not derive skill loads from SKILL.md searches or failed reads", () => {
+    const content = rollout([
+      {
+        timestamp: "2026-01-01T00:00:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "<skills_instructions>### Available skills</skills_instructions>",
+            },
+          ],
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: 'rg -n "SKILL.md|tool: \\"skill\\"" tests src web e2e',
+          }),
+          call_id: "call-search",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:01.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-search",
+          output: "Process exited with code 0\nsrc/file.ts:1:SKILL.md",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "sed -n '1,220p' ~/.agents/skills/missing-skill/SKILL.md",
+          }),
+          call_id: "call-failed-read",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:02.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-failed-read",
+          output:
+            "Process exited with code 1\nsed: ~/.agents/skills/missing-skill/SKILL.md: No such file or directory",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "head ~/.codex/skills/partial-read/SKILL.md",
+          }),
+          call_id: "call-partial-read",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:03.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-partial-read",
+          output: "Process exited with code 0\n---\nname: partial-read",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: [
+              "sed -i '' 's/name/title/' ~/.codex/skills/write-sed/SKILL.md",
+              "cat <<'EOF' > ~/.codex/skills/write-redirect/SKILL.md",
+            ].join(" && "),
+          }),
+          call_id: "call-write",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:04.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-write",
+          output: "Process exited with code 0",
+        },
+      },
+    ]);
+
+    const parsed = parseCodexRollout(content);
+
+    expect(parsed.messages).toHaveLength(1);
+    expect(parsed.messages[0].toolCalls.map((call) => call.tool)).toEqual([
+      "exec_command",
+      "exec_command",
+      "exec_command",
+      "exec_command",
+    ]);
+    expect(parsed.toolEvents.map((event) => event.tool)).toEqual([
+      "exec_command",
+      "exec_command",
+      "exec_command",
+      "exec_command",
+    ]);
+  });
+
   test("marks unresolved calls as unknown at EOF", () => {
     const content = rollout([
       {

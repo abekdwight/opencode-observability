@@ -334,9 +334,113 @@ function buildEventUserTextSet(lines: RolloutLine[]): Set<string> {
 interface PendingToolCall {
   call: SessionToolCallContract;
   event: SessionToolEventContract;
+  message: SessionMessageContract;
   startedAtMs: number;
   /** Question ids aligned to call.question.questions; empty for non-question calls. */
   questionIds: string[];
+  /** Skill names read through exec_command, derived from SKILL.md path tokens. */
+  skillLoadNames: string[];
+}
+
+function splitShellCommandSegments(cmd: string): string[] {
+  return cmd
+    .split(/\s*(?:&&|\|\||;|\n)\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+const CODEX_SKILL_LOAD_SOURCE = "codex_skill_file_read";
+
+function isCodexSkillWriteSegment(segment: string): boolean {
+  if (/(?:^|\s)(?:>>?|1>|&>)\s*/.test(segment)) return true;
+  if (/\btee\b/.test(segment)) return true;
+  return /\b(?:perl|sed)\b[\s\S]*(?:^|\s)(?:-i|--in-place)(?:\s|=|$)/.test(
+    segment,
+  );
+}
+
+function isCodexSkillReadSegment(segment: string): boolean {
+  if (isCodexSkillWriteSegment(segment)) return false;
+  if (/\b(rg|grep|find|jq)\b/.test(segment)) return false;
+  if (/\b(cat|sed|nl|bat)\b/.test(segment)) return true;
+  if (!/\bcurl\b/.test(segment)) return false;
+  return !/(?:^|\s)(?:-o|--output)(?:\s|=)/.test(segment);
+}
+
+function normalizeSkillPathToken(token: string): string {
+  return (
+    token
+      .trim()
+      .replace(/^['"`]+|['"`]+$/g, "")
+      .replace(/[),.;]+$/g, "")
+      .split(/[?#]/, 1)[0] ?? ""
+  );
+}
+
+function extractSkillNameFromPath(pathToken: string): string | null {
+  const pathWithoutHost = pathToken.replace(
+    /^[a-zA-Z][a-zA-Z\d+.-]*:\/\/[^/]+/,
+    "",
+  );
+  const parts = pathWithoutHost.split("/").filter(Boolean);
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index] !== "skills") continue;
+    const next = parts[index + 1];
+    if (!next || next === "SKILL.md") continue;
+    if ((next === ".system" || next === ".curated") && parts[index + 2]) {
+      return parts[index + 2] === "SKILL.md" ? null : parts[index + 2];
+    }
+    return next;
+  }
+  return null;
+}
+
+function extractCodexSkillLoadNames(args: unknown): string[] {
+  if (!isObject(args) || typeof args.cmd !== "string") return [];
+  const cmd = args.cmd;
+  if (!cmd.includes("/SKILL.md")) return [];
+
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const pathPattern =
+    /(?:^|[\s"'`])([^\s"'`|;&<>]+\/SKILL\.md(?:[?#][^\s"'`|;&<>]+)?)/g;
+  for (const segment of splitShellCommandSegments(cmd)) {
+    if (!segment.includes("/SKILL.md") || !isCodexSkillReadSegment(segment)) {
+      continue;
+    }
+    pathPattern.lastIndex = 0;
+    for (;;) {
+      const match = pathPattern.exec(segment);
+      if (match === null) break;
+      const pathToken = normalizeSkillPathToken(match[1] ?? "");
+      if (!pathToken.includes("/SKILL.md")) continue;
+      const name = extractSkillNameFromPath(pathToken);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function buildSyntheticSkillLoadCall(
+  skillName: string,
+  sourceCall: SessionToolCallContract,
+): SessionToolCallContract {
+  return {
+    tool: "skill",
+    input: skillName,
+    status: "completed",
+    error: "",
+    fullInput: safeJson({
+      source: CODEX_SKILL_LOAD_SOURCE,
+      skill: skillName,
+      via: sourceCall.tool,
+    }),
+    fullOutput: "",
+    durationMs: sourceCall.durationMs,
+    question: null,
+  };
 }
 
 export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
@@ -465,6 +569,8 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
       if (payload.type === "function_call") {
         const name = typeof payload.name === "string" ? payload.name : "tool";
         const args = parseArguments(payload.arguments);
+        const skillLoadNames =
+          name === "exec_command" ? extractCodexSkillLoadNames(args) : [];
 
         if (name === "update_plan") {
           const plan = extractPlanTodos(args);
@@ -503,18 +609,21 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
           };
         }
 
+        const assistantMessage = ensureAssistant(line.timestampMs);
         const event: SessionToolEventContract = {
           ...call,
           createdAt: toIso(line.timestampMs),
         };
-        ensureAssistant(line.timestampMs).toolCalls.push(call);
+        assistantMessage.toolCalls.push(call);
         toolEvents.push(event);
         if (typeof payload.call_id === "string") {
           pendingCalls.set(payload.call_id, {
             call,
             event,
+            message: assistantMessage,
             startedAtMs: line.timestampMs,
             questionIds,
+            skillLoadNames,
           });
         }
         continue;
@@ -566,6 +675,19 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
         };
         Object.assign(pending.call, resolved);
         Object.assign(pending.event, resolved);
+        if (!exitError) {
+          for (const skillName of pending.skillLoadNames) {
+            const skillCall = buildSyntheticSkillLoadCall(
+              skillName,
+              pending.call,
+            );
+            pending.message.toolCalls.push(skillCall);
+            toolEvents.push({
+              ...skillCall,
+              createdAt: toIso(line.timestampMs),
+            });
+          }
+        }
         continue;
       }
 
