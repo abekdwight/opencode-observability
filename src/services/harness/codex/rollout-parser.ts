@@ -342,11 +342,29 @@ interface PendingToolCall {
   skillLoadNames: string[];
 }
 
-function isCodexSkillReadCommand(cmd: string): boolean {
-  if (/\b(rg|grep|find|jq)\b/.test(cmd)) return false;
-  if (/\b(cat|sed|nl|less|head|tail|bat)\b/.test(cmd)) return true;
-  if (!/\bcurl\b/.test(cmd)) return false;
-  return !/(?:^|\s)(?:-o|--output)(?:\s|=)/.test(cmd);
+function splitShellCommandSegments(cmd: string): string[] {
+  return cmd
+    .split(/\s*(?:&&|\|\||;|\n)\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+const CODEX_SKILL_LOAD_SOURCE = "codex_skill_file_read";
+
+function isCodexSkillWriteSegment(segment: string): boolean {
+  if (/(?:^|\s)(?:>>?|1>|&>)\s*/.test(segment)) return true;
+  if (/\btee\b/.test(segment)) return true;
+  return /\b(?:perl|sed)\b[\s\S]*(?:^|\s)(?:-i|--in-place)(?:\s|=|$)/.test(
+    segment,
+  );
+}
+
+function isCodexSkillReadSegment(segment: string): boolean {
+  if (isCodexSkillWriteSegment(segment)) return false;
+  if (/\b(rg|grep|find|jq)\b/.test(segment)) return false;
+  if (/\b(cat|sed|nl|bat)\b/.test(segment)) return true;
+  if (!/\bcurl\b/.test(segment)) return false;
+  return !/(?:^|\s)(?:-o|--output)(?:\s|=)/.test(segment);
 }
 
 function normalizeSkillPathToken(token: string): string {
@@ -380,21 +398,27 @@ function extractSkillNameFromPath(pathToken: string): string | null {
 function extractCodexSkillLoadNames(args: unknown): string[] {
   if (!isObject(args) || typeof args.cmd !== "string") return [];
   const cmd = args.cmd;
-  if (!cmd.includes("/SKILL.md") || !isCodexSkillReadCommand(cmd)) return [];
+  if (!cmd.includes("/SKILL.md")) return [];
 
   const names: string[] = [];
   const seen = new Set<string>();
   const pathPattern =
     /(?:^|[\s"'`])([^\s"'`|;&<>]+\/SKILL\.md(?:[?#][^\s"'`|;&<>]+)?)/g;
-  for (;;) {
-    const match = pathPattern.exec(cmd);
-    if (match === null) break;
-    const pathToken = normalizeSkillPathToken(match[1] ?? "");
-    if (!pathToken.includes("/SKILL.md")) continue;
-    const name = extractSkillNameFromPath(pathToken);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    names.push(name);
+  for (const segment of splitShellCommandSegments(cmd)) {
+    if (!segment.includes("/SKILL.md") || !isCodexSkillReadSegment(segment)) {
+      continue;
+    }
+    pathPattern.lastIndex = 0;
+    for (;;) {
+      const match = pathPattern.exec(segment);
+      if (match === null) break;
+      const pathToken = normalizeSkillPathToken(match[1] ?? "");
+      if (!pathToken.includes("/SKILL.md")) continue;
+      const name = extractSkillNameFromPath(pathToken);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
   }
   return names;
 }
@@ -408,8 +432,12 @@ function buildSyntheticSkillLoadCall(
     input: skillName,
     status: "completed",
     error: "",
-    fullInput: sourceCall.fullInput,
-    fullOutput: sourceCall.fullOutput,
+    fullInput: safeJson({
+      source: CODEX_SKILL_LOAD_SOURCE,
+      skill: skillName,
+      via: sourceCall.tool,
+    }),
+    fullOutput: "",
     durationMs: sourceCall.durationMs,
     question: null,
   };

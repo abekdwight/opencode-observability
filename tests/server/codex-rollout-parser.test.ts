@@ -325,6 +325,7 @@ describe("parseCodexRollout", () => {
               "sed -n '1,240p' ~/.codex/plugins/cache/openai-bundled/browser/26.616.71553/skills/control-in-app-browser/SKILL.md",
               "sed -n '1,240p' ~/.codex/skills/.system/imagegen/SKILL.md",
               "sed -n '1,260p' ~/.codex/vendor_imports/skills/skills/.curated/hatch-pet/SKILL.md",
+              'rg -n "SKILL.md" src tests',
             ].join(" && "),
           }),
           call_id: "call-skill-loads",
@@ -365,7 +366,8 @@ describe("parseCodexRollout", () => {
       status: "completed",
       error: "",
       durationMs: 2000,
-      fullOutput: expect.stringContaining("code-debug-skill"),
+      fullInput: expect.stringContaining("codex_skill_file_read"),
+      fullOutput: "",
       question: null,
     });
   });
@@ -429,6 +431,51 @@ describe("parseCodexRollout", () => {
             "Process exited with code 1\nsed: ~/.agents/skills/missing-skill/SKILL.md: No such file or directory",
         },
       },
+      {
+        timestamp: "2026-01-01T00:00:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "head ~/.codex/skills/partial-read/SKILL.md",
+          }),
+          call_id: "call-partial-read",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:03.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-partial-read",
+          output: "Process exited with code 0\n---\nname: partial-read",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: [
+              "sed -i '' 's/name/title/' ~/.codex/skills/write-sed/SKILL.md",
+              "cat <<'EOF' > ~/.codex/skills/write-redirect/SKILL.md",
+            ].join(" && "),
+          }),
+          call_id: "call-write",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:04.500Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-write",
+          output: "Process exited with code 0",
+        },
+      },
     ]);
 
     const parsed = parseCodexRollout(content);
@@ -437,8 +484,12 @@ describe("parseCodexRollout", () => {
     expect(parsed.messages[0].toolCalls.map((call) => call.tool)).toEqual([
       "exec_command",
       "exec_command",
+      "exec_command",
+      "exec_command",
     ]);
     expect(parsed.toolEvents.map((event) => event.tool)).toEqual([
+      "exec_command",
+      "exec_command",
       "exec_command",
       "exec_command",
     ]);
