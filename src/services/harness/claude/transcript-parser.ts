@@ -4,6 +4,7 @@ import {
 } from "../../../contracts/question.js";
 import type {
   SessionMessageContract,
+  SessionMessageSubagentLinkContract,
   SessionModelTokenBreakdown,
   SessionQuestionContract,
   SessionQuestionItemContract,
@@ -381,6 +382,122 @@ export function buildClaudeMessages(
   }
 
   return messages;
+}
+
+function isDisplayableUserRecord(record: ClaudeRecord): boolean {
+  const message = record.raw.message;
+  if (!isObject(message)) return false;
+  const content = message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.some(
+    (block) =>
+      isObject(block) &&
+      block.type === "text" &&
+      typeof block.text === "string" &&
+      block.text.trim().length > 0,
+  );
+}
+
+function extractAssistantToolUseIds(record: ClaudeRecord): string[] {
+  const message = record.raw.message;
+  if (!isObject(message) || !Array.isArray(message.content)) return [];
+  const ids: string[] = [];
+  for (const block of message.content) {
+    if (!isObject(block) || block.type !== "tool_use") continue;
+    if (typeof block.id === "string") ids.push(block.id);
+  }
+  return ids;
+}
+
+function isDisplayableAssistantRecord(
+  record: ClaudeRecord,
+  options: BuildMessagesOptions,
+): boolean {
+  const message = record.raw.message;
+  if (!isObject(message) || !Array.isArray(message.content)) return false;
+
+  for (const block of message.content) {
+    if (!isObject(block)) continue;
+    if (block.type === "tool_use") return true;
+    if (
+      block.type === "text" &&
+      typeof block.text === "string" &&
+      block.text.trim()
+    ) {
+      return true;
+    }
+    if (
+      block.type === "thinking" &&
+      options.includeThinking &&
+      typeof block.thinking === "string" &&
+      block.thinking.trim()
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function attachClaudeSubagentLinks(
+  records: ClaudeRecord[],
+  messages: SessionMessageContract[],
+  linksByToolUseId: Map<string, SessionMessageSubagentLinkContract[]>,
+  options: BuildMessagesOptions,
+): void {
+  let messageIndex = 0;
+
+  for (const record of records) {
+    if (record.type === "assistant") {
+      if (!isDisplayableAssistantRecord(record, options)) continue;
+      const message = messages[messageIndex];
+      messageIndex += 1;
+      if (!message) continue;
+
+      for (const toolUseId of extractAssistantToolUseIds(record)) {
+        const links = linksByToolUseId.get(toolUseId);
+        if (!links) continue;
+        for (const link of links) {
+          if (message.subagentLinks.some((item) => item.id === link.id)) {
+            continue;
+          }
+          message.subagentLinks.push(link);
+        }
+      }
+      continue;
+    }
+
+    if (record.type === "user" && isDisplayableUserRecord(record)) {
+      messageIndex += 1;
+    }
+  }
+}
+
+export function extractClaudeSubagentTranscriptDirs(
+  records: ClaudeRecord[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const record of records) {
+    if (record.type !== "user") continue;
+    const message = record.raw.message;
+    if (!isObject(message) || !Array.isArray(message.content)) continue;
+
+    for (const block of message.content) {
+      if (!isObject(block) || block.type !== "tool_result") continue;
+      if (typeof block.tool_use_id !== "string") continue;
+
+      const result = isObject(record.raw.toolUseResult)
+        ? record.raw.toolUseResult
+        : null;
+      const transcriptDir = result?.transcriptDir;
+      if (typeof transcriptDir === "string" && transcriptDir) {
+        map.set(transcriptDir, block.tool_use_id);
+      }
+    }
+  }
+
+  return map;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  attachClaudeSubagentLinks,
   buildClaudeMessages,
   extractClaudeMeta,
   extractClaudeModelBreakdown,
+  extractClaudeSubagentTranscriptDirs,
   extractClaudeTodos,
   extractClaudeUsageTotals,
   parseClaudeTranscript,
@@ -304,6 +306,73 @@ describe("claude transcript parser", () => {
         },
       ],
     });
+  });
+
+  test("attaches subagent links to the assistant tool-use message", () => {
+    const content = transcript([
+      {
+        type: "user",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: { role: "user", content: "調査して" },
+      },
+      {
+        type: "assistant",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        message: {
+          role: "assistant",
+          model: "claude-fable-5",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool-agent",
+              name: "Agent",
+              input: { description: "調査" },
+            },
+          ],
+        },
+      },
+      {
+        type: "user",
+        timestamp: "2026-01-01T00:00:02.000Z",
+        toolUseResult: {
+          transcriptDir: "/tmp/session/subagents/workflows/wf-1",
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-agent",
+              content: "Workflow launched",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const { records } = parseClaudeTranscript(content);
+    const messages = buildClaudeMessages(records, { includeThinking: true });
+    const transcriptDirs = extractClaudeSubagentTranscriptDirs(records);
+
+    expect(transcriptDirs.get("/tmp/session/subagents/workflows/wf-1")).toBe(
+      "tool-agent",
+    );
+
+    attachClaudeSubagentLinks(
+      records,
+      messages,
+      new Map([
+        [
+          "tool-agent",
+          [{ id: "agent-child", title: "調査", durationMs: 1234 }],
+        ],
+      ]),
+      { includeThinking: true },
+    );
+
+    expect(messages[1].subagentLinks).toEqual([
+      { id: "agent-child", title: "調査", durationMs: 1234 },
+    ]);
   });
 
   test("extracts session metadata with deduplicated token totals", () => {

@@ -4,6 +4,7 @@ import {
 } from "../../../contracts/question.js";
 import type {
   SessionMessageContract,
+  SessionModelTokenBreakdown,
   SessionQuestionContract,
   SessionQuestionItemContract,
   SessionTodoContract,
@@ -40,6 +41,7 @@ export interface ParsedCodexRollout {
   toolEvents: SessionToolEventContract[];
   todos: SessionTodoContract[];
   tokens: CodexTokenUsage | null;
+  modelBreakdown: SessionModelTokenBreakdown[];
   models: string[];
   cwd: string | null;
   parentThreadId: string | null;
@@ -218,6 +220,24 @@ function extractFunctionCallOutputText(output: unknown): string {
   return "";
 }
 
+function extractSpawnAgentLink(
+  outputText: string,
+): { id: string; title: string } | null {
+  try {
+    const parsed = JSON.parse(outputText);
+    if (!isObject(parsed) || typeof parsed.agent_id !== "string") {
+      return null;
+    }
+    const nickname =
+      typeof parsed.nickname === "string" && parsed.nickname.trim()
+        ? parsed.nickname.trim()
+        : parsed.agent_id;
+    return { id: parsed.agent_id, title: nickname };
+  } catch {
+    return null;
+  }
+}
+
 /** exec_command outputs embed "Process exited with code N". */
 function detectExitCodeError(outputText: string): string | null {
   const match = /(?:Process )?exited with code (\d+)/.exec(outputText);
@@ -239,9 +259,12 @@ function extractPlanTodos(args: unknown): SessionTodoContract[] | null {
   return todos;
 }
 
-function extractTokenUsage(info: unknown): CodexTokenUsage | null {
+function extractTokenUsage(
+  info: unknown,
+  key: "total_token_usage" | "last_token_usage" = "total_token_usage",
+): CodexTokenUsage | null {
   if (!isObject(info)) return null;
-  const usage = info.total_token_usage;
+  const usage = info[key];
   if (!isObject(usage)) return null;
   const num = (value: unknown): number =>
     typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -252,6 +275,58 @@ function extractTokenUsage(info: unknown): CodexTokenUsage | null {
     reasoning: num(usage.reasoning_output_tokens),
     total: num(usage.total_tokens),
   };
+}
+
+function tokenUsageSnapshotKey(usage: CodexTokenUsage): string {
+  return [
+    usage.input,
+    usage.cachedInput,
+    usage.output,
+    usage.reasoning,
+    usage.total,
+  ].join(":");
+}
+
+function addModelTokenUsage(
+  grouped: Map<string, SessionModelTokenBreakdown>,
+  modelId: string | null,
+  usage: CodexTokenUsage,
+): void {
+  const normalizedModelId = modelId?.trim() || "unknown";
+  const key = `main::main::openai::${normalizedModelId}`;
+  const current = grouped.get(key) ?? {
+    scope: "main",
+    agent: "main",
+    modelId: normalizedModelId,
+    providerId: "openai",
+    messageCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    totalCost: 0,
+  };
+  current.messageCount += 1;
+  current.inputTokens += usage.input;
+  current.outputTokens += usage.output;
+  current.reasoningTokens += usage.reasoning;
+  current.cacheReadTokens += usage.cachedInput;
+  current.totalTokens +=
+    usage.total > 0 ? usage.total : usage.input + usage.output;
+  grouped.set(key, current);
+}
+
+function sortModelBreakdown(
+  rows: SessionModelTokenBreakdown[],
+): SessionModelTokenBreakdown[] {
+  return rows.sort((left, right) => {
+    if (right.totalTokens !== left.totalTokens) {
+      return right.totalTokens - left.totalTokens;
+    }
+    return left.modelId.localeCompare(right.modelId);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +526,8 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
   const messages: SessionMessageContract[] = [];
   const toolEvents: SessionToolEventContract[] = [];
   const pendingCalls = new Map<string, PendingToolCall>();
+  const modelBreakdown = new Map<string, SessionModelTokenBreakdown>();
+  const seenTokenSnapshots = new Set<string>();
   const models: string[] = [];
 
   let todos: SessionTodoContract[] = [];
@@ -639,6 +716,19 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
         pendingCalls.delete(callId);
         const durationMs = Math.max(0, line.timestampMs - pending.startedAtMs);
 
+        if (pending.call.tool.endsWith("spawn_agent")) {
+          const link = extractSpawnAgentLink(outputText);
+          if (
+            link &&
+            !pending.message.subagentLinks.some((item) => item.id === link.id)
+          ) {
+            pending.message.subagentLinks.push({
+              ...link,
+              durationMs: 0,
+            });
+          }
+        }
+
         if (pending.call.question) {
           // Map each answer set back to its question by id, then render the
           // resolved card as the call's plain-text output. A question is never
@@ -717,6 +807,15 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
       if (payload.type === "token_count") {
         const usage = extractTokenUsage(payload.info);
         if (usage) tokens = usage;
+        const snapshotKey = usage ? tokenUsageSnapshotKey(usage) : null;
+        const duplicatedSnapshot =
+          snapshotKey !== null && seenTokenSnapshots.has(snapshotKey);
+        if (snapshotKey) seenTokenSnapshots.add(snapshotKey);
+
+        const lastUsage = extractTokenUsage(payload.info, "last_token_usage");
+        if (lastUsage && !duplicatedSnapshot) {
+          addModelTokenUsage(modelBreakdown, currentModel, lastUsage);
+        }
       }
     }
   }
@@ -734,6 +833,7 @@ export function parseCodexRollout(fileContent: string): ParsedCodexRollout {
     toolEvents,
     todos,
     tokens,
+    modelBreakdown: sortModelBreakdown([...modelBreakdown.values()]),
     models,
     cwd,
     parentThreadId,
