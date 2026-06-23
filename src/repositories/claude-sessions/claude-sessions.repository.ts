@@ -7,9 +7,17 @@ export interface ClaudeSessionFileRef {
   filePath: string;
   projectDir: string;
   mtimeMs: number;
+  parentId: string | null;
+}
+
+export interface ClaudeSubagentSessionFileRef extends ClaudeSessionFileRef {
+  agentType: string | null;
+  description: string | null;
+  toolUseId: string | null;
 }
 
 const JSONL_SUFFIX = ".jsonl";
+const META_SUFFIX = ".meta.json";
 
 function listProjectDirNames(root: string): string[] {
   try {
@@ -20,6 +28,88 @@ function listProjectDirNames(root: string): string[] {
   } catch {
     return [];
   }
+}
+
+function toRef(
+  filePath: string,
+  projectDir: string,
+  parentId: string | null,
+): ClaudeSessionFileRef | null {
+  const entry = path.basename(filePath);
+  if (!entry.endsWith(JSONL_SUFFIX)) return null;
+
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      id: entry.slice(0, -JSONL_SUFFIX.length),
+      filePath,
+      projectDir,
+      mtimeMs: stat.mtimeMs,
+      parentId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readSubagentMeta(
+  filePath: string,
+): Pick<
+  ClaudeSubagentSessionFileRef,
+  "agentType" | "description" | "toolUseId"
+> {
+  const metaPath = filePath.slice(0, -JSONL_SUFFIX.length) + META_SUFFIX;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as unknown;
+    if (typeof parsed !== "object" || parsed === null) {
+      return { agentType: null, description: null, toolUseId: null };
+    }
+    const meta = parsed as Record<string, unknown>;
+    return {
+      agentType: typeof meta.agentType === "string" ? meta.agentType : null,
+      description:
+        typeof meta.description === "string" ? meta.description : null,
+      toolUseId: typeof meta.toolUseId === "string" ? meta.toolUseId : null,
+    };
+  } catch {
+    return { agentType: null, description: null, toolUseId: null };
+  }
+}
+
+function toSubagentRef(
+  filePath: string,
+  projectDir: string,
+  parentId: string,
+): ClaudeSubagentSessionFileRef | null {
+  const ref = toRef(filePath, projectDir, parentId);
+  if (!ref || ref.id === "journal") return null;
+  return { ...ref, ...readSubagentMeta(filePath) };
+}
+
+function listJsonlRefsRecursively(
+  dir: string,
+  projectDir: string,
+  parentId: string,
+): ClaudeSubagentSessionFileRef[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const refs: ClaudeSubagentSessionFileRef[] = [];
+  for (const entry of entries) {
+    const filePath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      refs.push(...listJsonlRefsRecursively(filePath, projectDir, parentId));
+      continue;
+    }
+    const ref = toSubagentRef(filePath, projectDir, parentId);
+    if (ref) refs.push(ref);
+  }
+  return refs;
 }
 
 /**
@@ -58,23 +148,30 @@ export function listClaudeSessionFiles(limit = 200): ClaudeSessionFileRef[] {
     for (const entry of entries) {
       if (!entry.endsWith(JSONL_SUFFIX)) continue;
       const filePath = path.join(projectDir, entry);
-      try {
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) continue;
-        refs.push({
-          id: entry.slice(0, -JSONL_SUFFIX.length),
-          filePath,
-          projectDir,
-          mtimeMs: stat.mtimeMs,
-        });
-      } catch {
-        // Skip unreadable entries.
-      }
+      const ref = toRef(filePath, projectDir, null);
+      if (ref) refs.push(ref);
     }
   }
 
   refs.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return refs.slice(0, limit);
+}
+
+export function listClaudeSubagentSessionFiles(
+  parentRef: ClaudeSessionFileRef,
+): ClaudeSubagentSessionFileRef[] {
+  const subagentsDir = path.join(
+    parentRef.projectDir,
+    parentRef.id,
+    "subagents",
+  );
+  const refs = listJsonlRefsRecursively(
+    subagentsDir,
+    parentRef.projectDir,
+    parentRef.id,
+  );
+  refs.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return refs;
 }
 
 /**
@@ -92,10 +189,34 @@ export function findClaudeSessionFile(id: string): ClaudeSessionFileRef | null {
     try {
       const stat = fs.statSync(filePath);
       if (stat.isFile()) {
-        return { id, filePath, projectDir, mtimeMs: stat.mtimeMs };
+        return {
+          id,
+          filePath,
+          projectDir,
+          mtimeMs: stat.mtimeMs,
+          parentId: null,
+        };
       }
     } catch {
       // Not in this project dir; keep looking.
+    }
+
+    let parentEntries: fs.Dirent[];
+    try {
+      parentEntries = fs.readdirSync(projectDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of parentEntries) {
+      if (!entry.isDirectory()) continue;
+      const subagentsDir = path.join(projectDir, entry.name, "subagents");
+      const found = listJsonlRefsRecursively(
+        subagentsDir,
+        projectDir,
+        entry.name,
+      ).find((ref) => ref.id === id);
+      if (found) return found;
     }
   }
   return null;

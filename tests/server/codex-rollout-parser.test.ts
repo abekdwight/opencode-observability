@@ -154,6 +154,36 @@ describe("parseCodexRollout", () => {
               reasoning_output_tokens: 10,
               total_tokens: 150,
             },
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 40,
+              output_tokens: 50,
+              reasoning_output_tokens: 10,
+              total_tokens: 150,
+            },
+          },
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:09.100Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 40,
+              output_tokens: 50,
+              reasoning_output_tokens: 10,
+              total_tokens: 150,
+            },
+            last_token_usage: {
+              input_tokens: 100,
+              cached_input_tokens: 40,
+              output_tokens: 50,
+              reasoning_output_tokens: 10,
+              total_tokens: 150,
+            },
           },
         },
       },
@@ -173,6 +203,22 @@ describe("parseCodexRollout", () => {
       reasoning: 10,
       total: 150,
     });
+    expect(parsed.modelBreakdown).toEqual([
+      {
+        scope: "main",
+        agent: "main",
+        modelId: "gpt-5.5",
+        providerId: "openai",
+        messageCount: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        reasoningTokens: 10,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 0,
+        totalTokens: 150,
+        totalCost: 0,
+      },
+    ]);
     expect(parsed.todos).toEqual([
       { content: "調査", status: "completed", priority: "" },
       { content: "実装", status: "in_progress", priority: "" },
@@ -309,6 +355,47 @@ describe("parseCodexRollout", () => {
     // The question tool call is also surfaced as a tool event, never an error.
     expect(parsed.toolEvents.map((event) => event.tool)).toEqual(["question"]);
     expect(parsed.toolEvents[0].status).toBe("completed");
+  });
+
+  test("attaches spawn_agent outputs as subagent links", () => {
+    const content = rollout([
+      {
+        timestamp: "2026-01-01T00:00:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "multi_agent_v1.spawn_agent",
+          arguments: JSON.stringify({
+            agent_type: "explorer",
+            message: "調査してください",
+          }),
+          call_id: "call-spawn",
+        },
+      },
+      {
+        timestamp: "2026-01-01T00:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn",
+          output: JSON.stringify({
+            agent_id: "thread-child-1",
+            nickname: "Explorer",
+          }),
+        },
+      },
+    ]);
+
+    const parsed = parseCodexRollout(content);
+
+    expect(parsed.messages).toHaveLength(1);
+    expect(parsed.messages[0].subagentLinks).toEqual([
+      { id: "thread-child-1", title: "Explorer", durationMs: 0 },
+    ]);
+    expect(parsed.messages[0].toolCalls[0]).toMatchObject({
+      tool: "multi_agent_v1.spawn_agent",
+      status: "completed",
+    });
   });
 
   test("derives Codex skill loads from successful exec_command SKILL.md reads", () => {
