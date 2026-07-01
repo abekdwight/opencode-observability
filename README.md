@@ -86,7 +86,7 @@ codex plugin marketplace add abekdwight/opencode-observability
 codex plugin add opencode-observability@opencode-observability
 ```
 
-Run `/oc:monitor` in Claude Code (Codex uses `/monitor` or the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. The viewer server must already be running (`npx opencode-observability`); otherwise the hook explains how to start it. Hook scripts use only the Python 3 standard library.
+Run `/oc:monitor` in Claude Code (Codex uses `/monitor` or the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. If the local viewer server is not running, the hook starts one in the background with `npx --yes opencode-observability@latest`. Hook scripts use only the Python 3 standard library.
 
 ## 🗺️ What's Inside
 
@@ -115,8 +115,9 @@ Every option has a sensible default — the table below is for tuning. Copy `.en
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code session transcripts. |
 | `OPENCODE_MONITOR_HEARTBEAT_TTL_MS` | `90000` | Grace period before an idle source is dropped. |
 | `OPENCODE_MONITOR_INGEST_TOKEN` | _(unset)_ | If set, ingest requires `Authorization: Bearer <token>`. |
-| `OPENCODE_OBSERVABILITY_AUTOSTART` | `1` | Let the OpenCode plugin auto-start the monitor. Set `0` to disable. |
+| `OPENCODE_OBSERVABILITY_AUTOSTART` | `1` | Let OpenCode, Claude Code, and Codex plugins auto-start the local monitor. Set `0` to disable. |
 | `OPENCODE_OBSERVABILITY_URL` | `http://127.0.0.1:3737` | Viewer base URL used by the Claude Code / Codex hooks. |
+| `OPENCODE_OBSERVABILITY_AUTOSTART_TIMEOUT_MS` | `20000` | Maximum time Claude Code / Codex hooks wait for an auto-started viewer server. |
 
 ## 🩺 Troubleshooting
 
