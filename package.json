@@ -1,6 +1,6 @@
 {
   "name": "opencode-observability",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Local-first monitor and triage app for OpenCode observability",
   "license": "MIT",

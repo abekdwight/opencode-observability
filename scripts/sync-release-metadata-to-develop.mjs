@@ -27,21 +27,43 @@ function runInherited(command, args, options = {}) {
   execFileSync(command, args, { stdio: "inherit", ...options });
 }
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
+function replaceVersionOccurrences(filePath, version, expectedCount) {
+  let replacementCount = 0;
+  const content = fs.readFileSync(filePath, "utf8");
+  const nextContent = content.replace(/"version":\s*"[^"]+"/gu, (matched) => {
+    if (replacementCount >= expectedCount) {
+      return matched;
+    }
+    replacementCount += 1;
+    return `"version": "${version}"`;
+  });
 
-function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  if (replacementCount !== expectedCount) {
+    throw new Error(
+      `Expected to update ${expectedCount} version field(s) in ${filePath}, updated ${replacementCount}.`,
+    );
+  }
+
+  fs.writeFileSync(filePath, nextContent, "utf8");
 }
 
 function syncJsonVersion(filePath, logicalPath, version) {
-  const json = readJson(filePath);
-  json.version = version;
-  if (logicalPath === "package-lock.json" && json.packages?.[""]) {
-    json.packages[""].version = version;
+  replaceVersionOccurrences(
+    filePath,
+    version,
+    logicalPath === "package-lock.json" ? 2 : 1,
+  );
+
+  const json = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (json.version !== version) {
+    throw new Error(`${logicalPath} top-level version did not update.`);
   }
-  writeJson(filePath, json);
+  if (
+    logicalPath === "package-lock.json" &&
+    json.packages?.[""]?.version !== version
+  ) {
+    throw new Error("package-lock.json root package version did not update.");
+  }
 }
 
 function ensureGitIdentity(cwd) {
