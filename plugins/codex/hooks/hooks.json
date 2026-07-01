@@ -7,7 +7,7 @@
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}\"/scripts/open_monitor.py",
             "statusMessage": "Opening session viewer",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       }
