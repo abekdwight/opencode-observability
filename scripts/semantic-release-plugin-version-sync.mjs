@@ -4,6 +4,7 @@ const PLUGIN_MANIFESTS = [
   "plugins/codex/.codex-plugin/plugin.json",
   "plugins/claude-code/.claude-plugin/plugin.json",
 ];
+const RELEASE_VERSION_MARKER = ".semantic-release-next-version";
 
 export async function prepare(_pluginConfig, context) {
   const version = context.nextRelease?.version;
@@ -20,6 +21,8 @@ export async function prepare(_pluginConfig, context) {
       "utf8",
     );
   }
+
+  fs.writeFileSync(RELEASE_VERSION_MARKER, `${version}\n`, "utf8");
 
   context.logger.log(
     `Synchronized plugin manifest versions to ${version}: ${PLUGIN_MANIFESTS.join(
