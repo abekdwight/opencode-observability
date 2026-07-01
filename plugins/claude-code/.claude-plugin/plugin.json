@@ -8,10 +8,5 @@
   },
   "repository": "https://github.com/abekdwight/opencode-observability",
   "license": "MIT",
-  "keywords": [
-    "observability",
-    "viewer",
-    "session",
-    "monitor"
-  ]
+  "keywords": ["observability", "viewer", "session", "monitor"]
 }
