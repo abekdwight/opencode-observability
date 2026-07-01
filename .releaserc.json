@@ -5,18 +5,6 @@
     "@semantic-release/release-notes-generator",
     "./scripts/semantic-release-plugin-version-sync.mjs",
     "@semantic-release/npm",
-    [
-      "@semantic-release/git",
-      {
-        "assets": [
-          "package.json",
-          "package-lock.json",
-          "plugins/codex/.codex-plugin/plugin.json",
-          "plugins/claude-code/.claude-plugin/plugin.json"
-        ],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-      }
-    ],
     "@semantic-release/github"
   ]
 }

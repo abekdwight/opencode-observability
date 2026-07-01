@@ -17,7 +17,8 @@ const SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 const RELEASE_SYNC_PLUGIN =
   "./scripts/semantic-release-plugin-version-sync.mjs";
-const RELEASE_GIT_PLUGIN = "@semantic-release/git";
+const RELEASE_DEVELOP_SYNC_SCRIPT =
+  "scripts/sync-release-metadata-to-develop.mjs";
 
 function fail(message) {
   console.error(message);
@@ -30,10 +31,6 @@ function readJson(filePath) {
 
 function releasePluginName(pluginEntry) {
   return Array.isArray(pluginEntry) ? pluginEntry[0] : pluginEntry;
-}
-
-function releasePluginConfig(pluginEntry) {
-  return Array.isArray(pluginEntry) ? (pluginEntry[1] ?? {}) : {};
 }
 
 function ensurePluginVersionsAreAligned() {
@@ -76,25 +73,29 @@ function ensureReleaseSyncIsConfigured() {
     );
   }
 
-  const gitPlugin = plugins.find(
-    (plugin) => releasePluginName(plugin) === RELEASE_GIT_PLUGIN,
-  );
-  if (!gitPlugin) {
+  if (
+    plugins.some(
+      (plugin) => releasePluginName(plugin) === "@semantic-release/git",
+    )
+  ) {
     fail(
-      `.releaserc.json must include ${RELEASE_GIT_PLUGIN} so synchronized plugin manifests are committed.`,
+      ".releaserc.json must not include @semantic-release/git because main is protected and rejects direct release commits.",
     );
-    return;
   }
+}
 
-  const assets = releasePluginConfig(gitPlugin).assets ?? [];
-  for (const plugin of PLUGINS) {
-    if (!assets.includes(plugin.manifest)) {
-      fail(
-        `.releaserc.json ${RELEASE_GIT_PLUGIN} assets must include ${plugin.manifest}.`,
-      );
-    }
+function ensureDevelopSyncIsConfigured() {
+  const releaseWorkflow = fs.readFileSync(
+    ".github/workflows/release.yml",
+    "utf8",
+  );
+  if (!releaseWorkflow.includes(RELEASE_DEVELOP_SYNC_SCRIPT)) {
+    fail(
+      `.github/workflows/release.yml must run ${RELEASE_DEVELOP_SYNC_SCRIPT} after semantic-release.`,
+    );
   }
 }
 
 ensurePluginVersionsAreAligned();
 ensureReleaseSyncIsConfigured();
+ensureDevelopSyncIsConfigured();
