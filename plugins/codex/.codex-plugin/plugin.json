@@ -1,6 +1,6 @@
 {
   "name": "opencode-observability",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "現在の Codex セッションをセッションビューア (http://127.0.0.1:3737) で開く。フックがモデル実行前に処理するためトークンを消費しない。",
   "author": {
     "name": "abekdwight"

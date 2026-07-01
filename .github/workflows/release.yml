@@ -41,3 +41,11 @@ jobs:
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sync release commit back to develop
+        run: |
+          if git tag --points-at HEAD | grep -q '^v'; then
+            git fetch origin develop
+            git push origin HEAD:develop
+          else
+            echo "No release tag on HEAD; skipping develop sync."
+          fi

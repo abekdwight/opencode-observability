@@ -89,6 +89,16 @@ if (process.env.TEST_OPEN_FILE) {
   return scriptPath;
 }
 
+function hookCommand(): string {
+  return [
+    quoteForShlex(process.execPath),
+    "--import",
+    "tsx",
+    quoteForShlex(path.resolve("src/cli/opencode-observability.ts")),
+    "hook",
+  ].join(" ");
+}
+
 async function waitForFile(filePath: string): Promise<void> {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
@@ -157,6 +167,7 @@ describeIf("open monitor plugin hooks", () => {
         ...process.env,
         OPENCODE_OBSERVABILITY_URL: base,
         OPENCODE_OBSERVABILITY_AUTOSTART_TIMEOUT_MS: "5000",
+        OPENCODE_OBSERVABILITY_HOOK_CMD: hookCommand(),
         OPENCODE_OBSERVABILITY_SERVER_CMD: [
           quoteForShlex(process.execPath),
           quoteForShlex(serverScript),
@@ -183,5 +194,29 @@ describeIf("open monitor plugin hooks", () => {
     await waitForFile(pidFile);
     await waitForFile(openFile);
     expect(fs.readFileSync(openFile, "utf8")).toBe(fixture.expectedUrl(base));
+  });
+
+  test("codex hook does not run npx for ordinary prompts", () => {
+    const result = spawnSync(
+      "python3",
+      ["plugins/codex/scripts/open_monitor.py"],
+      {
+        input: JSON.stringify({
+          prompt: "ordinary prompt",
+          session_id: "ignored",
+        }),
+        encoding: "utf8",
+        timeout: 3000,
+        env: {
+          ...process.env,
+          OPENCODE_OBSERVABILITY_HOOK_CMD: "definitely-missing-command",
+          PYTHONDONTWRITEBYTECODE: "1",
+        },
+      },
+    );
+
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("");
+    expect(result.status).toBe(0);
   });
 });
