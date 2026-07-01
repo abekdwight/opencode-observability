@@ -86,7 +86,22 @@ codex plugin marketplace add abekdwight/opencode-observability
 codex plugin add opencode-observability@opencode-observability
 ```
 
-Run `/oc:monitor` in Claude Code (Codex uses `/monitor` or the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. If the local viewer server is not running, the hook starts one in the background with `npx --yes opencode-observability@latest`. Hook scripts use only the Python 3 standard library.
+Run `/oc:monitor` in Claude Code (Codex uses `/monitor` or the `@monitor` skill). Plugin hooks need a one-time trust approval on first use. Starting with plugin version **0.3.1**, the installed hook is only a thin launcher; it delegates monitor behavior to `npx --yes opencode-observability@latest hook <codex|claude>`, so future hook behavior ships through the npm package. If the local viewer server is not running, the npm CLI starts one in the background with `npx --yes opencode-observability@latest`.
+
+Existing plugin installs from before **0.3.1** need one manual update so the thin launcher is installed:
+
+```text
+# Codex
+codex plugin marketplace upgrade opencode-observability
+codex plugin add opencode-observability@opencode-observability
+
+# Claude Code
+claude plugin marketplace update opencode-observability
+claude plugin uninstall opencode-observability
+claude plugin install oc@opencode-observability
+```
+
+After that, restart the host app and re-approve the hook if prompted.
 
 ## 🗺️ What's Inside
 
@@ -118,6 +133,7 @@ Every option has a sensible default — the table below is for tuning. Copy `.en
 | `OPENCODE_OBSERVABILITY_AUTOSTART` | `1` | Let OpenCode, Claude Code, and Codex plugins auto-start the local monitor. Set `0` to disable. |
 | `OPENCODE_OBSERVABILITY_URL` | `http://127.0.0.1:3737` | Viewer base URL used by the Claude Code / Codex hooks. |
 | `OPENCODE_OBSERVABILITY_AUTOSTART_TIMEOUT_MS` | `20000` | Maximum time Claude Code / Codex hooks wait for an auto-started viewer server. |
+| `OPENCODE_OBSERVABILITY_HOOK_CMD` | _(unset)_ | Override the thin hook launcher command before the harness arg. Intended for development/testing. |
 
 ## 🩺 Troubleshooting
 
@@ -178,11 +194,17 @@ web/               React + Vite app shell (Tailwind, Radix UI, Recharts)
 npm ci
 npm run dev        # build the app shell, then start the server with hot reload
 npm run build      # production build (server + app)
-npm run lint       # Biome
+npm run lint       # Biome + plugin release checks
 npm run typecheck  # tsc
 npm run test       # Vitest
 npm run test:e2e   # Playwright
 ```
+
+Plugin manifest versions are owned by `semantic-release`: the release job syncs
+both Codex and Claude Code manifests to `nextRelease.version`, commits them with
+the npm package version, and fast-forwards `develop` so marketplace installs see
+the latest released plugin version. Ordinary PRs should not manually bump plugin
+manifest versions unless they are correcting an already released state.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for route ownership rules, fixtures, and validation steps.
 
