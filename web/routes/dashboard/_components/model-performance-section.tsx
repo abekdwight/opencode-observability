@@ -263,7 +263,7 @@ export function ModelPerformanceSection({
                 <th className="pb-2 text-right text-xs font-semibold text-[var(--color-text-secondary)]">
                   <ModelPerformanceHeaderHelp
                     label="TPS"
-                    tooltip="Primary throughput uses P50 when available; the asterisk marks weighted-average fallback."
+                    tooltip="Model generation TPS (output + reasoning tokens per second of generation, excluding tool time). Primary value is P50 when available; the asterisk marks weighted-average fallback."
                     align="right"
                   />
                 </th>
@@ -284,7 +284,7 @@ export function ModelPerformanceSection({
                 <th className="pb-2 text-right text-xs font-semibold text-[var(--color-text-secondary)]">
                   <ModelPerformanceHeaderHelp
                     label="Weighted TPS"
-                    tooltip="Weighted average throughput (sum of output / sum of duration)."
+                    tooltip="Weighted average generation throughput: (output + reasoning) / generation time. Tool execution is excluded."
                     align="right"
                   />
                 </th>
