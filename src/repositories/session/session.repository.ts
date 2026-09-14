@@ -1,3 +1,4 @@
+import { buildGenerationMsSql } from "../../lib/message-generation-sql.js";
 import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
 import type { Database } from "../../lib/sqlite.js";
 
@@ -86,6 +87,8 @@ export interface SessionMessageRecord {
   provider_id?: string;
   agent?: string;
   output_tokens?: number | string;
+  reasoning_tokens?: number | string;
+  generation_ms?: number | string;
   response_started?: number | string;
   response_completed?: number | string;
 }
@@ -329,6 +332,8 @@ export function listSessionMessages(
       SELECT m.id, json_extract(m.data, '$.role') AS role, json_extract(m.data, '$.modelID') AS model_id,
              json_extract(m.data, '$.providerID') AS provider_id, json_extract(m.data, '$.agent') AS agent,
              json_extract(m.data, '$.tokens.output') AS output_tokens,
+             json_extract(m.data, '$.tokens.reasoning') AS reasoning_tokens,
+             ${buildGenerationMsSql("m.data")} AS generation_ms,
              json_extract(m.data, '$.time.created') AS response_started,
              json_extract(m.data, '$.time.completed') AS response_completed,
              COALESCE(tp.message_text, '') AS text, m.time_created
