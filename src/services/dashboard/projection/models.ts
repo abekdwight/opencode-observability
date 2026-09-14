@@ -100,7 +100,7 @@ interface PerformanceBucket {
   validLatencyMessages: number;
   outputTokens: number;
   reasoningTokens: number;
-  sumTpsOutputTokens: number;
+  sumTpsGeneratedTokens: number;
   sumTpsDurationMs: number;
   tpsValues: number[];
   latencyValuesMs: number[];
@@ -134,7 +134,7 @@ function buildModelPerformanceStats(
           validLatencyMessages: 0,
           outputTokens: 0,
           reasoningTokens: 0,
-          sumTpsOutputTokens: 0,
+          sumTpsGeneratedTokens: 0,
           sumTpsDurationMs: 0,
           tpsValues: [],
           latencyValuesMs: [],
@@ -146,7 +146,7 @@ function buildModelPerformanceStats(
       bucket.validLatencyMessages += sample.validLatencyMessages;
       bucket.outputTokens += sample.outputTokens;
       bucket.reasoningTokens += sample.reasoningTokens;
-      bucket.sumTpsOutputTokens += sample.sumOutputTokens;
+      bucket.sumTpsGeneratedTokens += sample.sumGeneratedTokens;
       bucket.sumTpsDurationMs += sample.sumDurationMs;
       bucket.tpsValues.push(...sample.tpsSamples);
       bucket.latencyValuesMs.push(...sample.latencySamplesMs);
@@ -160,7 +160,7 @@ function buildModelPerformanceStats(
         bucket.sumTpsDurationMs > 0
           ? Number(
               (
-                (bucket.sumTpsOutputTokens * 1000) /
+                (bucket.sumTpsGeneratedTokens * 1000) /
                 bucket.sumTpsDurationMs
               ).toFixed(2),
             )

@@ -1,5 +1,9 @@
 type SqliteDatabase = import("../../lib/sqlite.js").Database;
 
+import {
+  buildGenerationMsSql,
+  buildMessageDurationMsSql,
+} from "../../lib/message-generation-sql.js";
 import { buildMessageTotalTokensSql } from "../../lib/message-token-sql.js";
 
 // =============================================================================
@@ -454,6 +458,7 @@ export interface DashboardAtomMessageRow {
   cacheWriteTokens: number;
   reasoningTokens: number;
   durationMs: number;
+  generationMs: number;
 }
 
 export interface DashboardAtomPartRow {
@@ -510,14 +515,9 @@ const ROOT_SOURCE_MESSAGES_SQL = `
              COALESCE(json_extract(m.data, '$.tokens.output'), 0) AS outputTokens,
              COALESCE(json_extract(m.data, '$.tokens.cache.read'), 0) AS cacheReadTokens,
              COALESCE(json_extract(m.data, '$.tokens.cache.write'), 0) AS cacheWriteTokens,
-             COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoningTokens,
-             CASE
-               WHEN json_extract(m.data, '$.time.created') IS NOT NULL
-                AND json_extract(m.data, '$.time.completed') IS NOT NULL
-                AND json_extract(m.data, '$.time.completed') > json_extract(m.data, '$.time.created')
-               THEN json_extract(m.data, '$.time.completed') - json_extract(m.data, '$.time.created')
-               ELSE 0
-             END AS durationMs
+              COALESCE(json_extract(m.data, '$.tokens.reasoning'), 0) AS reasoningTokens,
+              ${buildMessageDurationMsSql("m.data")} AS durationMs,
+              ${buildGenerationMsSql("m.data")} AS generationMs
       FROM message m
       WHERE m.session_id IN (${ATOM_DESCENDANTS_CTE})
       ORDER BY m.session_id, m.time_created, m.id

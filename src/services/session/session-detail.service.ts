@@ -7,6 +7,7 @@ import type {
 } from "../../contracts/session.js";
 import type { SignalLevel } from "../../contracts/shared.js";
 import { calcSessionActiveDurations } from "../../lib/duration.js";
+import { calcModelTps } from "../../lib/model-tps.js";
 import type { Database } from "../../lib/sqlite.js";
 import {
   escapeHtml,
@@ -284,16 +285,14 @@ function toNumberOrNull(raw: unknown): number | null {
 
 function calcOutputTps(
   outputTokensRaw: unknown,
-  startedRaw: unknown,
-  completedRaw: unknown,
+  reasoningTokensRaw: unknown,
+  generationMsRaw: unknown,
 ): number | null {
-  const outputTokens = toNumberOrNull(outputTokensRaw);
-  const started = toNumberOrNull(startedRaw);
-  const completed = toNumberOrNull(completedRaw);
-  if (outputTokens == null || started == null || completed == null) return null;
-  const durationMs = completed - started;
-  if (outputTokens <= 0 || durationMs <= 0) return null;
-  return (outputTokens * 1000) / durationMs;
+  const outputTokens = toNumberOrNull(outputTokensRaw) ?? 0;
+  const reasoningTokens = toNumberOrNull(reasoningTokensRaw) ?? 0;
+  const generationMs = toNumberOrNull(generationMsRaw);
+  if (generationMs == null) return null;
+  return calcModelTps(outputTokens, reasoningTokens, generationMs);
 }
 
 function formatTps(value: number): string {
@@ -697,8 +696,8 @@ export function buildSessionRouteView(
     if (message.role !== "assistant") return message;
     const outputTps = calcOutputTps(
       message.output_tokens,
-      message.response_started,
-      message.response_completed,
+      message.reasoning_tokens,
+      message.generation_ms,
     );
     if (outputTps == null) return message;
     return { ...message, output_tps_label: formatTps(outputTps) };

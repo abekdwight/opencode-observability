@@ -534,4 +534,134 @@ describe("dashboard model performance percentiles", () => {
     expect(row?.latencyP90Ms).toBe(40);
     expect(row?.latencyP99Ms).toBeNull();
   });
+
+  test("model TPS includes reasoning tokens and excludes tool execution time", () => {
+    // 5 turns so avgTps is published (>=5). Each turn:
+    //   output 10 + reasoning 30 over text 100ms + reasoning 400ms
+    //   message wall-clock 10000ms containing a 9000ms tool
+    // Old formula (output / wall-clock) = 1. New formula = 80.
+    const writable = getWritableDb();
+    try {
+      writable
+        .prepare(
+          `INSERT INTO project (
+            id, worktree, vcs, name, icon_url, icon_color,
+            time_created, time_updated, time_initialized, sandboxes, commands
+          ) VALUES (?, ?, 'git', ?, NULL, '#000000', ?, ?, ?, '[]', NULL)`,
+        )
+        .run(
+          "proj-perf-gen",
+          "/workspace/proj-perf-gen",
+          "proj-perf-gen",
+          NOW_MS,
+          NOW_MS,
+          NOW_MS,
+        );
+      writable
+        .prepare(
+          `INSERT INTO session (
+            id, project_id, parent_id, slug, directory, title, version, share_url,
+            summary_additions, summary_deletions, summary_files, summary_diffs,
+            revert, permission, time_created, time_updated, time_compacting,
+            time_archived, workspace_id
+          ) VALUES (?, ?, NULL, ?, ?, ?, '1', NULL, 0, 0, 0, NULL, NULL, NULL,
+            ?, ?, NULL, NULL, NULL)`,
+        )
+        .run(
+          "ses-perf-gen",
+          "proj-perf-gen",
+          "ses-perf-gen",
+          "/workspace/proj-perf-gen",
+          "ses-perf-gen",
+          NOW_MS,
+          NOW_MS,
+        );
+
+      const base = new Date("2024-01-11T09:00:00.000Z").getTime();
+      const insertMessage = writable.prepare(
+        `INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES (?, ?, ?, ?, ?)`,
+      );
+      const insertPart = writable.prepare(
+        `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (let i = 0; i < 5; i++) {
+        const created = base + i * 20_000;
+        const messageId = `ses-perf-gen-msg-${i}`;
+        insertMessage.run(
+          messageId,
+          "ses-perf-gen",
+          created,
+          created,
+          JSON.stringify({
+            role: "assistant",
+            time: { created, completed: created + 10_000 },
+            modelID: "perf-gen",
+            providerID: "openai",
+            tokens: {
+              total: 40,
+              input: 0,
+              output: 10,
+              reasoning: 30,
+            },
+          }),
+        );
+        insertPart.run(
+          `${messageId}-reasoning`,
+          messageId,
+          "ses-perf-gen",
+          created,
+          created,
+          JSON.stringify({
+            type: "reasoning",
+            time: { start: created, end: created + 400 },
+          }),
+        );
+        insertPart.run(
+          `${messageId}-text`,
+          messageId,
+          "ses-perf-gen",
+          created + 400,
+          created + 400,
+          JSON.stringify({
+            type: "text",
+            time: { start: created + 400, end: created + 500 },
+          }),
+        );
+        insertPart.run(
+          `${messageId}-tool`,
+          messageId,
+          "ses-perf-gen",
+          created + 500,
+          created + 500,
+          JSON.stringify({
+            type: "tool",
+            tool: "bash",
+            state: {
+              status: "completed",
+              time: { start: created + 500, end: created + 9_500 },
+            },
+          }),
+        );
+      }
+    } finally {
+      writable.close();
+    }
+
+    db = getDb();
+    const aggregator = new DashboardAggregator(db);
+    aggregator.drain(NOW_MS);
+
+    const row = aggregator
+      .projectModelsFor(selection())
+      .modelPerformanceStats.find((entry) => entry.model === "perf-gen");
+    expect(row).toBeDefined();
+    expect(row?.validTpsMessages).toBe(5);
+    expect(row?.avgTps).toBe(80);
+    expect(row?.outputTokens).toBe(50);
+    expect(row?.reasoningTokens).toBe(150);
+    // Latency still uses message wall-clock, including the tool.
+    expect(row?.validLatencyMessages).toBe(5);
+  });
 });
