@@ -48,7 +48,7 @@ export interface DashboardMcpUsageTotals {
 export interface DashboardModelPerformanceSample {
   model: string;
   provider: string;
-  sumOutputTokens: number;
+  sumGeneratedTokens: number;
   sumDurationMs: number;
   validTpsMessages: number;
   validLatencyMessages: number;

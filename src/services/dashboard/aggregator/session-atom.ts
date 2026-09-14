@@ -1,5 +1,6 @@
 import { isQuestionTool } from "../../../contracts/question.js";
 import { classifyTool } from "../../../lib/analytics.js";
+import { calcModelTps } from "../../../lib/model-tps.js";
 import { resolveRepoBucketKey } from "../../../lib/repo-root.js";
 import type {
   DashboardAtomMessageRow,
@@ -115,7 +116,7 @@ function createEmptyPerformanceSample(
   return {
     model,
     provider,
-    sumOutputTokens: 0,
+    sumGeneratedTokens: 0,
     sumDurationMs: 0,
     validTpsMessages: 0,
     validLatencyMessages: 0,
@@ -198,17 +199,20 @@ function applyMessage(
     sample.reasoningTokens += reasoning;
 
     const durationMs = Number(message.durationMs) || 0;
-    // A message is latency-valid when it has a positive completion duration,
-    // and TPS-valid only when it ALSO produced output tokens.
+    const generationMs = Number(message.generationMs) || 0;
+    const tps = calcModelTps(output, reasoning, generationMs);
+    // Latency stays wall-clock completion time. TPS uses generation time
+    // (text/reasoning parts; tool execution excluded) and generated tokens
+    // (output + reasoning).
     if (durationMs > 0) {
       sample.validLatencyMessages += 1;
       sample.latencySamplesMs.push(durationMs);
     }
-    if (durationMs > 0 && output > 0) {
+    if (tps != null) {
       sample.validTpsMessages += 1;
-      sample.sumOutputTokens += output;
-      sample.sumDurationMs += durationMs;
-      sample.tpsSamples.push((output * 1000) / durationMs);
+      sample.sumGeneratedTokens += output + reasoning;
+      sample.sumDurationMs += generationMs;
+      sample.tpsSamples.push(tps);
     }
   }
 
